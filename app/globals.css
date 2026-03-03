@@ -2,25 +2,126 @@
 @tailwind components;
 @tailwind utilities;
 
+@import "react-phone-input-2/lib/style.css";
+
 :root {
-  --sidebar-bg: #6366f1;
-  --sidebar-hover: #4f46e5;
-  --table-header: #f9fafb;
-  --border-color: #e5e7eb;
-  --text-primary: #111827;
-  --text-secondary: #6b7280;
+  --font-sans:
+    "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+
+  /* ── Light mode ── Summit Edge Legal palette ── */
+  --color-bg: #f4f9fc;
+  --color-bg-muted: #e6f3fa;
+  --color-panel: #ffffff;
+  --color-border: #d4e4ee;
+  --color-border-alt: #b8d2e0;
+  --color-text-strong: #0f2a3f;
+  --color-text: #2a3f52;
+  --color-text-muted: #6b8a9c;
+  --color-primary: #1e5f8a;
+  --color-primary-hover: #155078;
+  --color-secondary: #2da4e8;
+  --color-accent: rgba(30, 95, 138, 0.1);
+  --color-warning: #c9934d;
+  --color-success: #2e7d32;
+  --color-danger: #b4534d;
+  --color-info: #2da4e8;
+  --color-row-hover: #e6f3fa;
+  --color-row-selected: #d4e4ee;
+  --color-nav-bg: #e6f3fa;
+  --color-nav-border: #d4e4ee;
+  --color-nav-accent: #1e5f8a;
+  --color-nav-text: #0f2a3f;
+  --shadow-soft: 0 10px 40px rgba(15, 42, 63, 0.08);
 }
 
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  background-color: #f9fafb;
+:root.dark {
+  /* ── Dark mode ── Summit Edge Legal palette ── */
+  --color-bg: #0b1c2b;
+  --color-bg-muted: #0f2a3f;
+  --color-panel: #123a5a;
+  --color-border: #1e3a4f;
+  --color-border-alt: #2a3f52;
+  --color-text-strong: #e6f3fa;
+  --color-text: #a8c3d6;
+  --color-text-muted: #6b8a9c;
+  --color-primary: #2da4e8;
+  --color-primary-hover: #4c6fff;
+  --color-secondary: #4c6fff;
+  --color-accent: rgba(45, 164, 232, 0.15);
+  --color-warning: #e6c878;
+  --color-success: #4ade80;
+  --color-danger: #f87171;
+  --color-info: #4c6fff;
+  --color-row-hover: #0f2a3f;
+  --color-row-selected: #1e3a4f;
+  --color-nav-bg: #0f2a3f;
+  --color-nav-border: #1e3a4f;
+  --color-nav-accent: #2da4e8;
+  --color-nav-text: #e6f3fa;
+  --shadow-soft: 0 12px 48px rgba(0, 0, 0, 0.45);
 }
 
 * {
   box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--color-bg);
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.panel {
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-soft);
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 999px;
+}
+
+.phone-input-wrapper .form-control {
+  width: 100% !important;
+  height: 42px !important;
+  padding-left: 48px !important;
+  border-radius: 10px !important;
+  border: 1px solid var(--color-border) !important;
+  background: var(--color-panel) !important;
+  color: var(--color-text) !important;
+  box-shadow: none !important;
+}
+
+.phone-input-wrapper .selected-flag {
+  border-right: 1px solid var(--color-border);
+  width: 46px;
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  border-radius: 10px 0 0 10px;
+}
+
+.phone-input-wrapper .country-list {
+  background: var(--color-panel);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-soft);
+}
+
+.phone-input-wrapper .country-list .country:hover {
+  background: var(--color-row-hover);
 }
