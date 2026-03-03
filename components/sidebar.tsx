@@ -8,6 +8,7 @@ import {
   Building2,
   ChevronRight,
   FileSpreadsheet,
+  Home,
   Users2,
   Settings2,
 } from "lucide-react";
@@ -15,6 +16,7 @@ import clsx from "clsx";
 import { MountainMark } from "./logo";
 
 export type NavKey =
+  | "home"
   | "leads"
   | "clients"
   | "affiliates"
@@ -22,6 +24,7 @@ export type NavKey =
   | "settings";
 
 const items: Array<{ key: NavKey; label: string; icon: React.ReactNode }> = [
+  { key: "home", label: "Home", icon: <Home size={18} /> },
   { key: "leads", label: "Leads", icon: <FileSpreadsheet size={18} /> },
   { key: "clients", label: "Clients", icon: <Users2 size={18} /> },
   { key: "affiliates", label: "Affiliates", icon: <Building2 size={18} /> },
@@ -32,6 +35,8 @@ const items: Array<{ key: NavKey; label: string; icon: React.ReactNode }> = [
 interface SidebarProps {
   active: NavKey;
   onChange: (key: NavKey) => void;
+  /** Called when the logo is clicked — typically navigates to home */
+  onLogoClick?: () => void;
   /** If provided, the Settings nav item is hidden unless role === "admin" */
   role?: string;
 }
@@ -71,23 +76,45 @@ function SlideText({
   );
 }
 
-export function Sidebar({ active, onChange, role }: SidebarProps) {
+export function Sidebar({ active, onChange, onLogoClick, role }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(true);
   const visibleItems = items.filter(
     (item) => item.key !== "settings" || role === "admin",
   );
 
   return (
-    /* Outer wrapper is relative so the toggle button can overflow the aside without being clipped */
+    /* Outer wrapper is relative so the toggle tab can sit on the sidebar edge */
     <div className="relative h-full shrink-0">
+      {/* Toggle tab — rectangular tab flush against the right edge of the sidebar */}
+      <button
+        type="button"
+        aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
+        onClick={() => setCollapsed((v) => !v)}
+        className="absolute z-20 flex w-4 items-center justify-center rounded-r-md border border-l-0 border-[--color-nav-border] bg-[--color-nav-bg] shadow-sm text-[--color-nav-text] hover:bg-[color-mix(in_srgb,var(--color-nav-accent)_20%,var(--color-nav-bg))] transition-colors"
+        style={{ right: -16, top: 14, height: 36 }}
+      >
+        <motion.span
+          animate={{ rotate: collapsed ? 0 : 180 }}
+          transition={{ duration: 0.2, ease: "easeInOut" }}
+          style={{ display: "flex" }}
+        >
+          <ChevronRight size={11} />
+        </motion.span>
+      </button>
+
       <motion.aside
         initial={false}
         animate={{ width: collapsed ? COLLAPSED_W : EXPANDED_W }}
         transition={widthSpring}
         className="flex h-full flex-col overflow-hidden border-r py-4 bg-[--color-nav-bg] text-[--color-nav-text] border-[--color-nav-border] shadow-xl"
       >
-        {/* Logo — mark stays fixed, text slides in/out */}
-        <div className="mb-6 flex h-10 items-center px-3">
+        {/* Logo — mark stays fixed, text slides in/out; click goes home */}
+        <button
+          type="button"
+          onClick={onLogoClick}
+          className="mb-6 flex h-10 w-full items-center px-3 cursor-pointer focus-visible:outline-none"
+          aria-label="Go to home"
+        >
           <div className="shrink-0">
             <MountainMark size={48} />
           </div>
@@ -110,7 +137,7 @@ export function Sidebar({ active, onChange, role }: SidebarProps) {
               </motion.div>
             )}
           </AnimatePresence>
-        </div>
+        </button>
 
         {/* Nav items */}
         <nav className="space-y-1 px-2">
@@ -139,8 +166,8 @@ export function Sidebar({ active, onChange, role }: SidebarProps) {
           ))}
         </nav>
 
-        {/* Footer copyright — only shown when expanded */}
-        <div className="mt-auto px-3">
+        {/* Footer: copyright */}
+        <div className="mt-auto">
           <AnimatePresence initial={false}>
             {!collapsed && (
               <motion.p
@@ -149,7 +176,7 @@ export function Sidebar({ active, onChange, role }: SidebarProps) {
                 animate={{ opacity: 0.6 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.12 }}
-                className="text-center text-[10px] text-[--color-text-muted]"
+                className="pb-2 text-center text-[10px] text-[--color-text-muted]"
               >
                 &copy; 2026 Summit Edge Legal
               </motion.p>
@@ -157,22 +184,6 @@ export function Sidebar({ active, onChange, role }: SidebarProps) {
           </AnimatePresence>
         </div>
       </motion.aside>
-
-      {/* Toggle — lives outside the aside so overflow:hidden never clips it */}
-      <button
-        type="button"
-        aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
-        onClick={() => setCollapsed((v) => !v)}
-        className="absolute -right-3 top-6 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-[--color-nav-border] bg-[--color-nav-bg] text-[--color-nav-text] shadow transition hover:bg-[color-mix(in_srgb,var(--color-nav-accent)_20%,var(--color-nav-bg))]"
-      >
-        <motion.span
-          animate={{ rotate: collapsed ? 0 : 180 }}
-          transition={{ duration: 0.2, ease: "easeInOut" }}
-          style={{ display: "flex" }}
-        >
-          <ChevronRight size={13} />
-        </motion.span>
-      </button>
     </div>
   );
 }

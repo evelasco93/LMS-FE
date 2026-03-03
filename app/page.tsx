@@ -30,6 +30,7 @@ import {
 import PhoneInput from "react-phone-input-2";
 
 import { Sidebar, type NavKey } from "@/components/sidebar";
+import { AnimatePresence, motion } from "framer-motion";
 import { Button } from "@/components/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Table } from "@/components/table";
@@ -194,6 +195,14 @@ export default function Dashboard() {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [expiresAt, setExpiresAt] = useState<number | null>(null);
 
+  // Drive the browser tab title from auth state.
+  // DashboardContent overrides this once authenticated and a view is active.
+  useEffect(() => {
+    if (authStatus !== "authenticated") {
+      document.title = "LMS | Sign In";
+    }
+  }, [authStatus]);
+
   useEffect(() => {
     const token = getIdTokenSync();
     const user = getCurrentUser();
@@ -229,6 +238,9 @@ export default function Dashboard() {
       const { session, user } = await login(email, password);
       setCurrentUser(user);
       setExpiresAt(session.expiresAt);
+      // Wait for the flag-raise animation (1.2s) + colour transition buffer
+      // before switching screens so it always plays to completion
+      await new Promise((resolve) => setTimeout(resolve, 1400));
       setAuthStatus("authenticated");
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "Sign-in failed.");
@@ -237,26 +249,46 @@ export default function Dashboard() {
   };
 
   const handleSignOut = () => {
+    // Clear any URL params so they don't restore after the next login
+    window.history.replaceState(null, "", window.location.pathname);
     setCurrentUser(null);
     setExpiresAt(null);
-    setAuthStatus("unauthenticated");
+    setAuthStatus("unauthenticated"); // triggers useEffect above → "LMS | Sign In"
     signOut();
   };
 
-  if (authStatus === "checking") {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-[--color-bg] text-[--color-text]">
-        <p className="text-sm text-[--color-text-muted]">Checking session…</p>
-      </main>
-    );
-  }
-
-  if (authStatus !== "authenticated") {
-    return <SignInScreen onSignIn={handleSignIn} error={authError} />;
-  }
-
   return (
-    <DashboardContent onSignOut={handleSignOut} currentUser={currentUser} />
+    <AnimatePresence mode="wait" initial={false}>
+      {authStatus === "checking" && (
+        <motion.main
+          key="checking"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.3 }}
+          className="flex min-h-screen items-center justify-center bg-[--color-bg] text-[--color-text]"
+        >
+          <p className="text-sm text-[--color-text-muted]">Checking session…</p>
+        </motion.main>
+      )}
+      {authStatus !== "authenticated" && authStatus !== "checking" && (
+        <SignInScreen key="signin" onSignIn={handleSignIn} error={authError} />
+      )}
+      {authStatus === "authenticated" && (
+        <motion.div
+          key="dashboard"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.35, ease: "easeInOut" }}
+        >
+          <DashboardContent
+            onSignOut={handleSignOut}
+            currentUser={currentUser}
+          />
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -267,7 +299,20 @@ function DashboardContent({
   onSignOut: () => void;
   currentUser: AuthUser | null;
 }) {
-  const [active, setActive] = useState<NavKey>("leads");
+  const [active, setActive] = useState<NavKey>("home");
+
+  // Sync browser tab title to active view
+  useEffect(() => {
+    const labels: Record<NavKey, string> = {
+      home: "Home",
+      leads: "Leads",
+      clients: "Clients",
+      affiliates: "Affiliates",
+      campaigns: "Campaigns",
+      settings: "Settings",
+    };
+    document.title = `LMS | ${labels[active] ?? active}`;
+  }, [active]);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(
     null,
   );
@@ -478,15 +523,29 @@ function DashboardContent({
     );
   }, [users, userSearch]);
 
+  const role = currentUser?.role;
+
   useEffect(() => {
     const viewParam = searchParams?.get("view");
     if (
       viewParam &&
-      ["leads", "clients", "affiliates", "campaigns", "settings"].includes(
-        viewParam,
-      )
+      [
+        "home",
+        "leads",
+        "clients",
+        "affiliates",
+        "campaigns",
+        "settings",
+      ].includes(viewParam)
     ) {
-      setActive(viewParam as NavKey);
+      // Non-admins trying to deep-link to settings get bounced to home
+      if (viewParam === "settings" && role !== "admin") {
+        setActive("home");
+        setQueryParams({ view: "home" });
+        toast.error("Page not found.", { id: "settings-blocked" });
+      } else {
+        setActive(viewParam as NavKey);
+      }
     }
 
     const campaignParam = searchParams?.get("campaign");
@@ -506,7 +565,7 @@ function DashboardContent({
         setFocusedAffiliateId(searchParams?.get("affiliate") || null);
       }
     }
-  }, [campaigns, searchParams]);
+  }, [campaigns, searchParams, role]);
 
   const refreshCampaignsAndSelect = async (campaignId?: string) => {
     const data = await refreshCampaigns();
@@ -624,6 +683,8 @@ function DashboardContent({
 
   const title = useMemo(() => {
     switch (active) {
+      case "home":
+        return "Home";
       case "clients":
         return "Clients";
       case "affiliates":
@@ -639,6 +700,8 @@ function DashboardContent({
 
   const description = useMemo(() => {
     switch (active) {
+      case "home":
+        return "Welcome to Summit Edge Legal LMS";
       case "clients":
         return "Manage client lifecycle and codes";
       case "affiliates":
@@ -659,7 +722,7 @@ function DashboardContent({
     setFocusedAffiliateId(null);
     setCampaignDetailTab("overview");
     setQueryParams({
-      view: next !== "leads" ? next : undefined,
+      view: next,
       campaign: undefined,
       section: undefined,
       affiliate: undefined,
@@ -898,17 +961,29 @@ function DashboardContent({
       <Sidebar
         active={active}
         onChange={handleNavChange}
+        onLogoClick={() => handleNavChange("home")}
         role={currentUser?.role}
       />
 
       <main className="flex-1 overflow-y-auto p-8">
         <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-sm text-[--color-text-muted]">LMS Prototype</p>
-            <h1 className="mt-2 text-2xl font-semibold text-[--color-text-strong]">
-              {title}
-            </h1>
-            <p className="text-sm text-[--color-text-muted]">{description}</p>
+          <div className="relative">
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={active}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.15, ease: "easeOut" }}
+              >
+                <h1 className="mt-2 text-2xl font-semibold text-[--color-text-strong]">
+                  {title}
+                </h1>
+                <p className="text-sm text-[--color-text-muted]">
+                  {description}
+                </p>
+              </motion.div>
+            </AnimatePresence>
           </div>
           <div className="flex items-center gap-3">
             <Button
@@ -946,657 +1021,776 @@ function DashboardContent({
           </div>
         </header>
 
-        {active === "leads" && (
-          <section className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-[--color-text-muted]">
-                Live lead feed from the API; use Refresh to sync.
+        <AnimatePresence mode="wait" initial={false}>
+          {active === "home" && (
+            <motion.section
+              key="home"
+              className="flex flex-col items-center justify-center h-full min-h-[60vh] gap-6 text-center"
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+            >
+              <div className="rounded-2xl border border-dashed border-[--color-border] bg-[--color-panel] px-16 py-14 flex flex-col items-center gap-3 shadow-inner">
+                <p className="text-4xl select-none">📊</p>
+                <p className="text-lg font-semibold text-[--color-text-strong]">
+                  Metrics &amp; Dashboard
+                </p>
+                <p className="text-sm text-[--color-text-muted] max-w-xs">
+                  This area will show key performance metrics, summaries, and
+                  insights. Coming soon.
+                </p>
               </div>
-            </div>
+            </motion.section>
+          )}
+          {active === "leads" && (
+            <motion.section
+              key="leads"
+              className="space-y-4"
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+            >
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-[--color-text-muted]">
+                  Live lead feed from the API; use Refresh to sync.
+                </div>
+              </div>
 
-            <Table
-              columns={[
-                {
-                  key: "id",
-                  label: "ID",
-                  width: "120px",
-                  render: (lead) => (
-                    <span className="font-medium">{lead.id}</span>
-                  ),
-                },
-                {
-                  key: "campaign_id",
-                  label: "Campaign",
-                  width: "180px",
-                  render: (lead) => (
-                    <button
-                      type="button"
-                      className="text-[--color-primary] underline underline-offset-2"
-                      onClick={() => openCampaign(lead.campaign_id)}
-                    >
-                      {campaignIdMap.get(lead.campaign_id)?.name ||
-                        lead.campaign_id}
-                    </button>
-                  ),
-                },
-                {
-                  key: "campaign_key",
-                  label: "Affiliate",
-                  width: "180px",
-                  render: (lead) => {
-                    const mapping = campaignKeyMap.get(lead.campaign_key || "");
-                    if (!mapping) return lead.campaign_key || "";
-                    const affiliateName = mapping.affiliateId
-                      ? affiliateIdMap.get(mapping.affiliateId)?.name
-                      : null;
-                    return (
+              <Table
+                columns={[
+                  {
+                    key: "id",
+                    label: "ID",
+                    width: "120px",
+                    render: (lead) => (
+                      <span className="font-medium">{lead.id}</span>
+                    ),
+                  },
+                  {
+                    key: "campaign_id",
+                    label: "Campaign",
+                    width: "180px",
+                    render: (lead) => (
                       <button
                         type="button"
                         className="text-[--color-primary] underline underline-offset-2"
-                        onClick={() =>
-                          openCampaign(
-                            mapping.campaign.id,
-                            "affiliates",
-                            mapping.affiliateId,
-                          )
-                        }
+                        onClick={() => openCampaign(lead.campaign_id)}
                       >
-                        {affiliateName || lead.campaign_key || ""}
+                        {campaignIdMap.get(lead.campaign_id)?.name ||
+                          lead.campaign_id}
                       </button>
-                    );
+                    ),
                   },
-                },
-                {
-                  key: "test",
-                  label: "Mode",
-                  width: "96px",
-                  render: (lead) => (
-                    <Badge tone={lead.test ? "info" : "success"}>
-                      {lead.test ? "Test" : "Live"}
-                    </Badge>
-                  ),
-                },
-                {
-                  key: "qa_duplicate",
-                  label: "Duplicate",
-                  width: "96px",
-                  render: (lead) => (
-                    <div className="mx-auto flex w-fit items-center justify-center">
-                      {lead.duplicate ? (
-                        <X size={18} className="text-[--color-danger]" />
-                      ) : (
-                        <Check size={18} className="text-[--color-success]" />
-                      )}
-                    </div>
-                  ),
-                },
-                {
-                  key: "created_at",
-                  label: "Created",
-                  width: "160px",
-                  render: (lead) => formatCompactDateTime(lead.created_at),
-                },
-                {
-                  key: "intake_status",
-                  label: "Status",
-                  width: "112px",
-                  render: (lead) => (
-                    <Badge tone={lead.rejected ? "danger" : "success"}>
-                      {lead.rejected ? "Rejected" : "Accepted"}
-                    </Badge>
-                  ),
-                },
-                {
-                  key: "payload",
-                  label: "Details",
-                  render: (lead) => (
-                    <PayloadPreview lead={lead} allLeads={sortedLeads} />
-                  ),
-                },
-              ]}
-              data={sortedLeads}
-              emptyLabel={
-                leadsLoading ? "Loading leads…" : "No leads available."
-              }
-            />
-          </section>
-        )}
-
-        {active === "clients" && (
-          <section className="space-y-4">
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-[--color-text-muted]">
-                Create, update, or disable clients.
-              </p>
-              <Button
-                iconLeft={<Plus size={16} />}
-                onClick={() => setClientModal(true)}
-              >
-                New Client
-              </Button>
-            </div>
-            <Table
-              columns={[
-                {
-                  key: "name",
-                  label: "Name",
-                  render: (client) => (
-                    <span className="font-medium text-[--color-text-strong]">
-                      {client.name}
-                    </span>
-                  ),
-                },
-                { key: "email", label: "Email" },
-                {
-                  key: "phone",
-                  label: "Phone",
-                  render: (client) => formatPhone(client.phone),
-                },
-                { key: "client_code", label: "Code" },
-                {
-                  key: "status",
-                  label: "Status",
-                  render: (client) => {
-                    const isEditing = clientStatusEditing === client.id;
-                    const current = isEditing
-                      ? clientStatusDraft
-                      : client.status;
-                    return isEditing ? (
-                      <div className="flex items-center gap-2">
-                        <select
-                          className={inputClass}
-                          value={current}
-                          onChange={(e) =>
-                            setClientStatusDraft(e.target.value as ClientStatus)
-                          }
-                        >
-                          {clientStatusOptions.map((option) => (
-                            <option key={option} value={option}>
-                              {option}
-                            </option>
-                          ))}
-                        </select>
-                        <Button
-                          size="sm"
-                          onClick={async () => {
-                            await updateClient(client.id, {
-                              status: clientStatusDraft,
-                            });
-                            setClientStatusEditing(null);
-                            refreshClients();
-                          }}
-                        >
-                          Save
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setClientStatusEditing(null)}
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        className="rounded-md"
-                        onClick={() => {
-                          setClientStatusDraft(client.status);
-                          setClientStatusEditing(client.id);
-                        }}
-                      >
-                        <Badge
-                          tone={statusColorMap[client.status] || "neutral"}
-                        >
-                          {client.status}
-                        </Badge>
-                      </button>
-                    );
-                  },
-                },
-                {
-                  key: "created_at",
-                  label: "Created",
-                  render: (client) => formatDate(client.created_at),
-                },
-                {
-                  key: "actions",
-                  label: "Actions",
-                  render: (client) => (
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="danger"
-                        onClick={() => removeClient(client.id)}
-                      >
-                        Delete
-                      </Button>
-                    </div>
-                  ),
-                },
-              ]}
-              data={clients}
-              emptyLabel={
-                clientsLoading ? "Loading clients…" : "No clients yet. Add one."
-              }
-            />
-          </section>
-        )}
-
-        {active === "affiliates" && (
-          <section className="space-y-4">
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-[--color-text-muted]">
-                Manage affiliate partners and their lifecycle.
-              </p>
-              <Button
-                iconLeft={<Plus size={16} />}
-                onClick={() => setAffiliateModal(true)}
-              >
-                New Affiliate
-              </Button>
-            </div>
-            <Table
-              columns={[
-                {
-                  key: "name",
-                  label: "Name",
-                  render: (a) => (
-                    <span className="font-medium text-[--color-text-strong]">
-                      {a.name}
-                    </span>
-                  ),
-                },
-                { key: "email", label: "Email" },
-                {
-                  key: "phone",
-                  label: "Phone",
-                  render: (a) => formatPhone(a.phone),
-                },
-                { key: "affiliate_code", label: "Code" },
-                {
-                  key: "status",
-                  label: "Status",
-                  render: (a) => {
-                    const isEditing = affiliateStatusEditing === a.id;
-                    const current = isEditing ? affiliateStatusDraft : a.status;
-                    return isEditing ? (
-                      <div className="flex items-center gap-2">
-                        <select
-                          className={inputClass}
-                          value={current}
-                          onChange={(e) =>
-                            setAffiliateStatusDraft(
-                              e.target.value as AffiliateStatus,
+                  {
+                    key: "campaign_key",
+                    label: "Affiliate",
+                    width: "180px",
+                    render: (lead) => {
+                      const mapping = campaignKeyMap.get(
+                        lead.campaign_key || "",
+                      );
+                      if (!mapping) return lead.campaign_key || "";
+                      const affiliateName = mapping.affiliateId
+                        ? affiliateIdMap.get(mapping.affiliateId)?.name
+                        : null;
+                      return (
+                        <button
+                          type="button"
+                          className="text-[--color-primary] underline underline-offset-2"
+                          onClick={() =>
+                            openCampaign(
+                              mapping.campaign.id,
+                              "affiliates",
+                              mapping.affiliateId,
                             )
                           }
                         >
-                          {affiliateStatusOptions.map((option) => (
-                            <option key={option} value={option}>
-                              {option}
-                            </option>
-                          ))}
-                        </select>
-                        <Button
-                          size="sm"
-                          onClick={async () => {
-                            await updateAffiliate(a.id, {
-                              status: affiliateStatusDraft,
-                            });
-                            setAffiliateStatusEditing(null);
-                            refreshAffiliates();
+                          {affiliateName || lead.campaign_key || ""}
+                        </button>
+                      );
+                    },
+                  },
+                  {
+                    key: "test",
+                    label: "Mode",
+                    width: "96px",
+                    render: (lead) => (
+                      <Badge tone={lead.test ? "info" : "success"}>
+                        {lead.test ? "Test" : "Live"}
+                      </Badge>
+                    ),
+                  },
+                  {
+                    key: "qa_duplicate",
+                    label: "Duplicate",
+                    width: "96px",
+                    render: (lead) => (
+                      <div className="mx-auto flex w-fit items-center justify-center">
+                        {lead.duplicate ? (
+                          <X size={18} className="text-[--color-danger]" />
+                        ) : (
+                          <Check size={18} className="text-[--color-success]" />
+                        )}
+                      </div>
+                    ),
+                  },
+                  {
+                    key: "created_at",
+                    label: "Created",
+                    width: "160px",
+                    render: (lead) => formatCompactDateTime(lead.created_at),
+                  },
+                  {
+                    key: "intake_status",
+                    label: "Status",
+                    width: "112px",
+                    render: (lead) => (
+                      <Badge tone={lead.rejected ? "danger" : "success"}>
+                        {lead.rejected ? "Rejected" : "Accepted"}
+                      </Badge>
+                    ),
+                  },
+                  {
+                    key: "payload",
+                    label: "Details",
+                    render: (lead) => (
+                      <PayloadPreview lead={lead} allLeads={sortedLeads} />
+                    ),
+                  },
+                ]}
+                data={sortedLeads}
+                emptyLabel={
+                  leadsLoading ? "Loading leads…" : "No leads available."
+                }
+              />
+            </motion.section>
+          )}
+
+          {active === "clients" && (
+            <motion.section
+              key="clients"
+              className="space-y-4"
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+            >
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-[--color-text-muted]">
+                  Create, update, or disable clients.
+                </p>
+                <Button
+                  iconLeft={<Plus size={16} />}
+                  onClick={() => setClientModal(true)}
+                >
+                  New Client
+                </Button>
+              </div>
+              <Table
+                columns={[
+                  {
+                    key: "name",
+                    label: "Name",
+                    render: (client) => (
+                      <span className="font-medium text-[--color-text-strong]">
+                        {client.name}
+                      </span>
+                    ),
+                  },
+                  { key: "email", label: "Email" },
+                  {
+                    key: "phone",
+                    label: "Phone",
+                    render: (client) => formatPhone(client.phone),
+                  },
+                  { key: "client_code", label: "Code" },
+                  {
+                    key: "status",
+                    label: "Status",
+                    render: (client) => {
+                      const isEditing = clientStatusEditing === client.id;
+                      const current = isEditing
+                        ? clientStatusDraft
+                        : client.status;
+                      return isEditing ? (
+                        <div className="flex items-center gap-2">
+                          <select
+                            className={inputClass}
+                            value={current}
+                            onChange={(e) =>
+                              setClientStatusDraft(
+                                e.target.value as ClientStatus,
+                              )
+                            }
+                          >
+                            {clientStatusOptions.map((option) => (
+                              <option key={option} value={option}>
+                                {option}
+                              </option>
+                            ))}
+                          </select>
+                          <Button
+                            size="sm"
+                            onClick={async () => {
+                              await updateClient(client.id, {
+                                status: clientStatusDraft,
+                              });
+                              setClientStatusEditing(null);
+                              refreshClients();
+                            }}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setClientStatusEditing(null)}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className="rounded-md"
+                          onClick={() => {
+                            setClientStatusDraft(client.status);
+                            setClientStatusEditing(client.id);
                           }}
                         >
-                          Save
-                        </Button>
+                          <Badge
+                            tone={statusColorMap[client.status] || "neutral"}
+                          >
+                            {client.status}
+                          </Badge>
+                        </button>
+                      );
+                    },
+                  },
+                  {
+                    key: "created_at",
+                    label: "Created",
+                    render: (client) => formatDate(client.created_at),
+                  },
+                  {
+                    key: "actions",
+                    label: "Actions",
+                    render: (client) => (
+                      <div className="flex gap-2">
                         <Button
                           size="sm"
-                          variant="ghost"
-                          onClick={() => setAffiliateStatusEditing(null)}
+                          variant="danger"
+                          onClick={() => removeClient(client.id)}
                         >
-                          Cancel
+                          Delete
                         </Button>
                       </div>
-                    ) : (
-                      <button
-                        type="button"
-                        className="rounded-md"
-                        onClick={() => {
-                          setAffiliateStatusDraft(a.status);
-                          setAffiliateStatusEditing(a.id);
-                        }}
-                      >
-                        <Badge tone={statusColorMap[a.status] || "neutral"}>
-                          {a.status}
-                        </Badge>
-                      </button>
-                    );
+                    ),
                   },
-                },
-                {
-                  key: "created_at",
-                  label: "Created",
-                  render: (a) => formatDate(a.created_at),
-                },
-                {
-                  key: "actions",
-                  label: "Actions",
-                  render: (a) => (
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="danger"
-                        onClick={() => removeAffiliate(a.id)}
-                      >
-                        Delete
-                      </Button>
-                    </div>
-                  ),
-                },
-              ]}
-              data={affiliates}
-              emptyLabel={
-                affiliatesLoading
-                  ? "Loading affiliates…"
-                  : "No affiliates yet. Add one."
-              }
-            />
-          </section>
-        )}
+                ]}
+                data={clients}
+                emptyLabel={
+                  clientsLoading
+                    ? "Loading clients…"
+                    : "No clients yet. Add one."
+                }
+              />
+            </motion.section>
+          )}
 
-        {active === "campaigns" && (
-          <section className="space-y-6">
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-[--color-text-muted]">
-                Campaigns start as DRAFT. Link a client or affiliate, then move
-                to TEST and ACTIVE.
-              </p>
-              <Button
-                iconLeft={<Plus size={16} />}
-                onClick={() => setCampaignModal(true)}
-              >
-                New Campaign
-              </Button>
-            </div>
-
-            <Table
-              columns={[
-                {
-                  key: "name",
-                  label: "Name",
-                  render: (c) => (
-                    <span className="font-medium text-[--color-text-strong]">
-                      {c.name}
-                    </span>
-                  ),
-                },
-                {
-                  key: "status",
-                  label: "Status",
-                  render: (c) => (
-                    <Badge tone={statusColorMap[c.status] || "neutral"}>
-                      {c.status}
-                    </Badge>
-                  ),
-                },
-                {
-                  key: "clients",
-                  label: "Clients",
-                  render: (c) => c.clients?.length || 0,
-                },
-                {
-                  key: "affiliates",
-                  label: "Affiliates",
-                  render: (c) => c.affiliates?.length || 0,
-                },
-                {
-                  key: "created_at",
-                  label: "Created",
-                  render: (c) => formatDate(c.created_at),
-                },
-                {
-                  key: "chevron",
-                  label: "",
-                  render: () => (
-                    <ChevronRight
-                      size={16}
-                      className="text-[--color-text-muted]"
-                    />
-                  ),
-                },
-              ]}
-              data={campaigns}
-              onRowClick={(c) => {
-                openCampaign(c.id, "overview");
-              }}
-              emptyLabel={
-                campaignsLoading
-                  ? "Loading campaigns…"
-                  : "No campaigns yet. Add one."
-              }
-            />
-          </section>
-        )}
-
-        {active === "settings" && (
-          <section className="space-y-5">
-            {/* Sub-nav tabs */}
-            <div className="flex gap-1 rounded-lg border border-[--color-border] bg-[--color-panel] p-1 w-fit">
-              {(["credentials", "users"] as const).map((tab) => (
-                <button
-                  key={tab}
-                  type="button"
-                  onClick={() => setSettingsTab(tab)}
-                  className={
-                    settingsTab === tab
-                      ? "rounded-md px-4 py-1.5 text-sm font-medium bg-[--color-primary] text-white transition-colors"
-                      : "rounded-md px-4 py-1.5 text-sm font-medium text-[--color-text-muted] hover:text-[--color-text] transition-colors"
-                  }
+          {active === "affiliates" && (
+            <motion.section
+              key="affiliates"
+              className="space-y-4"
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+            >
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-[--color-text-muted]">
+                  Manage affiliate partners and their lifecycle.
+                </p>
+                <Button
+                  iconLeft={<Plus size={16} />}
+                  onClick={() => setAffiliateModal(true)}
                 >
-                  {tab === "credentials" ? "Credentials" : "Users"}
-                </button>
-              ))}
-            </div>
-
-            {settingsTab === "credentials" && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="font-medium text-[--color-text-strong]">
-                      Credentials
-                    </h2>
-                    <p className="text-sm text-[--color-text-muted]">
-                      API credentials for third-party integrations.
-                    </p>
-                  </div>
-                  <Button
-                    iconLeft={<Plus size={16} />}
-                    onClick={() => {
-                      setEditingCredential(null);
-                      setCredentialModal(true);
-                    }}
-                  >
-                    Add Credential
-                  </Button>
-                </div>
-                <Table
-                  columns={[
-                    {
-                      key: "provider",
-                      label: "Provider",
-                      render: (c) => (
-                        <span className="font-medium text-[--color-text-strong]">
-                          {c.provider}
-                        </span>
-                      ),
-                    },
-                    {
-                      key: "type",
-                      label: "Type",
-                      render: (c) => <Badge tone="neutral">{c.type}</Badge>,
-                    },
-                    {
-                      key: "updated_at",
-                      label: "Updated",
-                      render: (c) =>
-                        c.updated_at ? formatDate(c.updated_at) : "—",
-                    },
-                    {
-                      key: "actions",
-                      label: "Actions",
-                      render: (c) => (
-                        <div className="flex gap-2">
+                  New Affiliate
+                </Button>
+              </div>
+              <Table
+                columns={[
+                  {
+                    key: "name",
+                    label: "Name",
+                    render: (a) => (
+                      <span className="font-medium text-[--color-text-strong]">
+                        {a.name}
+                      </span>
+                    ),
+                  },
+                  { key: "email", label: "Email" },
+                  {
+                    key: "phone",
+                    label: "Phone",
+                    render: (a) => formatPhone(a.phone),
+                  },
+                  { key: "affiliate_code", label: "Code" },
+                  {
+                    key: "status",
+                    label: "Status",
+                    render: (a) => {
+                      const isEditing = affiliateStatusEditing === a.id;
+                      const current = isEditing
+                        ? affiliateStatusDraft
+                        : a.status;
+                      return isEditing ? (
+                        <div className="flex items-center gap-2">
+                          <select
+                            className={inputClass}
+                            value={current}
+                            onChange={(e) =>
+                              setAffiliateStatusDraft(
+                                e.target.value as AffiliateStatus,
+                              )
+                            }
+                          >
+                            {affiliateStatusOptions.map((option) => (
+                              <option key={option} value={option}>
+                                {option}
+                              </option>
+                            ))}
+                          </select>
                           <Button
                             size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              setEditingCredential(c);
-                              setCredentialModal(true);
+                            onClick={async () => {
+                              await updateAffiliate(a.id, {
+                                status: affiliateStatusDraft,
+                              });
+                              setAffiliateStatusEditing(null);
+                              refreshAffiliates();
                             }}
                           >
-                            Edit
+                            Save
                           </Button>
                           <Button
                             size="sm"
-                            variant="danger"
-                            onClick={() => onDeleteCredential(c.provider)}
+                            variant="ghost"
+                            onClick={() => setAffiliateStatusEditing(null)}
                           >
-                            Delete
+                            Cancel
                           </Button>
                         </div>
-                      ),
-                    },
-                  ]}
-                  data={credentials}
-                  emptyLabel={
-                    credentialsLoading
-                      ? "Loading credentials…"
-                      : "No credentials yet. Add one."
-                  }
-                />
-              </div>
-            )}
-
-            {settingsTab === "users" && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="font-medium text-[--color-text-strong]">
-                      Users
-                    </h2>
-                    <p className="text-sm text-[--color-text-muted]">
-                      Manage Cognito user accounts and roles.
-                    </p>
-                  </div>
-                  <Button
-                    iconLeft={<UserPlus size={16} />}
-                    onClick={() => setUserCreateModal(true)}
-                  >
-                    Add User
-                  </Button>
-                </div>
-                <input
-                  className={inputClass}
-                  placeholder="Search by name or email…"
-                  value={userSearch}
-                  onChange={(e) => setUserSearch(e.target.value)}
-                />
-                <Table
-                  columns={[
-                    {
-                      key: "email",
-                      label: "Email",
-                      render: (u) => (
-                        <span className="font-medium text-[--color-text-strong]">
-                          {u.email}
-                        </span>
-                      ),
-                    },
-                    {
-                      key: "name",
-                      label: "Name",
-                      render: (u) =>
-                        [u.firstName, u.lastName].filter(Boolean).join(" ") ||
-                        "—",
-                    },
-                    {
-                      key: "role",
-                      label: "Role",
-                      render: (u) => (
-                        <Badge tone={u.role === "admin" ? "info" : "neutral"}>
-                          {u.role}
-                        </Badge>
-                      ),
-                    },
-                    {
-                      key: "status",
-                      label: "Status",
-                      render: (u) => (
-                        <Badge
-                          tone={u.enabled !== false ? "success" : "danger"}
+                      ) : (
+                        <button
+                          type="button"
+                          className="rounded-md"
+                          onClick={() => {
+                            setAffiliateStatusDraft(a.status);
+                            setAffiliateStatusEditing(a.id);
+                          }}
                         >
-                          {u.status ||
-                            (u.enabled !== false ? "Confirmed" : "Disabled")}
-                        </Badge>
-                      ),
+                          <Badge tone={statusColorMap[a.status] || "neutral"}>
+                            {a.status}
+                          </Badge>
+                        </button>
+                      );
                     },
-                    {
-                      key: "createdAt",
-                      label: "Created",
-                      render: (u) =>
-                        u.createdAt ? formatDate(u.createdAt) : "—",
-                    },
-                    {
-                      key: "actions",
-                      label: "Actions",
-                      render: (u) => (
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            iconLeft={<UserCog size={14} />}
-                            onClick={() => {
-                              setEditingUser(u);
-                              setUserEditModal(true);
-                            }}
-                          >
-                            Edit
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            iconLeft={<KeyRound size={14} />}
-                            onClick={() => {
-                              setResetPasswordUser(u);
-                              setUserResetModal(true);
-                            }}
-                          >
-                            Reset PW
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="danger"
-                            iconLeft={<Trash2 size={14} />}
-                            onClick={() => {
-                              setDeletingUser(u);
-                              setUserDeleteModal(true);
-                            }}
-                          >
-                            Delete
-                          </Button>
-                        </div>
-                      ),
-                    },
-                  ]}
-                  data={filteredUsers}
-                  emptyLabel={
-                    usersLoading ? "Loading users…" : "No users found."
-                  }
-                />
+                  },
+                  {
+                    key: "created_at",
+                    label: "Created",
+                    render: (a) => formatDate(a.created_at),
+                  },
+                  {
+                    key: "actions",
+                    label: "Actions",
+                    render: (a) => (
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          onClick={() => removeAffiliate(a.id)}
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    ),
+                  },
+                ]}
+                data={affiliates}
+                emptyLabel={
+                  affiliatesLoading
+                    ? "Loading affiliates…"
+                    : "No affiliates yet. Add one."
+                }
+              />
+            </motion.section>
+          )}
+
+          {active === "campaigns" && (
+            <motion.section
+              key="campaigns"
+              className="space-y-6"
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+            >
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-[--color-text-muted]">
+                  Campaigns start as DRAFT. Link a client or affiliate, then
+                  move to TEST and ACTIVE.
+                </p>
+                <Button
+                  iconLeft={<Plus size={16} />}
+                  onClick={() => setCampaignModal(true)}
+                >
+                  New Campaign
+                </Button>
               </div>
-            )}
-          </section>
-        )}
+
+              <Table
+                columns={[
+                  {
+                    key: "name",
+                    label: "Name",
+                    render: (c) => (
+                      <span className="font-medium text-[--color-text-strong]">
+                        {c.name}
+                      </span>
+                    ),
+                  },
+                  {
+                    key: "status",
+                    label: "Status",
+                    render: (c) => (
+                      <Badge tone={statusColorMap[c.status] || "neutral"}>
+                        {c.status}
+                      </Badge>
+                    ),
+                  },
+                  {
+                    key: "clients",
+                    label: "Clients",
+                    render: (c) => c.clients?.length || 0,
+                  },
+                  {
+                    key: "affiliates",
+                    label: "Affiliates",
+                    render: (c) => c.affiliates?.length || 0,
+                  },
+                  {
+                    key: "created_at",
+                    label: "Created",
+                    render: (c) => formatDate(c.created_at),
+                  },
+                  {
+                    key: "chevron",
+                    label: "",
+                    render: () => (
+                      <ChevronRight
+                        size={16}
+                        className="text-[--color-text-muted]"
+                      />
+                    ),
+                  },
+                ]}
+                data={campaigns}
+                onRowClick={(c) => {
+                  openCampaign(c.id, "overview");
+                }}
+                emptyLabel={
+                  campaignsLoading
+                    ? "Loading campaigns…"
+                    : "No campaigns yet. Add one."
+                }
+              />
+            </motion.section>
+          )}
+
+          {active === "settings" && role !== "admin" ? (
+            <motion.section
+              key="not-found"
+              className="flex flex-col items-center justify-center py-32 gap-4"
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+            >
+              <p className="text-5xl font-bold text-[--color-text-muted] select-none">
+                404
+              </p>
+              <p className="text-lg font-medium text-[--color-text-strong]">
+                Page not found
+              </p>
+              <p className="text-sm text-[--color-text-muted]">
+                You don&apos;t have permission to view this page.
+              </p>
+              <button
+                type="button"
+                className="mt-2 text-sm text-[--color-primary] hover:underline"
+                onClick={() => handleNavChange("leads")}
+              >
+                Go to Leads
+              </button>
+            </motion.section>
+          ) : (
+            active === "settings" && (
+              <motion.section
+                key="settings"
+                className="space-y-5"
+                initial={{ opacity: 0, y: 14 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.18, ease: "easeOut" }}
+              >
+                {/* Sub-nav tabs */}
+                <div className="flex gap-1 rounded-lg border border-[--color-border] bg-[--color-panel] p-1 w-fit">
+                  {(["credentials", "users"] as const).map((tab) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => setSettingsTab(tab)}
+                      className={
+                        settingsTab === tab
+                          ? "rounded-md px-4 py-1.5 text-sm font-medium bg-[--color-primary] text-white transition-colors"
+                          : "rounded-md px-4 py-1.5 text-sm font-medium text-[--color-text-muted] hover:text-[--color-text] transition-colors"
+                      }
+                    >
+                      {tab === "credentials" ? "Credentials" : "Users"}
+                    </button>
+                  ))}
+                </div>
+
+                <AnimatePresence mode="wait" initial={false}>
+                  {settingsTab === "credentials" && (
+                    <motion.div
+                      key="credentials"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      transition={{ duration: 0.18, ease: "easeOut" }}
+                      className="space-y-4"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h2 className="font-medium text-[--color-text-strong]">
+                            Credentials
+                          </h2>
+                          <p className="text-sm text-[--color-text-muted]">
+                            API credentials for third-party integrations.
+                          </p>
+                        </div>
+                        <Button
+                          iconLeft={<Plus size={16} />}
+                          onClick={() => {
+                            setEditingCredential(null);
+                            setCredentialModal(true);
+                          }}
+                        >
+                          Add Credential
+                        </Button>
+                      </div>
+                      <Table
+                        columns={[
+                          {
+                            key: "provider",
+                            label: "Provider",
+                            render: (c) => (
+                              <span className="font-medium text-[--color-text-strong]">
+                                {c.provider}
+                              </span>
+                            ),
+                          },
+                          {
+                            key: "type",
+                            label: "Type",
+                            render: (c) => (
+                              <Badge tone="neutral">{c.type}</Badge>
+                            ),
+                          },
+                          {
+                            key: "updated_at",
+                            label: "Updated",
+                            render: (c) =>
+                              c.updated_at ? formatDate(c.updated_at) : "—",
+                          },
+                          {
+                            key: "actions",
+                            label: "Actions",
+                            render: (c) => (
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    setEditingCredential(c);
+                                    setCredentialModal(true);
+                                  }}
+                                >
+                                  Edit
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="danger"
+                                  onClick={() => onDeleteCredential(c.provider)}
+                                >
+                                  Delete
+                                </Button>
+                              </div>
+                            ),
+                          },
+                        ]}
+                        data={credentials}
+                        emptyLabel={
+                          credentialsLoading
+                            ? "Loading credentials…"
+                            : "No credentials yet. Add one."
+                        }
+                      />
+                    </motion.div>
+                  )}
+
+                  {settingsTab === "users" && (
+                    <motion.div
+                      key="users"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      transition={{ duration: 0.18, ease: "easeOut" }}
+                      className="space-y-4"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h2 className="font-medium text-[--color-text-strong]">
+                            Users
+                          </h2>
+                          <p className="text-sm text-[--color-text-muted]">
+                            Manage Cognito user accounts and roles.
+                          </p>
+                        </div>
+                        <Button
+                          iconLeft={<UserPlus size={16} />}
+                          onClick={() => setUserCreateModal(true)}
+                        >
+                          Add User
+                        </Button>
+                      </div>
+                      <input
+                        className={inputClass}
+                        placeholder="Search by name or email…"
+                        value={userSearch}
+                        onChange={(e) => setUserSearch(e.target.value)}
+                      />
+                      <Table
+                        columns={[
+                          {
+                            key: "email",
+                            label: "Email",
+                            render: (u) => (
+                              <span className="font-medium text-[--color-text-strong]">
+                                {u.email}
+                              </span>
+                            ),
+                          },
+                          {
+                            key: "name",
+                            label: "Name",
+                            render: (u) =>
+                              [u.firstName, u.lastName]
+                                .filter(Boolean)
+                                .join(" ") || "—",
+                          },
+                          {
+                            key: "role",
+                            label: "Role",
+                            render: (u) => (
+                              <Badge
+                                tone={u.role === "admin" ? "info" : "neutral"}
+                              >
+                                {u.role}
+                              </Badge>
+                            ),
+                          },
+                          {
+                            key: "status",
+                            label: "Status",
+                            render: (u) => (
+                              <Badge
+                                tone={
+                                  u.enabled !== false ? "success" : "danger"
+                                }
+                              >
+                                {u.status ||
+                                  (u.enabled !== false
+                                    ? "Confirmed"
+                                    : "Disabled")}
+                              </Badge>
+                            ),
+                          },
+                          {
+                            key: "createdAt",
+                            label: "Created",
+                            render: (u) =>
+                              u.createdAt ? formatDate(u.createdAt) : "—",
+                          },
+                          {
+                            key: "actions",
+                            label: "Actions",
+                            render: (u) => (
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  iconLeft={<UserCog size={14} />}
+                                  onClick={() => {
+                                    setEditingUser(u);
+                                    setUserEditModal(true);
+                                  }}
+                                >
+                                  Edit
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  iconLeft={<KeyRound size={14} />}
+                                  onClick={() => {
+                                    setResetPasswordUser(u);
+                                    setUserResetModal(true);
+                                  }}
+                                >
+                                  Reset PW
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="danger"
+                                  iconLeft={<Trash2 size={14} />}
+                                  onClick={() => {
+                                    setDeletingUser(u);
+                                    setUserDeleteModal(true);
+                                  }}
+                                >
+                                  Delete
+                                </Button>
+                              </div>
+                            ),
+                          },
+                        ]}
+                        data={filteredUsers}
+                        emptyLabel={
+                          usersLoading ? "Loading users…" : "No users found."
+                        }
+                      />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.section>
+            )
+          )}
+        </AnimatePresence>
       </main>
 
       {/* Modals */}

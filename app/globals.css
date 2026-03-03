@@ -64,6 +64,23 @@
 
 * {
   box-sizing: border-box;
+  /* Theme crossfade: backgrounds, borders, and shadows fade smoothly.
+     `color` is intentionally excluded — transitioning it on every element
+     causes cascading multi-speed races between wrappers, buttons, and SVG
+     descendants (which use currentColor), producing icon flicker.
+     Text/icon colors change instantly; the fading backgrounds carry the
+     visual smoothness without any conflict. Framer Motion is unaffected
+     since it only animates transform and opacity. */
+  transition-property: background-color, border-color, box-shadow;
+  transition-duration: 0.25s;
+  transition-timing-function: ease;
+}
+
+/* No transitions on SVG internals at all — icons follow the parent's
+   painted background visually and don't need their own transition. */
+svg,
+svg * {
+  transition: none;
 }
 
 body {
@@ -124,4 +141,51 @@ a {
 
 .phone-input-wrapper .country-list .country:hover {
   background: var(--color-row-hover);
+}
+
+[data-sonner-toast] {
+  position: relative !important;
+}
+
+[data-sonner-toast] [data-close-button] {
+  position: absolute !important;
+  top: 6px !important;
+  right: 6px !important;
+  left: auto !important;
+  transform: none !important;
+  width: 18px !important;
+  height: 18px !important;
+  border-radius: 4px !important;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+
+[data-sonner-toast] [data-close-button]:hover {
+  opacity: 1;
+  background: color-mix(in srgb, currentColor 12%, transparent) !important;
+}
+
+/* Flag animation — raise group from base to top */
+@keyframes flagRaise {
+  from {
+    transform: translateY(58px);
+  }
+  to {
+    transform: translateY(0px);
+  }
+}
+/* Rope dot travels same distance (cy 72→20 = 52px) */
+@keyframes ropeRise {
+  from {
+    transform: translateY(52px);
+  }
+  to {
+    transform: translateY(0px);
+  }
 }

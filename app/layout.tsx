@@ -7,9 +7,10 @@ import { Toaster } from "sonner";
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
-  title: "Summit Edge Legal | LMS",
+  // Title is managed imperatively via document.title in page.tsx
+  // so that it stays in sync with auth state and active view.
   description:
-    "Lead Management System MVP for clients, affiliates, campaigns, and leads.",
+    "Lead Management System for Summit Edge Legal. Streamline your client intake and case management with our intuitive lead management system.",
   icons: {
     icon: "/favicon.ico",
   },
@@ -25,7 +26,7 @@ export default function RootLayout({
       <body className={inter.variable}>
         <ThemeProvider>
           {children}
-          <Toaster richColors position="top-right" />
+          <Toaster richColors position="top-right" closeButton />
         </ThemeProvider>
       </body>
     </html>

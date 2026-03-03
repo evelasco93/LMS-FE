@@ -5,7 +5,6 @@ interface LogoProps {
   size?: number;
 }
 
-/** Renders the actual Summit Edge Legal logo from public/logo.png */
 export function MountainMark({ size = 40 }: { size?: number }) {
   return (
     // eslint-disable-next-line @next/next/no-img-element
@@ -31,7 +30,9 @@ export function Logo({ size = 32 }: LogoProps) {
         aria-hidden
       >
         <text
+          x="0"
           y="14"
+          textAnchor="start"
           fontFamily="Inter, system-ui, sans-serif"
           fontSize="10"
           fontWeight="700"
@@ -41,7 +42,9 @@ export function Logo({ size = 32 }: LogoProps) {
           SUMMIT EDGE
         </text>
         <text
+          x="0"
           y="27"
+          textAnchor="start"
           fontFamily="Inter, system-ui, sans-serif"
           fontSize="10"
           fontWeight="700"
