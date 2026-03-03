@@ -89,7 +89,7 @@ export function Sidebar({ active, onChange, role }: SidebarProps) {
         {/* Logo — mark stays fixed, text slides in/out */}
         <div className="mb-6 flex h-10 items-center px-3">
           <div className="shrink-0">
-            <MountainMark size={36} />
+            <MountainMark size={48} />
           </div>
           <AnimatePresence initial={false}>
             {!collapsed && (

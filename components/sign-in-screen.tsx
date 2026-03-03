@@ -4,7 +4,6 @@ import type React from "react";
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/button";
-import { MountainMark } from "@/components/logo";
 
 const inputClass =
   "w-full rounded-lg border border-[--color-border] bg-[--color-panel] px-3 py-2 text-sm text-[--color-text] outline-none transition-shadow focus:border-[--color-primary] focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-primary)_35%,transparent)]";
@@ -129,18 +128,13 @@ export function SignInScreen({ onSignIn, error }: SignInScreenProps) {
         className="w-full max-w-sm rounded-2xl border border-[--color-border] bg-[--color-panel] p-8 shadow-xl"
       >
         {/* ── Logo ── */}
-        <div className="mb-6 flex justify-center">
-          <MountainMark size={80} />
-        </div>
-
-        {/* ── Heading ── */}
-        <div className="mb-6 space-y-1 text-center">
-          <h1 className="text-xl font-semibold text-[--color-text-strong]">
-            SEL | <span className="text-[--color-primary]">LMS</span>
-          </h1>
-          <p className="text-sm text-[--color-text-muted]">
-            Sign in to continue
-          </p>
+        <div className="mb-2 flex justify-center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/logo_2.png"
+            alt="Summit Edge Legal"
+            style={{ width: 280, objectFit: "contain", display: "block" }}
+          />
         </div>
 
         {/* ── Loader or form ── */}
