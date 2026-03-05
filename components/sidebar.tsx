@@ -44,11 +44,19 @@ interface SidebarProps {
 const EXPANDED_W = 240;
 const COLLAPSED_W = 64;
 
-/** Spring used for the sidebar width and the toggle chevron flip */
+/** Spring used for the sidebar width, chevron flip, and icon position */
 const widthSpring = { type: "spring" as const, stiffness: 300, damping: 30 };
 
 /** Fast ease for text fade / slide */
 const textTransition = { duration: 0.14, ease: "easeInOut" as const };
+
+/**
+ * paddingLeft for nav buttons (nav has px-2 so each button is COLLAPSED_W-16 wide).
+ * Collapsed: center the 18px icon in (64-16)=48px → (48-18)/2 = 15px
+ * Expanded:  match px-3 = 12px
+ */
+const NAV_PL_COLLAPSED = 15;
+const NAV_PL_EXPANDED = 12;
 
 /**
  * Text that slides in from the left when entering and back left when exiting.
@@ -108,16 +116,16 @@ export function Sidebar({ active, onChange, onLogoClick, role }: SidebarProps) {
         transition={widthSpring}
         className="flex h-full flex-col overflow-hidden border-r py-4 bg-[--color-nav-bg] text-[--color-nav-text] border-[--color-nav-border] shadow-xl"
       >
-        {/* Logo — mark stays fixed, text slides in/out; click goes home */}
+        {/* Logo — mark always centered in a fixed 64px zone, text slides in */}
         <button
           type="button"
           onClick={onLogoClick}
-          className={`mb-6 flex h-10 w-full items-center cursor-pointer focus-visible:outline-none ${collapsed ? "justify-center" : "px-3"}`}
+          className="mb-6 flex h-10 w-full items-center cursor-pointer focus-visible:outline-none"
           aria-label="Go to home"
         >
-          <div className="shrink-0">
+          <span className="flex w-16 shrink-0 items-center justify-center">
             <MountainMark size={48} />
-          </div>
+          </span>
           <AnimatePresence initial={false}>
             {!collapsed && (
               <motion.div
@@ -142,12 +150,15 @@ export function Sidebar({ active, onChange, onLogoClick, role }: SidebarProps) {
         {/* Nav items */}
         <nav className="space-y-1 px-2">
           {visibleItems.map((item) => (
-            <button
+            <motion.button
               key={item.key}
               onClick={() => onChange(item.key)}
+              animate={{
+                paddingLeft: collapsed ? NAV_PL_COLLAPSED : NAV_PL_EXPANDED,
+              }}
+              transition={widthSpring}
               className={clsx(
                 "flex h-10 w-full items-center rounded-lg text-sm font-medium transition-colors",
-                collapsed ? "justify-center" : "px-3",
                 active === item.key
                   ? "bg-[color-mix(in_srgb,var(--color-nav-accent)_35%,transparent)] text-[--color-nav-text]"
                   : "text-[--color-nav-text] hover:bg-[color-mix(in_srgb,var(--color-nav-accent)_15%,transparent)]",
@@ -163,21 +174,21 @@ export function Sidebar({ active, onChange, onLogoClick, role }: SidebarProps) {
                   </SlideText>
                 )}
               </AnimatePresence>
-            </button>
+            </motion.button>
           ))}
         </nav>
 
         {/* Footer: copyright */}
-        <div className="mt-auto">
+        <div className="mt-auto overflow-hidden">
           <AnimatePresence initial={false}>
             {!collapsed && (
               <motion.p
                 key="e"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 0.6 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.12 }}
-                className="pb-2 text-center text-[10px] text-[--color-text-muted]"
+                exit={{ opacity: 0, transition: { duration: 0.08 } }}
+                transition={{ duration: 0.15, delay: 0.22 }}
+                className="pb-2 text-center text-[10px] whitespace-nowrap text-[--color-text-muted]"
               >
                 &copy; 2026 Summit Edge Legal
               </motion.p>
