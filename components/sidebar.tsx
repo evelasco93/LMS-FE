@@ -112,7 +112,7 @@ export function Sidebar({ active, onChange, onLogoClick, role }: SidebarProps) {
         <button
           type="button"
           onClick={onLogoClick}
-          className="mb-6 flex h-10 w-full items-center px-3 cursor-pointer focus-visible:outline-none"
+          className={`mb-6 flex h-10 w-full items-center cursor-pointer focus-visible:outline-none ${collapsed ? "justify-center" : "px-3"}`}
           aria-label="Go to home"
         >
           <div className="shrink-0">
@@ -146,7 +146,8 @@ export function Sidebar({ active, onChange, onLogoClick, role }: SidebarProps) {
               key={item.key}
               onClick={() => onChange(item.key)}
               className={clsx(
-                "flex h-10 w-full items-center rounded-lg px-3 text-sm font-medium transition-colors",
+                "flex h-10 w-full items-center rounded-lg text-sm font-medium transition-colors",
+                collapsed ? "justify-center" : "px-3",
                 active === item.key
                   ? "bg-[color-mix(in_srgb,var(--color-nav-accent)_35%,transparent)] text-[--color-nav-text]"
                   : "text-[--color-nav-text] hover:bg-[color-mix(in_srgb,var(--color-nav-accent)_15%,transparent)]",

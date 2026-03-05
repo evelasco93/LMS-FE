@@ -1,5 +1,5 @@
 import { API_BASE_URL } from "./constants";
-import { getIdToken, refreshSession, clearSession } from "./auth";
+import { getIdToken, refreshSession, forceSignOut } from "./auth";
 import type {
   Affiliate,
   AffiliateStatus,
@@ -74,7 +74,7 @@ async function request<T>(path: string, options: RequestInitWithBody = {}) {
       res = await doFetch(token);
     }
     if (res.status === 401) {
-      clearSession();
+      forceSignOut();
       throw new Error("Session expired. Please sign in again.");
     }
   }
@@ -83,7 +83,10 @@ async function request<T>(path: string, options: RequestInitWithBody = {}) {
 }
 
 // Clients
-export async function listClients(params?: { status?: string }) {
+export async function listClients(params?: {
+  status?: string;
+  includeDeleted?: boolean;
+}) {
   const url = buildUrl("/clients", params);
   return request<PaginatedResponse<Client>>(url);
 }
@@ -104,15 +107,24 @@ export async function updateClient(id: string, payload: Partial<Client>) {
   });
 }
 
-export async function deleteClient(id: string) {
-  const url = `${API_BASE_URL}/clients/${id}`;
-  return request<{ success: boolean; message?: string }>(url, {
+export async function deleteClient(id: string, permanent?: boolean) {
+  const url = permanent
+    ? `${API_BASE_URL}/clients/${id}?permanent=true`
+    : `${API_BASE_URL}/clients/${id}`;
+  return request<{
+    success: boolean;
+    message?: string;
+    data?: { id: string; permanent: boolean };
+  }>(url, {
     method: "DELETE",
   });
 }
 
 // Affiliates
-export async function listAffiliates(params?: { status?: AffiliateStatus }) {
+export async function listAffiliates(params?: {
+  status?: AffiliateStatus;
+  includeDeleted?: boolean;
+}) {
   const url = buildUrl("/affiliates", params);
   return request<PaginatedResponse<Affiliate>>(url);
 }
@@ -133,9 +145,28 @@ export async function updateAffiliate(id: string, payload: Partial<Affiliate>) {
   });
 }
 
-export async function deleteAffiliate(id: string) {
-  const url = `${API_BASE_URL}/affiliates/${id}`;
-  return request<{ success: boolean; message?: string }>(url, {
+export async function deleteAffiliate(id: string, permanent?: boolean) {
+  const url = permanent
+    ? `${API_BASE_URL}/affiliates/${id}?permanent=true`
+    : `${API_BASE_URL}/affiliates/${id}`;
+  return request<{
+    success: boolean;
+    message?: string;
+    data?: { id: string; permanent: boolean };
+  }>(url, {
+    method: "DELETE",
+  });
+}
+
+export async function deleteCampaign(id: string, permanent?: boolean) {
+  const url = permanent
+    ? `${API_BASE_URL}/campaigns/${id}?permanent=true`
+    : `${API_BASE_URL}/campaigns/${id}`;
+  return request<{
+    success: boolean;
+    message?: string;
+    data?: { id: string; permanent: boolean };
+  }>(url, {
     method: "DELETE",
   });
 }
@@ -145,6 +176,14 @@ export async function createCampaign(payload: { name: string }) {
   const url = `${API_BASE_URL}/campaigns`;
   return request<ApiResponse<Campaign>>(url, {
     method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateCampaign(id: string, payload: { name: string }) {
+  const url = `${API_BASE_URL}/campaigns/${id}`;
+  return request<ApiResponse<Campaign>>(url, {
+    method: "PUT",
     body: JSON.stringify(payload),
   });
 }
@@ -238,6 +277,17 @@ export async function removeAffiliateFromCampaign(
   return request<ApiResponse<Campaign>>(url, { method: "DELETE" });
 }
 
+export async function rotateAffiliateKey(
+  campaignId: string,
+  affiliateId: string,
+) {
+  const url = `${API_BASE_URL}/campaigns/${campaignId}/affiliates/${affiliateId}/rotate-key`;
+  return request<ApiResponse<{ campaign: Campaign; campaign_key: string }>>(
+    url,
+    { method: "POST" },
+  );
+}
+
 // Leads
 export async function listLeads() {
   const url = buildUrl("/leads");
@@ -271,6 +321,17 @@ export async function deleteCredential(provider: string) {
 export async function getLeadById(id: string) {
   const url = `${API_BASE_URL}/leads/${id}`;
   return request<ApiResponse<Lead>>(url);
+}
+
+export async function updateLead(
+  id: string,
+  payload: { payload: Record<string, unknown> },
+) {
+  const url = `${API_BASE_URL}/leads/${id}`;
+  return request<ApiResponse<Lead>>(url, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
 }
 
 // ── Users (admin only) ──────────────────────────────────────────────────────
@@ -316,9 +377,18 @@ export async function resetUserPassword(id: string, password: string) {
   });
 }
 
-export async function deleteUser(id: string) {
-  const url = `${API_BASE_URL}/users/${encodeURIComponent(id)}`;
+export async function deleteUser(id: string, permanent?: boolean) {
+  const url = permanent
+    ? `${API_BASE_URL}/users/${encodeURIComponent(id)}?permanent=true`
+    : `${API_BASE_URL}/users/${encodeURIComponent(id)}`;
   return request<{ success: boolean; message?: string }>(url, {
     method: "DELETE",
+  });
+}
+
+export async function enableUser(id: string) {
+  const url = `${API_BASE_URL}/users/${encodeURIComponent(id)}/enable`;
+  return request<{ success: boolean; message?: string; data?: unknown }>(url, {
+    method: "PUT",
   });
 }

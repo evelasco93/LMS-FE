@@ -166,7 +166,7 @@ export const getIdToken = async (): Promise<string | null> => {
   if (isSessionValid(session)) return session.idToken;
   const refreshed = await refreshSession();
   if (refreshed && isSessionValid(refreshed)) return refreshed.idToken;
-  clearSession();
+  forceSignOut();
   return null;
 };
 
@@ -184,4 +184,16 @@ export const getCurrentUser = (): AuthUser | null => {
 
 export const signOut = (): void => {
   clearSession();
+};
+
+/**
+ * Clears the local session AND dispatches `lms:session-invalidated` so the
+ * Dashboard component can react immediately (e.g. when Cognito disables the
+ * current user and their refresh token fails).
+ */
+export const forceSignOut = (): void => {
+  clearSession();
+  if (isBrowser()) {
+    window.dispatchEvent(new Event("lms:session-invalidated"));
+  }
 };

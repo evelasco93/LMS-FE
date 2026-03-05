@@ -128,7 +128,7 @@ a {
 .phone-input-wrapper .selected-flag {
   border-right: 1px solid var(--color-border);
   width: 46px;
-  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  background: var(--color-panel);
   border-radius: 10px 0 0 10px;
 }
 

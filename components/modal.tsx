@@ -4,11 +4,12 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "./button";
 
 interface ModalProps {
-  title: string;
+  title: React.ReactNode;
   isOpen: boolean;
   onClose: () => void;
   children: React.ReactNode;
   width?: number | string;
+  bodyClassName?: string;
 }
 
 export function Modal({
@@ -17,12 +18,13 @@ export function Modal({
   onClose,
   children,
   width = 560,
+  bodyClassName,
 }: ModalProps) {
   return (
     <AnimatePresence>
       {isOpen && (
         <motion.div
-          className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
           role="dialog"
           aria-modal="true"
           initial={{ opacity: 0 }}
@@ -50,7 +52,7 @@ export function Modal({
                 iconLeft={<X size={16} />}
               />
             </header>
-            <div className="px-5 py-4">{children}</div>
+            <div className={bodyClassName ?? "px-5 py-4"}>{children}</div>
           </motion.div>
         </motion.div>
       )}
