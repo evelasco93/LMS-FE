@@ -68,6 +68,52 @@ export const inputClass =
   "w-full rounded-lg border border-[--color-border] bg-[--color-panel] px-3 py-2 text-sm text-[--color-text] outline-none transition-shadow focus:border-[--color-primary] focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-primary)_35%,transparent)]";
 
 /**
+ * Smart field label normalizer — handles snake_case, camelCase, PascalCase,
+ * kebab-case, dot.case, SCREAMING_SNAKE, and mixed forms.
+ * Known abbreviations (id, url, utm, ip, etc.) are uppercased automatically.
+ */
+const UPPER_ABBREVS = new Set([
+  "id",
+  "url",
+  "utm",
+  "ip",
+  "api",
+  "ssl",
+  "ssn",
+  "dob",
+  "sms",
+  "tid",
+  "sid",
+  "lid",
+  "cid",
+  "uid",
+  "pid",
+]);
+
+export function normalizeFieldLabel(key: string): string {
+  const words = key
+    // camelCase / PascalCase boundary: fooBar → foo Bar
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    // Acronym boundary: XMLParser → XML Parser
+    .replace(/([A-Z]{2,})([A-Z][a-z])/g, "$1 $2")
+    // Delimiters → spaces
+    .replace(/[_\-\.]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase()
+    .split(" ")
+    .filter(Boolean);
+
+  return words
+    .map((w) =>
+      UPPER_ABBREVS.has(w)
+        ? w.toUpperCase()
+        : w.charAt(0).toUpperCase() + w.slice(1),
+    )
+    .join(" ");
+}
+
+/**
  * The API occasionally returns user objects {sub, full_name, email, …} instead
  * of plain strings for created_by / updated_by fields.
  */

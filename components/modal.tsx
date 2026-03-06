@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "./button";
@@ -20,6 +20,14 @@ export function Modal({
   width = 560,
   bodyClassName,
 }: ModalProps) {
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [isOpen, onClose]);
   return (
     <AnimatePresence>
       {isOpen && (

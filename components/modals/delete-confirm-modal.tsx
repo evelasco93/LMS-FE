@@ -6,7 +6,13 @@ import { AnimatePresence, motion } from "framer-motion";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type DeleteEntityType = "user" | "client" | "affiliate" | "campaign";
+export type DeleteEntityType =
+  | "user"
+  | "client"
+  | "affiliate"
+  | "campaign"
+  | "credential"
+  | "credential-schema";
 
 export interface DeleteConfirmModalProps {
   isOpen: boolean;
@@ -35,6 +41,8 @@ const ENTITY_LABEL: Record<DeleteEntityType, string> = {
   client: "client",
   affiliate: "affiliate",
   campaign: "campaign",
+  credential: "credential",
+  "credential-schema": "credential schema",
 };
 
 function softMessage(type: DeleteEntityType, name: string) {

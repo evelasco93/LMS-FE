@@ -220,6 +220,54 @@ export function LeadsView({
             ),
           },
           {
+            key: "qa_trusted_form",
+            label: "TrustedForm",
+            width: "108px",
+            render: (lead) => {
+              const tf = lead.trusted_form_result;
+              if (tf == null) {
+                return (
+                  <div className="mx-auto flex w-fit items-center justify-center">
+                    <span className="text-[--color-text-muted]">—</span>
+                  </div>
+                );
+              }
+              return (
+                <div className="mx-auto flex w-fit items-center justify-center">
+                  {tf.success ? (
+                    <Check size={18} className="text-[--color-success]" />
+                  ) : (
+                    <X size={18} className="text-[--color-danger]" />
+                  )}
+                </div>
+              );
+            },
+          },
+          {
+            key: "qa_ipqs",
+            label: "IPQS",
+            width: "96px",
+            render: (lead) => {
+              const iq = lead.ipqs_result;
+              if (iq == null) {
+                return (
+                  <div className="mx-auto flex w-fit items-center justify-center">
+                    <span className="text-[--color-text-muted]">—</span>
+                  </div>
+                );
+              }
+              return (
+                <div className="mx-auto flex w-fit items-center justify-center">
+                  {iq.success ? (
+                    <Check size={18} className="text-[--color-success]" />
+                  ) : (
+                    <X size={18} className="text-[--color-danger]" />
+                  )}
+                </div>
+              );
+            },
+          },
+          {
             key: "created_at",
             label: "Created",
             width: "190px",

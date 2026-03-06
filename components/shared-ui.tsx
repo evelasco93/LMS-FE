@@ -33,7 +33,7 @@ export function InfoItem({
   onClick,
 }: {
   label: string;
-  value?: string;
+  value?: React.ReactNode;
   onClick?: () => void;
 }) {
   const Wrapper: React.ElementType = onClick ? "button" : "div";
@@ -46,9 +46,9 @@ export function InfoItem({
       <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
         {label}
       </p>
-      <p className="text-sm font-medium text-[--color-text-strong]">
-        {value || "—"}
-      </p>
+      <div className="text-sm font-medium text-[--color-text-strong]">
+        {value ?? "—"}
+      </div>
     </Wrapper>
   );
 }

@@ -6,7 +6,7 @@ export type CampaignDetailTab =
   | "overview"
   | "clients"
   | "affiliates"
-  | "settings";
+  | "integrations";
 
 /** Identity of the user who performed an action (matches RequestActor schema). */
 export interface RequestActor {
@@ -99,6 +99,48 @@ export interface Campaign {
       enabled?: boolean;
       criteria?: Array<"phone" | "email">;
     };
+    trusted_form?: {
+      enabled?: boolean;
+    };
+    ipqs?: {
+      enabled?: boolean;
+      phone?: {
+        enabled?: boolean;
+        criteria?: {
+          valid?: { enabled?: boolean; required?: boolean };
+          fraud_score?: {
+            enabled?: boolean;
+            operator?: "lte" | "gte" | "eq";
+            value?: number;
+          };
+          country?: { enabled?: boolean; allowed?: string[] };
+        };
+      };
+      email?: {
+        enabled?: boolean;
+        criteria?: {
+          valid?: { enabled?: boolean; required?: boolean };
+          fraud_score?: {
+            enabled?: boolean;
+            operator?: "lte" | "gte" | "eq";
+            value?: number;
+          };
+        };
+      };
+      ip?: {
+        enabled?: boolean;
+        criteria?: {
+          fraud_score?: {
+            enabled?: boolean;
+            operator?: "lte" | "gte" | "eq";
+            value?: number;
+          };
+          country_code?: { enabled?: boolean; allowed?: string[] };
+          proxy?: { enabled?: boolean; allowed?: boolean };
+          vpn?: { enabled?: boolean; allowed?: boolean };
+        };
+      };
+    };
   };
   clients?: CampaignClient[];
   affiliates?: CampaignAffiliate[];
@@ -136,6 +178,35 @@ export interface Campaign {
   active?: boolean;
 }
 
+export interface TrustedFormResult {
+  success: boolean;
+  cert_id?: string;
+  phone_match?: boolean;
+  previously_retained?: boolean;
+  expires_at?: string;
+  outcome?: string;
+  error?: string;
+  phone?: string;
+  vendor?: string;
+}
+
+export interface IpqsCheckResult {
+  success?: boolean;
+  error?: string;
+  /** Per-criterion pass/fail results (e.g. { valid: true, fraud_score: false }) */
+  criteria_results?: Record<string, boolean>;
+  /** Raw IPQS API response containing all numeric/string fields */
+  raw?: Record<string, unknown>;
+}
+
+export interface IpqsResult {
+  success?: boolean;
+  phone?: IpqsCheckResult;
+  email?: IpqsCheckResult;
+  ip?: IpqsCheckResult;
+  error?: string;
+}
+
 export interface Lead {
   id: string;
   campaign_id: string;
@@ -149,6 +220,8 @@ export interface Lead {
   affiliate_status_at_intake?: string;
   rejected?: boolean;
   rejection_reason?: string | null;
+  trusted_form_result?: TrustedFormResult | null;
+  ipqs_result?: IpqsResult | null;
   created_at?: string;
   updated_at?: string;
   created_by?: string;
@@ -192,6 +265,66 @@ export interface Credential {
   type: CredentialType;
   credentials: CredentialFields;
   updated_at?: string;
+}
+
+/** Full credential record returned by the API (DynamoDB-backed). */
+export interface CredentialRecord {
+  id: string;
+  provider: string;
+  name: string;
+  /** Was `type` — renamed to avoid collision with DynamoDB record-type discriminator. */
+  credential_type: CredentialType;
+  credentials: CredentialFields;
+  enabled: boolean;
+  is_deleted?: boolean;
+  active?: boolean;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export type PluginSchemaFieldType = "text" | "password" | "select";
+
+export interface PluginSchemaField {
+  name: string;
+  label: string;
+  type: PluginSchemaFieldType;
+  required: boolean;
+  placeholder?: string;
+  options?: string[];
+}
+
+/** Credential schema record (IDs are CS-prefixed). Defines the fields a plugin integration requires. */
+export interface CredentialSchemaRecord {
+  id: string;
+  provider: string;
+  name: string;
+  credential_type: CredentialType;
+  fields: PluginSchemaField[];
+  is_deleted?: boolean;
+  active?: boolean;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/** @deprecated Use CredentialSchemaRecord */
+export type PluginSchemaRecord = CredentialSchemaRecord;
+
+/** Global plugin setting: wires a credential to a schema for automatic credential resolution. */
+export interface PluginSettingRecord {
+  schema_id: string;
+  credentials_id: string;
+  enabled: boolean;
+  is_deleted?: boolean;
+  active?: boolean;
+  created_at?: string;
+  updated_at?: string;
+  created_by?: string;
+  updated_by?: string | null;
+  edit_history?: EditHistoryEntry[];
 }
 
 export type UserRole = "admin" | "staff";

@@ -1,30 +1,40 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { KeyRound, RotateCcw, UserCog, UserPlus } from "lucide-react";
+import { Plug, PlusCircle, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { AnimatePresence, motion } from "framer-motion";
 import useSWR from "swr";
 import { Table } from "@/components/table";
 import { Badge } from "@/components/badge";
 import { Button } from "@/components/button";
-import { DeleteConfirmModal } from "@/components/modals/delete-confirm-modal";
 import {
   CreateUserModal,
-  EditUserModal,
-  ResetPasswordModal,
+  UserDetailModal,
 } from "@/components/modals/user-modals";
 import {
+  AddCredentialModal,
+  CredentialDetailModal,
+  AddCredentialSchemaModal,
+  CredentialSchemaDetailModal,
+  PluginSettingDetailModal,
+} from "@/components/modals/integrations-modals";
+import {
   createUser,
-  deleteUser,
-  enableUser,
   listUsers,
-  resetUserPassword,
-  updateUser,
+  listCredentials,
+  listCredentialSchemas,
+  listPluginSettings,
 } from "@/lib/api";
 import { formatDate, inputClass } from "@/lib/utils";
+import { AuditPopover } from "@/components/shared-ui";
 import { getCurrentUser } from "@/lib/auth";
-import type { CognitoUser } from "@/lib/types";
+import type {
+  CognitoUser,
+  CredentialRecord,
+  CredentialSchemaRecord,
+  PluginSettingRecord,
+} from "@/lib/types";
 
 // ─── SettingsView ─────────────────────────────────────────────────────────────
 
@@ -32,31 +42,49 @@ interface SettingsViewProps {
   role?: string;
 }
 
+type SettingsSectionKey =
+  | "saved-credentials"
+  | "schemas"
+  | "plugin-settings"
+  | "users";
+
+// ── Main SettingsView ─────────────────────────────────────────────────────────
+
 export function SettingsView({ role }: SettingsViewProps) {
-  // Identify the currently logged-in user so we can block self-deactivation.
   const currentUserEmail = getCurrentUser()?.email;
 
-  const [settingsTab, setSettingsTab] = useState<"credentials" | "users">(
-    "credentials",
-  );
+  const [activeSection, setActiveSection] =
+    useState<SettingsSectionKey>("saved-credentials");
   const [userSearch, setUserSearch] = useState("");
   const [showDisabled, setShowDisabled] = useState(false);
 
   // User modals
   const [userCreateModal, setUserCreateModal] = useState(false);
-  const [userEditModal, setUserEditModal] = useState(false);
-  const [userResetModal, setUserResetModal] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<CognitoUser | null>(null);
-  const [editingUser, setEditingUser] = useState<CognitoUser | null>(null);
-  const [resetPasswordUser, setResetPasswordUser] =
-    useState<CognitoUser | null>(null);
+  const [viewUserTarget, setViewUserTarget] = useState<CognitoUser | null>(
+    null,
+  );
+
+  // Credential modals
+  const [addCredModal, setAddCredModal] = useState(false);
+  const [viewCredTarget, setViewCredTarget] = useState<CredentialRecord | null>(
+    null,
+  );
+
+  // Credential schema modals
+  const [addSchemaModal, setAddSchemaModal] = useState(false);
+  const [viewSchemaTarget, setViewSchemaTarget] =
+    useState<CredentialSchemaRecord | null>(null);
+  const [viewPluginTarget, setViewPluginTarget] =
+    useState<CredentialSchemaRecord | null>(null);
+
+  // ── Data fetching ────────────────────────────────────────────────────────────
 
   const {
     data: users = [],
     isLoading: usersLoading,
     mutate: refreshUsers,
   } = useSWR<CognitoUser[]>(
-    settingsTab === "users" ? "users" : null,
+    activeSection === "users" ? "users" : null,
     async () => {
       try {
         const res = await listUsers();
@@ -68,7 +96,61 @@ export function SettingsView({ role }: SettingsViewProps) {
     },
   );
 
-  // Filter: by search and enabled/disabled toggle
+  const {
+    data: credentials = [],
+    isLoading: credsLoading,
+    mutate: refreshCreds,
+  } = useSWR<CredentialRecord[]>(
+    activeSection !== "users" ? "credentials" : null,
+    async () => {
+      try {
+        const res = await listCredentials();
+        return (res as any)?.data?.items || (res as any)?.data || [];
+      } catch (err) {
+        console.warn("Credentials listing not available", err);
+        return [] as CredentialRecord[];
+      }
+    },
+  );
+
+  const {
+    data: schemas = [],
+    isLoading: schemasLoading,
+    mutate: refreshSchemas,
+  } = useSWR<CredentialSchemaRecord[]>(
+    activeSection !== "users" ? "credential-schemas" : null,
+    async () => {
+      try {
+        const res = await listCredentialSchemas();
+        return (res as any)?.data?.items || (res as any)?.data || [];
+      } catch (err) {
+        console.warn("Credential schemas not available", err);
+        return [] as CredentialSchemaRecord[];
+      }
+    },
+  );
+
+  const {
+    data: pluginSettings = [],
+    isLoading: pluginSettingsLoading,
+    mutate: refreshPluginSettings,
+  } = useSWR<PluginSettingRecord[]>(
+    activeSection === "plugin-settings" || activeSection === "schemas"
+      ? "plugin-settings"
+      : null,
+    async () => {
+      try {
+        const res = await listPluginSettings();
+        return (res as any)?.data?.items || (res as any)?.data || [];
+      } catch (err) {
+        console.warn("Plugin settings not available", err);
+        return [] as PluginSettingRecord[];
+      }
+    },
+  );
+
+  // ── User handlers ────────────────────────────────────────────────────────────
+
   const filteredUsers = useMemo(() => {
     const list = showDisabled
       ? users
@@ -82,8 +164,6 @@ export function SettingsView({ role }: SettingsViewProps) {
         u.lastName?.toLowerCase().includes(q),
     );
   }, [users, userSearch, showDisabled]);
-
-  // ── Handlers ────────────────────────────────────────────────────────────────
 
   const onCreateUser = async (payload: {
     email: string;
@@ -108,91 +188,52 @@ export function SettingsView({ role }: SettingsViewProps) {
     );
   };
 
-  const onUpdateUser = async (
-    id: string,
-    payload: {
-      role?: "admin" | "staff";
-      firstName?: string;
-      lastName?: string;
-    },
-  ) => {
-    await toast.promise(
-      (async () => {
-        const res = await updateUser(id, payload);
-        if (!(res as any)?.success)
-          throw new Error((res as any)?.message || "Unable to update user");
-        await refreshUsers();
-        setUserEditModal(false);
-        setEditingUser(null);
-      })(),
-      {
-        loading: "Updating user…",
-        success: "User updated",
-        error: (err) => err?.message || "Unable to update user",
-      },
-    );
-  };
-
-  const onResetUserPassword = async (id: string, password: string) => {
-    await toast.promise(
-      (async () => {
-        const res = await resetUserPassword(id, password);
-        if (!(res as any)?.success)
-          throw new Error((res as any)?.message || "Unable to reset password");
-        await refreshUsers();
-        setUserResetModal(false);
-        setResetPasswordUser(null);
-      })(),
-      {
-        loading: "Resetting password…",
-        success: "Password reset",
-        error: (err) => err?.message || "Unable to reset password",
-      },
-    );
-  };
-
-  const onDeleteUser = async (permanent: boolean) => {
-    if (!deleteTarget) return;
-    await toast.promise(
-      (async () => {
-        const res = await deleteUser(deleteTarget.username, permanent);
-        if (!(res as any)?.success)
-          throw new Error(
-            (res as any)?.message ||
-              (permanent
-                ? "Unable to delete user"
-                : "Unable to deactivate user"),
-          );
-        await refreshUsers();
-        setDeleteTarget(null);
-      })(),
-      {
-        loading: permanent ? "Deleting user…" : "Deactivating user…",
-        success: permanent ? "User permanently deleted" : "User deactivated",
-        error: (err) =>
-          err?.message ||
-          (permanent ? "Unable to delete user" : "Unable to deactivate user"),
-      },
-    );
-  };
-
-  const onReEnableUser = async (u: CognitoUser) => {
-    await toast.promise(
-      (async () => {
-        const res = await enableUser(u.username);
-        if (!(res as any)?.success)
-          throw new Error((res as any)?.message || "Unable to re-enable user");
-        await refreshUsers();
-      })(),
-      {
-        loading: "Re-enabling user…",
-        success: "User re-enabled",
-        error: (err) => err?.message || "Unable to re-enable user",
-      },
-    );
-  };
-
   // ── Render ───────────────────────────────────────────────────────────────────
+
+  const navItems: {
+    key: SettingsSectionKey;
+    label: string;
+    group: "integrations" | "users";
+    indent?: boolean;
+  }[] = [
+    {
+      key: "saved-credentials",
+      label: "Credentials",
+      group: "integrations",
+    },
+    { key: "schemas", label: "Schemas", group: "integrations", indent: true },
+    { key: "plugin-settings", label: "Plugin Settings", group: "integrations" },
+    ...(role === "admin"
+      ? [
+          {
+            key: "users" as SettingsSectionKey,
+            label: "Manage",
+            group: "users" as const,
+          },
+        ]
+      : []),
+  ];
+
+  const NavBtn = ({ item }: { item: (typeof navItems)[number] }) => (
+    <button
+      key={item.key}
+      type="button"
+      onClick={() => setActiveSection(item.key)}
+      className={`w-full text-left rounded-lg px-3 py-2 text-sm transition-colors ${item.indent ? "pl-6" : ""} ${
+        activeSection === item.key
+          ? "bg-[color-mix(in_srgb,var(--color-primary)_12%,transparent)] text-[--color-primary] font-medium"
+          : "text-[--color-text-muted] hover:bg-[--color-bg-muted] hover:text-[--color-text]"
+      }`}
+    >
+      {item.indent && (
+        <span className="mr-1.5 text-[--color-text-muted] opacity-50">└</span>
+      )}
+      {item.label}
+    </button>
+  );
+
+  const integrationItems = navItems.filter((i) => i.group === "integrations");
+  const userItems = navItems.filter((i) => i.group === "users");
 
   return (
     <motion.section
@@ -203,228 +244,499 @@ export function SettingsView({ role }: SettingsViewProps) {
       exit={{ opacity: 0, y: -8 }}
       transition={{ duration: 0.18, ease: "easeOut" }}
     >
-      {/* Sub-nav tabs */}
-      <div className="flex gap-1 rounded-lg border border-[--color-border] bg-[--color-panel] p-1 w-fit">
-        {(["credentials", "users"] as const).map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => setSettingsTab(tab)}
-            className={
-              settingsTab === tab
-                ? "rounded-md px-4 py-1.5 text-sm font-medium bg-[--color-primary] text-white transition-colors"
-                : "rounded-md px-4 py-1.5 text-sm font-medium text-[--color-text-muted] hover:text-[--color-text] transition-colors"
-            }
-          >
-            {tab === "credentials" ? "Credentials" : "Users"}
-          </button>
-        ))}
+      {/* Two-column layout: left sidebar nav + right content */}
+      <div className="flex gap-6 items-start">
+        {/* ── Left sidebar nav ──────────────────────────────────────────────── */}
+        <nav className="w-[188px] shrink-0 rounded-xl border border-[--color-border] bg-[--color-panel] p-2 space-y-0.5">
+          <p className="px-3 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-widest text-[--color-text-muted]">
+            Integrations
+          </p>
+          {integrationItems.map((item) => (
+            <NavBtn key={item.key} item={item} />
+          ))}
+          {userItems.length > 0 && (
+            <>
+              <div className="mx-1 my-1.5 border-t border-[--color-border]" />
+              <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-[--color-text-muted]">
+                Users
+              </p>
+              {userItems.map((item) => (
+                <NavBtn key={item.key} item={item} />
+              ))}
+            </>
+          )}
+        </nav>
+
+        {/* ── Right content ─────────────────────────────────────────────────── */}
+        <div className="flex-1 min-w-0">
+          <AnimatePresence mode="wait" initial={false}>
+            {/* ── Saved Credentials ── */}
+            {activeSection === "saved-credentials" && (
+              <motion.div
+                key="saved-credentials"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.15, ease: "easeOut" }}
+                className="space-y-4"
+              >
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-[--color-text-muted]">
+                    Saved API credentials used by integrations.
+                  </p>
+                  <Button
+                    iconLeft={<PlusCircle size={16} />}
+                    onClick={() => setAddCredModal(true)}
+                  >
+                    Add Credential
+                  </Button>
+                </div>
+                <Table
+                  columns={[
+                    {
+                      key: "name",
+                      label: "Name",
+                      render: (c) => (
+                        <span className="font-medium text-[--color-text-strong]">
+                          {c.name}
+                        </span>
+                      ),
+                    },
+                    {
+                      key: "provider",
+                      label: "Provider",
+                      render: (c) => (
+                        <span className="font-mono text-xs">{c.provider}</span>
+                      ),
+                    },
+                    {
+                      key: "credential_type",
+                      label: "Type",
+                      render: (c) => (
+                        <Badge tone="info">{c.credential_type}</Badge>
+                      ),
+                    },
+                    {
+                      key: "enabled",
+                      label: "Status",
+                      render: (c) => (
+                        <Badge tone={c.enabled ? "success" : "neutral"}>
+                          {c.enabled ? "Active" : "Disabled"}
+                        </Badge>
+                      ),
+                    },
+                    {
+                      key: "updated_at",
+                      label: "Last Updated",
+                      render: (c) =>
+                        c.updated_at ? formatDate(c.updated_at) : "—",
+                    },
+                    {
+                      key: "actions",
+                      label: "Actions",
+                      render: (c) => (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setViewCredTarget(c)}
+                        >
+                          View
+                        </Button>
+                      ),
+                    },
+                  ]}
+                  data={credentials}
+                  emptyLabel={
+                    credsLoading
+                      ? "Loading credentials…"
+                      : "No credentials saved yet."
+                  }
+                />
+              </motion.div>
+            )}
+
+            {/* ── Schemas ── */}
+            {activeSection === "schemas" && (
+              <motion.div
+                key="schemas"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.15, ease: "easeOut" }}
+                className="space-y-4"
+              >
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-[--color-text-muted]">
+                    Schemas define the fields an integration needs when storing
+                    a credential.
+                  </p>
+                  <Button
+                    iconLeft={<Plug size={16} />}
+                    onClick={() => setAddSchemaModal(true)}
+                  >
+                    Add Schema
+                  </Button>
+                </div>
+                {schemasLoading ? (
+                  <p className="text-sm text-[--color-text-muted]">
+                    Loading schemas…
+                  </p>
+                ) : schemas.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-[--color-border] bg-[--color-panel] p-12 text-center text-[--color-text-muted]">
+                    <p className="text-3xl mb-3">🔌</p>
+                    <p className="font-medium text-[--color-text-strong]">
+                      No credential schemas yet
+                    </p>
+                    <p className="mt-1 text-sm">
+                      Create a schema to define which fields a third-party
+                      integration needs.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {schemas.map((s) => (
+                      <div
+                        key={s.id}
+                        className="rounded-xl border border-[--color-border] bg-[--color-panel] p-4 space-y-3"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <p className="font-semibold text-[--color-text-strong]">
+                              {s.name}
+                            </p>
+                            <p className="text-xs font-mono text-[--color-text-muted]">
+                              {s.provider}
+                            </p>
+                          </div>
+                          <Badge tone="info">{s.credential_type}</Badge>
+                        </div>
+                        {s.fields.length > 0 && (
+                          <div className="space-y-1">
+                            <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+                              Fields ({s.fields.length})
+                            </p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {s.fields.map((f) => (
+                                <span
+                                  key={f.name}
+                                  className="inline-flex items-center gap-1 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs text-[--color-text]"
+                                >
+                                  <span className="font-mono">{f.name}</span>
+                                  {f.required && (
+                                    <span className="text-[--color-danger]">
+                                      *
+                                    </span>
+                                  )}
+                                  <span className="text-[--color-text-muted]">
+                                    ({f.type})
+                                  </span>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between">
+                          {s.updated_at ? (
+                            <p className="text-xs text-[--color-text-muted]">
+                              Updated {formatDate(s.updated_at)}
+                            </p>
+                          ) : (
+                            <span />
+                          )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setViewSchemaTarget(s)}
+                          >
+                            Actions
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </motion.div>
+            )}
+
+            {/* ── Plugin Settings ── */}
+            {activeSection === "plugin-settings" && (
+              <motion.div
+                key="plugin-settings"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.15, ease: "easeOut" }}
+                className="space-y-4"
+              >
+                <p className="text-sm text-[--color-text-muted]">
+                  Manage global plugin settings — enable or disable each
+                  integration system-wide and assign which saved credential it
+                  should use.
+                </p>
+                {schemasLoading || pluginSettingsLoading ? (
+                  <p className="text-sm text-[--color-text-muted]">Loading…</p>
+                ) : schemas.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-[--color-border] bg-[--color-panel] p-12 text-center text-[--color-text-muted]">
+                    <p className="text-3xl mb-3">🔌</p>
+                    <p className="font-medium text-[--color-text-strong]">
+                      No credential schemas yet
+                    </p>
+                    <p className="mt-1 text-sm">
+                      Add a credential schema first before wiring credentials.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {schemas.map((s) => {
+                      const setting = pluginSettings.find(
+                        (ps) => ps.schema_id === s.id,
+                      );
+                      const wiredCred = setting
+                        ? credentials.find(
+                            (c) => c.id === setting.credentials_id,
+                          )
+                        : null;
+                      return (
+                        <div
+                          key={s.id}
+                          className="rounded-xl border border-[--color-border] bg-[--color-panel] p-4 space-y-3"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <div className="flex items-center gap-1">
+                                <p className="font-semibold text-[--color-text-strong]">
+                                  {s.name}
+                                </p>
+                                {setting && (
+                                  <AuditPopover
+                                    updatedAt={setting.updated_at}
+                                    createdBy={setting.created_by}
+                                    updatedBy={setting.updated_by}
+                                    editHistory={setting.edit_history}
+                                  />
+                                )}
+                              </div>
+                              <p className="text-xs font-mono text-[--color-text-muted]">
+                                {s.provider}
+                              </p>
+                            </div>
+                            <Badge tone="info">{s.credential_type}</Badge>
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="space-y-0.5">
+                              <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+                                Credential
+                              </p>
+                              {wiredCred ? (
+                                <span className="inline-flex items-center gap-1.5 rounded-full border border-[--color-border] bg-[--color-bg-muted] px-2.5 py-1 text-xs text-[--color-text]">
+                                  <span
+                                    className={`h-1.5 w-1.5 rounded-full ${
+                                      setting?.enabled && wiredCred?.enabled
+                                        ? "bg-green-500"
+                                        : setting?.enabled &&
+                                            !wiredCred?.enabled
+                                          ? "bg-amber-400"
+                                          : "bg-red-400"
+                                    }`}
+                                  />
+                                  {wiredCred.name}
+                                </span>
+                              ) : (
+                                <span className="text-xs text-[--color-text-muted] italic">
+                                  No credential assigned
+                                </span>
+                              )}
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setViewPluginTarget(s)}
+                            >
+                              View
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </motion.div>
+            )}
+
+            {/* ── Users ── */}
+            {activeSection === "users" && (
+              <motion.div
+                key="users"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.15, ease: "easeOut" }}
+                className="space-y-4"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <label className="flex cursor-pointer items-center gap-2 text-sm text-[--color-text-muted]">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-[--color-primary]"
+                      checked={showDisabled}
+                      onChange={(e) => setShowDisabled(e.target.checked)}
+                    />
+                    Show deactivated users
+                  </label>
+                  <Button
+                    iconLeft={<UserPlus size={16} />}
+                    onClick={() => setUserCreateModal(true)}
+                  >
+                    Add User
+                  </Button>
+                </div>
+                <input
+                  className={inputClass}
+                  placeholder="Search by name or email…"
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                />
+                <Table
+                  columns={[
+                    {
+                      key: "email",
+                      label: "Email",
+                      render: (u) => (
+                        <span
+                          className={`font-medium ${u.enabled === false ? "text-[--color-text-muted] line-through" : "text-[--color-text-strong]"}`}
+                        >
+                          {u.email}
+                        </span>
+                      ),
+                    },
+                    {
+                      key: "name",
+                      label: "Name",
+                      render: (u) =>
+                        [u.firstName, u.lastName].filter(Boolean).join(" ") ||
+                        "—",
+                    },
+                    {
+                      key: "role",
+                      label: "Role",
+                      render: (u) => (
+                        <Badge tone={u.role === "admin" ? "info" : "neutral"}>
+                          {u.role}
+                        </Badge>
+                      ),
+                    },
+                    {
+                      key: "status",
+                      label: "Status",
+                      render: (u) => (
+                        <Badge
+                          tone={u.enabled !== false ? "success" : "danger"}
+                        >
+                          {u.enabled !== false
+                            ? u.status || "Confirmed"
+                            : "Deactivated"}
+                        </Badge>
+                      ),
+                    },
+                    {
+                      key: "createdAt",
+                      label: "Created",
+                      render: (u) =>
+                        u.createdAt ? formatDate(u.createdAt) : "—",
+                    },
+                    {
+                      key: "actions",
+                      label: "Actions",
+                      render: (u) => (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setViewUserTarget(u)}
+                        >
+                          Manage
+                        </Button>
+                      ),
+                    },
+                  ]}
+                  data={filteredUsers}
+                  emptyLabel={
+                    usersLoading ? "Loading users…" : "No users found."
+                  }
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
 
-      <AnimatePresence mode="wait" initial={false}>
-        {settingsTab === "credentials" && (
-          <motion.div
-            key="credentials"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.18, ease: "easeOut" }}
-            className="space-y-4"
-          >
-            <div className="rounded-2xl border border-dashed border-[--color-border] bg-[--color-panel] p-12 text-center text-[--color-text-muted]">
-              <p className="text-3xl mb-3">🔑</p>
-              <p className="font-medium text-[--color-text-strong]">
-                Third-Party Integrations
-              </p>
-              <p className="mt-1 text-sm">
-                Manage API credentials for services like IPQS and TrustedForm
-                here. Coming soon.
-              </p>
-            </div>
-          </motion.div>
-        )}
-
-        {settingsTab === "users" && (
-          <motion.div
-            key="users"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.18, ease: "easeOut" }}
-            className="space-y-4"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-[--color-text-muted]">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 accent-[--color-primary]"
-                  checked={showDisabled}
-                  onChange={(e) => setShowDisabled(e.target.checked)}
-                />
-                Show deactivated users
-              </label>
-              <Button
-                iconLeft={<UserPlus size={16} />}
-                onClick={() => setUserCreateModal(true)}
-              >
-                Add User
-              </Button>
-            </div>
-            <input
-              className={inputClass}
-              placeholder="Search by name or email…"
-              value={userSearch}
-              onChange={(e) => setUserSearch(e.target.value)}
-            />
-            <Table
-              columns={[
-                {
-                  key: "email",
-                  label: "Email",
-                  render: (u) => (
-                    <span
-                      className={`font-medium ${u.enabled === false ? "text-[--color-text-muted] line-through" : "text-[--color-text-strong]"}`}
-                    >
-                      {u.email}
-                    </span>
-                  ),
-                },
-                {
-                  key: "name",
-                  label: "Name",
-                  render: (u) =>
-                    [u.firstName, u.lastName].filter(Boolean).join(" ") || "—",
-                },
-                {
-                  key: "role",
-                  label: "Role",
-                  render: (u) => (
-                    <Badge tone={u.role === "admin" ? "info" : "neutral"}>
-                      {u.role}
-                    </Badge>
-                  ),
-                },
-                {
-                  key: "status",
-                  label: "Status",
-                  render: (u) => (
-                    <Badge tone={u.enabled !== false ? "success" : "danger"}>
-                      {u.enabled !== false
-                        ? u.status || "Confirmed"
-                        : "Deactivated"}
-                    </Badge>
-                  ),
-                },
-                {
-                  key: "createdAt",
-                  label: "Created",
-                  render: (u) => (u.createdAt ? formatDate(u.createdAt) : "—"),
-                },
-                {
-                  key: "actions",
-                  label: "Actions",
-                  render: (u) =>
-                    u.enabled === false ? (
-                      // Deactivated user — Re-enable or permanently delete
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          iconLeft={<RotateCcw size={14} />}
-                          onClick={() => onReEnableUser(u)}
-                        >
-                          Re-enable
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="danger"
-                          onClick={() => setDeleteTarget(u)}
-                        >
-                          Delete
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          iconLeft={<UserCog size={14} />}
-                          onClick={() => {
-                            setEditingUser(u);
-                            setUserEditModal(true);
-                          }}
-                        >
-                          Edit
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          iconLeft={<KeyRound size={14} />}
-                          onClick={() => {
-                            setResetPasswordUser(u);
-                            setUserResetModal(true);
-                          }}
-                        >
-                          Reset PW
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="danger"
-                          disabled={u.email === currentUserEmail}
-                          title={
-                            u.email === currentUserEmail
-                              ? "You cannot deactivate your own account"
-                              : undefined
-                          }
-                          onClick={() => {
-                            if (u.email !== currentUserEmail)
-                              setDeleteTarget(u);
-                          }}
-                        >
-                          Deactivate
-                        </Button>
-                      </div>
-                    ),
-                },
-              ]}
-              data={filteredUsers}
-              emptyLabel={usersLoading ? "Loading users…" : "No users found."}
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Modals */}
+      {/* ── User modals ─────────────────────────────────────────────────────── */}
       <CreateUserModal
         isOpen={userCreateModal}
         onClose={() => setUserCreateModal(false)}
         onSubmit={onCreateUser}
       />
-      <EditUserModal
-        user={editingUser}
-        isOpen={userEditModal}
-        onClose={() => {
-          setUserEditModal(false);
-          setEditingUser(null);
-        }}
-        onSubmit={onUpdateUser}
+      <UserDetailModal
+        key={viewUserTarget?.username ?? "view-user"}
+        isOpen={!!viewUserTarget}
+        onClose={() => setViewUserTarget(null)}
+        user={viewUserTarget}
+        currentUserEmail={currentUserEmail}
+        onSuccess={() => refreshUsers()}
       />
-      <ResetPasswordModal
-        user={resetPasswordUser}
-        isOpen={userResetModal}
-        onClose={() => {
-          setUserResetModal(false);
-          setResetPasswordUser(null);
-        }}
-        onSubmit={onResetUserPassword}
+
+      {/* ── Credential modals ────────────────────────────────────────────────── */}
+      <AddCredentialModal
+        isOpen={addCredModal}
+        onClose={() => setAddCredModal(false)}
+        schemas={schemas}
+        onSuccess={() => refreshCreds()}
       />
-      <DeleteConfirmModal
-        isOpen={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={onDeleteUser}
-        entityType="user"
-        entityName={deleteTarget?.email || ""}
-        canHardDelete={true}
+      <CredentialDetailModal
+        key={viewCredTarget?.id ?? "view-cred"}
+        isOpen={!!viewCredTarget}
+        onClose={() => setViewCredTarget(null)}
+        credential={viewCredTarget}
+        schemas={schemas}
+        pluginSettings={pluginSettings}
+        onSuccess={() => refreshCreds()}
+      />
+
+      {/* ── Credential schema modals ─────────────────────────────────────────── */}
+      <AddCredentialSchemaModal
+        isOpen={addSchemaModal}
+        onClose={() => setAddSchemaModal(false)}
+        onSuccess={() => refreshSchemas()}
+      />
+      <CredentialSchemaDetailModal
+        key={viewSchemaTarget?.id ?? "view-schema"}
+        isOpen={!!viewSchemaTarget}
+        onClose={() => setViewSchemaTarget(null)}
+        schema={viewSchemaTarget}
+        linkedCredentials={credentials.filter(
+          (c) => c.provider === viewSchemaTarget?.provider,
+        )}
+        isWiredToPlugin={pluginSettings.some(
+          (ps) => ps.schema_id === viewSchemaTarget?.id,
+        )}
+        onSuccess={() => {
+          refreshSchemas();
+          refreshCreds();
+        }}
+      />
+      <PluginSettingDetailModal
+        key={viewPluginTarget?.id ?? "view-plugin"}
+        isOpen={!!viewPluginTarget}
+        onClose={() => setViewPluginTarget(null)}
+        schema={viewPluginTarget}
+        credentials={credentials}
+        currentSetting={
+          pluginSettings.find((ps) => ps.schema_id === viewPluginTarget?.id) ??
+          null
+        }
+        onSuccess={() => {
+          refreshPluginSettings();
+          refreshCreds();
+        }}
       />
     </motion.section>
   );

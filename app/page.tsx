@@ -18,6 +18,7 @@ import { ClientsView } from "@/components/views/clients-view";
 import { AffiliatesView } from "@/components/views/affiliates-view";
 import { CampaignsView } from "@/components/views/campaigns-view";
 import { SettingsView } from "@/components/views/settings-view";
+import { ToolsView } from "@/components/views/tools-view";
 import { PayloadPreview } from "@/components/payload-preview";
 import { CampaignDetailModal } from "@/components/campaign-detail-modal";
 
@@ -216,6 +217,7 @@ function DashboardContent({
       clients: "Clients",
       affiliates: "Affiliates",
       campaigns: "Campaigns",
+      tools: "Tools",
       settings: "Settings",
     };
     document.title = `LMS | ${labels[active] ?? active}`;
@@ -384,7 +386,7 @@ function DashboardContent({
         const nextTab: CampaignDetailTab =
           sectionParam === "clients" ||
           sectionParam === "affiliates" ||
-          sectionParam === "settings"
+          sectionParam === "integrations"
             ? (sectionParam as any)
             : "overview";
         setCampaignDetailTab(nextTab);
@@ -408,6 +410,7 @@ function DashboardContent({
       clients: "Clients",
       affiliates: "Affiliates",
       campaigns: "Campaigns",
+      tools: "Tools",
       settings: "Settings",
     };
     return map[active] ?? active;
@@ -425,6 +428,8 @@ function DashboardContent({
         return "Create, configure, link clients/affiliates, and manage campaign settings";
       case "settings":
         return "View and manage tenant credential entries";
+      case "tools":
+        return "Access various tools and utilities";
       default:
         return "Review and manage incoming leads";
     }
@@ -625,12 +630,7 @@ function DashboardContent({
 
   const onUpdateCampaignPlugins = async (
     campaignId: string,
-    payload: {
-      duplicate_check?: {
-        enabled?: boolean;
-        criteria?: Array<"phone" | "email">;
-      };
-    },
+    payload: Parameters<typeof updateCampaignPlugins>[1],
   ) => {
     const promise = updateCampaignPlugins(campaignId, payload);
     await toast.promise(promise, {
@@ -795,6 +795,8 @@ function DashboardContent({
               />
             </motion.section>
           )}
+
+          {active === "tools" && <ToolsView />}
 
           {active === "settings" && role !== "admin" ? (
             <motion.section

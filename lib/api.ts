@@ -8,7 +8,9 @@ import type {
   CampaignParticipantStatus,
   CampaignStatus,
   Client,
-  Credential,
+  CredentialRecord,
+  CredentialSchemaRecord,
+  PluginSettingRecord,
   Lead,
   PaginatedResponse,
 } from "./types";
@@ -209,6 +211,15 @@ export async function updateCampaignPlugins(
       enabled?: boolean;
       criteria?: Array<"phone" | "email">;
     };
+    trusted_form?: {
+      enabled?: boolean;
+    };
+    ipqs?: {
+      enabled?: boolean;
+      phone?: { enabled?: boolean; criteria?: Record<string, unknown> };
+      email?: { enabled?: boolean; criteria?: Record<string, unknown> };
+      ip?: { enabled?: boolean; criteria?: Record<string, unknown> };
+    };
   },
 ) {
   const url = `${API_BASE_URL}/campaigns/${id}/plugins`;
@@ -294,25 +305,161 @@ export async function listLeads() {
   return request<PaginatedResponse<Lead>>(url);
 }
 
-// Credentials (tenant config)
-// GET list
-export async function listCredentials() {
-  const url = buildUrl("/tenant-config/credentials");
-  return request<{ success: boolean; data: Credential[] }>(url);
+// ── Credentials (tenant config) ─────────────────────────────────────────────
+
+export async function listCredentials(params?: { provider?: string }) {
+  const url = buildUrl("/tenant-config/credentials", params);
+  return request<{
+    success: boolean;
+    data: { items: CredentialRecord[]; count: number };
+  }>(url);
 }
 
-// PUT upsert (creates or updates by provider)
-export async function upsertCredential(payload: Credential) {
-  const url = `${API_BASE_URL}/tenant-config/credentials`;
-  return request<ApiResponse<Credential>>(url, {
+export async function createCredential(payload: {
+  provider: string;
+  name: string;
+  credential_type: string;
+  credentials: Record<string, string>;
+}) {
+  const url = buildUrl("/tenant-config/credentials");
+  return request<ApiResponse<CredentialRecord>>(url, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateCredential(
+  id: string,
+  payload: {
+    name?: string;
+    type?: string;
+    credentials?: Record<string, string>;
+  },
+) {
+  const url = buildUrl(`/tenant-config/credentials/${encodeURIComponent(id)}`);
+  return request<ApiResponse<CredentialRecord>>(url, {
     method: "PUT",
     body: JSON.stringify(payload),
   });
 }
 
-// DELETE by provider
-export async function deleteCredential(provider: string) {
-  const url = `${API_BASE_URL}/tenant-config/credentials/${encodeURIComponent(provider)}`;
+export async function deleteCredential(id: string) {
+  const url = buildUrl(`/tenant-config/credentials/${encodeURIComponent(id)}`);
+  return request<{ success: boolean; message?: string }>(url, {
+    method: "DELETE",
+  });
+}
+
+export async function disableCredential(id: string) {
+  const url = buildUrl(
+    `/tenant-config/credentials/${encodeURIComponent(id)}/disable`,
+  );
+  return request<{ success: boolean; message?: string }>(url, {
+    method: "PUT",
+  });
+}
+
+export async function enableCredential(id: string) {
+  const url = buildUrl(
+    `/tenant-config/credentials/${encodeURIComponent(id)}/enable`,
+  );
+  return request<{ success: boolean; message?: string }>(url, {
+    method: "PUT",
+  });
+}
+
+// ── Credential Schemas (/tenant-config/credential-schemas) ──────────────────
+
+export async function listCredentialSchemas() {
+  const url = buildUrl("/tenant-config/credential-schemas");
+  return request<{
+    success: boolean;
+    data: { items: CredentialSchemaRecord[]; count: number };
+  }>(url);
+}
+
+export async function createCredentialSchema(payload: {
+  provider: string;
+  name: string;
+  credential_type: string;
+  fields: Array<{
+    name: string;
+    label: string;
+    type: "text" | "password" | "select";
+    required: boolean;
+    placeholder?: string;
+    options?: string[];
+  }>;
+}) {
+  const url = buildUrl("/tenant-config/credential-schemas");
+  return request<ApiResponse<CredentialSchemaRecord>>(url, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateCredentialSchema(
+  id: string,
+  payload: {
+    name?: string;
+    credential_type?: string;
+    fields?: Array<{
+      name: string;
+      label: string;
+      type: "text" | "password" | "select";
+      required: boolean;
+      placeholder?: string;
+      options?: string[];
+    }>;
+  },
+) {
+  const url = buildUrl(
+    `/tenant-config/credential-schemas/${encodeURIComponent(id)}`,
+  );
+  return request<ApiResponse<CredentialSchemaRecord>>(url, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteCredentialSchema(id: string, permanent = false) {
+  const url = buildUrl(
+    `/tenant-config/credential-schemas/${encodeURIComponent(id)}`,
+    permanent ? { permanent: "true" } : undefined,
+  );
+  return request<{ success: boolean; message?: string }>(url, {
+    method: "DELETE",
+  });
+}
+
+// ── Plugin Settings (/tenant-config/plugin-settings) ────────────────────────
+
+export async function listPluginSettings() {
+  const url = buildUrl("/tenant-config/plugin-settings");
+  return request<{
+    success: boolean;
+    data: { items: PluginSettingRecord[]; count: number };
+  }>(url);
+}
+
+export async function setPluginSetting(
+  schemaId: string,
+  payload: { credentials_id: string; enabled?: boolean },
+) {
+  const url = buildUrl(
+    `/tenant-config/plugin-settings/${encodeURIComponent(schemaId)}`,
+  );
+  return request<ApiResponse<PluginSettingRecord>>(url, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deletePluginSetting(schemaId: string, permanent = false) {
+  const url = buildUrl(
+    `/tenant-config/plugin-settings/${encodeURIComponent(schemaId)}`,
+    permanent ? { permanent: "true" } : undefined,
+  );
   return request<{ success: boolean; message?: string }>(url, {
     method: "DELETE",
   });
@@ -390,5 +537,43 @@ export async function enableUser(id: string) {
   const url = `${API_BASE_URL}/users/${encodeURIComponent(id)}/enable`;
   return request<{ success: boolean; message?: string; data?: unknown }>(url, {
     method: "PUT",
+  });
+}
+
+// ─── QA Tools ─────────────────────────────────────────────────────────────────
+
+export async function qaCheckTrustedForm(certId: string) {
+  const url = `${API_BASE_URL}/qa/trusted-form/validate`;
+  return request<{ success: boolean; data?: Record<string, unknown> }>(url, {
+    method: "POST",
+    body: JSON.stringify({ cert_id: certId }),
+  });
+}
+
+export async function qaCheckIpqs(payload: {
+  phone?: string;
+  email?: string;
+  ip_address?: string;
+}) {
+  const url = `${API_BASE_URL}/qa/ipqs/check`;
+  return request<{
+    success: boolean;
+    data?: {
+      success: boolean;
+      phone?: {
+        success: boolean;
+        raw?: Record<string, unknown>;
+        error?: string;
+      };
+      email?: {
+        success: boolean;
+        raw?: Record<string, unknown>;
+        error?: string;
+      };
+      ip?: { success: boolean; raw?: Record<string, unknown>; error?: string };
+    };
+  }>(url, {
+    method: "POST",
+    body: JSON.stringify(payload),
   });
 }

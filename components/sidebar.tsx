@@ -11,6 +11,7 @@ import {
   Home,
   Users2,
   Settings2,
+  Wrench,
 } from "lucide-react";
 import clsx from "clsx";
 import { MountainMark } from "./logo";
@@ -21,6 +22,7 @@ export type NavKey =
   | "clients"
   | "affiliates"
   | "campaigns"
+  | "tools"
   | "settings";
 
 const items: Array<{ key: NavKey; label: string; icon: React.ReactNode }> = [
@@ -29,6 +31,7 @@ const items: Array<{ key: NavKey; label: string; icon: React.ReactNode }> = [
   { key: "clients", label: "Clients", icon: <Users2 size={18} /> },
   { key: "affiliates", label: "Affiliates", icon: <Building2 size={18} /> },
   { key: "campaigns", label: "Campaigns", icon: <BarChart3 size={18} /> },
+  { key: "tools", label: "Tools", icon: <Wrench size={18} /> },
   { key: "settings", label: "Settings", icon: <Settings2 size={18} /> },
 ];
 
