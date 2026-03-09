@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { toast } from "sonner";
@@ -254,20 +254,48 @@ function DashboardContent({
     data: leads = [],
     isLoading: leadsLoading,
     mutate: refreshLeads,
-  } = useSWR<Lead[]>("leads", async () => {
-    try {
-      const res = await listLeads();
-      return (
-        (res as any)?.data?.items ||
-        (res as any)?.data ||
-        (res as any)?.items ||
-        []
-      );
-    } catch (error) {
-      console.warn("Lead listing not available", error);
-      return [] as Lead[];
+  } = useSWR<Lead[]>(
+    "leads",
+    async () => {
+      try {
+        const res = await listLeads();
+        return (
+          (res as any)?.data?.items ||
+          (res as any)?.data ||
+          (res as any)?.items ||
+          []
+        );
+      } catch (error) {
+        console.warn("Lead listing not available", error);
+        return [] as Lead[];
+      }
+    },
+    {
+      // Poll every 15 s so new leads from DynamoDB appear without a manual refresh.
+      refreshInterval: 15_000,
+      revalidateOnFocus: true,
+    },
+  );
+
+  // Notify when new leads arrive after the initial load.
+  const knownLeadIdsRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (leadsLoading) return;
+    const currentIds = new Set(leads.map((l) => l.id));
+    if (knownLeadIdsRef.current === null) {
+      // First successful load — just store the IDs, no toast.
+      knownLeadIdsRef.current = currentIds;
+      return;
     }
-  });
+    const newLeads = leads.filter((l) => !knownLeadIdsRef.current!.has(l.id));
+    if (newLeads.length > 0) {
+      toast.success(
+        `${newLeads.length} new lead${newLeads.length > 1 ? "s" : ""} received`,
+        { id: "new-leads" },
+      );
+    }
+    knownLeadIdsRef.current = currentIds;
+  }, [leads, leadsLoading]);
 
   const {
     data: clients = [],

@@ -39,7 +39,6 @@ import {
   formatDateTime,
   statusColorMap,
   inputClass,
-  resolveDisplayName,
 } from "@/lib/utils";
 import {
   listUsers,
@@ -198,7 +197,6 @@ export function CampaignDetailModal({
   }
   interface IpqsCriterionValid {
     enabled: boolean;
-    required: boolean;
   }
   interface IpqsCriterionCountry {
     enabled: boolean;
@@ -237,7 +235,7 @@ export function CampaignDetailModal({
     phone: {
       enabled: true,
       criteria: {
-        valid: { enabled: true, required: true },
+        valid: { enabled: true },
         fraud_score: { enabled: true, operator: "lte", value: 85 },
         country: { enabled: false, allowed: "" },
       },
@@ -245,7 +243,7 @@ export function CampaignDetailModal({
     email: {
       enabled: true,
       criteria: {
-        valid: { enabled: true, required: true },
+        valid: { enabled: true },
         fraud_score: { enabled: true, operator: "lte", value: 85 },
       },
     },
@@ -313,9 +311,27 @@ export function CampaignDetailModal({
   }, [usersData]);
 
   function resolveChangedBy(
-    changed_by?: { username?: string; email?: string } | null,
+    changed_by?:
+      | string
+      | {
+          username?: string;
+          email?: string;
+          full_name?: string;
+          first_name?: string;
+          last_name?: string;
+        }
+      | null,
   ): string {
     if (!changed_by) return "";
+    // Plain string — try userNameMap first, then return as-is
+    if (typeof changed_by === "string") {
+      return userNameMap.get(changed_by) || changed_by;
+    }
+    // Object — prefer embedded full name, then userNameMap lookup
+    const fullName =
+      changed_by.full_name ||
+      [changed_by.first_name, changed_by.last_name].filter(Boolean).join(" ");
+    if (fullName) return fullName;
     const key = changed_by.email ?? changed_by.username ?? "";
     return (
       userNameMap.get(key) ||
@@ -332,24 +348,29 @@ export function CampaignDetailModal({
       setNameDraft(campaign.name);
       setTitleEditing(false);
       setDuplicateCheckEnabled(
-        campaign.plugins?.duplicate_check?.enabled ?? true,
+        dupCheckGloballyDisabled
+          ? false
+          : campaign.plugins?.duplicate_check?.enabled ?? true,
       );
       setDuplicateCheckCriteria(
         campaign.plugins?.duplicate_check?.criteria?.length
           ? campaign.plugins.duplicate_check.criteria
           : ["phone", "email"],
       );
-      setTrustedFormEnabled(campaign.plugins?.trusted_form?.enabled ?? true);
+      setTrustedFormEnabled(
+        trustedFormGloballyDisabled
+          ? false
+          : campaign.plugins?.trusted_form?.enabled ?? true,
+      );
       // Init IPQS config
       const qi = campaign.plugins?.ipqs;
       setIpqsConfig({
-        enabled: qi?.enabled ?? false,
+        enabled: ipqsGloballyDisabled ? false : qi?.enabled ?? false,
         phone: {
           enabled: qi?.phone?.enabled ?? true,
           criteria: {
             valid: {
               enabled: qi?.phone?.criteria?.valid?.enabled ?? true,
-              required: qi?.phone?.criteria?.valid?.required ?? true,
             },
             fraud_score: {
               enabled: qi?.phone?.criteria?.fraud_score?.enabled ?? true,
@@ -367,7 +388,6 @@ export function CampaignDetailModal({
           criteria: {
             valid: {
               enabled: qi?.email?.criteria?.valid?.enabled ?? true,
-              required: qi?.email?.criteria?.valid?.required ?? true,
             },
             fraud_score: {
               enabled: qi?.email?.criteria?.fraud_score?.enabled ?? true,
@@ -402,7 +422,22 @@ export function CampaignDetailModal({
         },
       });
     }
-  }, [campaign]);
+  }, [campaign]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When a plugin is disabled globally at runtime, force its campaign-level
+  // enabled state off so the toggle reflects the correct value and any
+  // subsequent save persists the disabled state.
+  useEffect(() => {
+    if (dupCheckGloballyDisabled) setDuplicateCheckEnabled(false);
+  }, [dupCheckGloballyDisabled]);
+
+  useEffect(() => {
+    if (trustedFormGloballyDisabled) setTrustedFormEnabled(false);
+  }, [trustedFormGloballyDisabled]);
+
+  useEffect(() => {
+    if (ipqsGloballyDisabled) setIpqsConfig((p) => ({ ...p, enabled: false }));
+  }, [ipqsGloballyDisabled]);
 
   if (!campaign) return null;
 
@@ -671,15 +706,8 @@ export function CampaignDetailModal({
                                         )}
                                         <p className="mt-0.5 text-xs text-[--color-text-muted]">
                                           {formatDateTime(entry.changed_at)}
-                                          {entry.changed_by
-                                            ? ` · by ${
-                                                typeof entry.changed_by ===
-                                                "string"
-                                                  ? entry.changed_by
-                                                  : resolveChangedBy(
-                                                      entry.changed_by,
-                                                    )
-                                              }`
+                                          {resolveChangedBy(entry.changed_by)
+                                            ? ` · by ${resolveChangedBy(entry.changed_by)}`
                                             : ""}
                                         </p>
                                       </div>
@@ -857,7 +885,7 @@ export function CampaignDetailModal({
                                               Created By
                                             </p>
                                             <p className="font-medium text-[--color-text-strong]">
-                                              {resolveDisplayName(
+                                              {resolveChangedBy(
                                                 c.created_by,
                                               ) || "—"}
                                             </p>
@@ -872,13 +900,13 @@ export function CampaignDetailModal({
                                                 : "—"}
                                             </p>
                                           </div>
-                                          {resolveDisplayName(c.updated_by) ? (
+                                          {resolveChangedBy(c.updated_by) ? (
                                             <div>
                                               <p className="uppercase tracking-wide text-[--color-text-muted] mb-1">
                                                 Updated By
                                               </p>
                                               <p className="font-medium text-[--color-text-strong]">
-                                                {resolveDisplayName(
+                                                {resolveChangedBy(
                                                   c.updated_by,
                                                 )}
                                               </p>
@@ -1192,7 +1220,7 @@ export function CampaignDetailModal({
                                               Created By
                                             </p>
                                             <p className="font-medium text-[--color-text-strong]">
-                                              {resolveDisplayName(
+                                              {resolveChangedBy(
                                                 a.created_by,
                                               ) || "—"}
                                             </p>
@@ -1207,13 +1235,13 @@ export function CampaignDetailModal({
                                                 : "—"}
                                             </p>
                                           </div>
-                                          {resolveDisplayName(a.updated_by) ? (
+                                          {resolveChangedBy(a.updated_by) ? (
                                             <div>
                                               <p className="uppercase tracking-wide text-[--color-text-muted] mb-1">
                                                 Updated By
                                               </p>
                                               <p className="font-medium text-[--color-text-strong]">
-                                                {resolveDisplayName(
+                                                {resolveChangedBy(
                                                   a.updated_by,
                                                 )}
                                               </p>
@@ -1653,37 +1681,6 @@ export function CampaignDetailModal({
                                             <span className="w-20 text-[--color-text-muted]">
                                               Valid
                                             </span>
-                                            {ipqsConfig.phone.criteria.valid
-                                              .enabled && (
-                                              <label className="flex items-center gap-1.5 text-[--color-text-muted]">
-                                                <input
-                                                  type="checkbox"
-                                                  className="h-3.5 w-3.5 accent-[--color-primary]"
-                                                  checked={
-                                                    ipqsConfig.phone.criteria
-                                                      .valid.required
-                                                  }
-                                                  onChange={(e) =>
-                                                    setIpqsConfig((p) => ({
-                                                      ...p,
-                                                      phone: {
-                                                        ...p.phone,
-                                                        criteria: {
-                                                          ...p.phone.criteria,
-                                                          valid: {
-                                                            ...p.phone.criteria
-                                                              .valid,
-                                                            required:
-                                                              e.target.checked,
-                                                          },
-                                                        },
-                                                      },
-                                                    }))
-                                                  }
-                                                />
-                                                Required
-                                              </label>
-                                            )}
                                           </div>
                                           {/* fraud_score */}
                                           <div className="flex flex-wrap items-center gap-3 text-xs">
@@ -1934,37 +1931,6 @@ export function CampaignDetailModal({
                                             <span className="w-20 text-[--color-text-muted]">
                                               Valid
                                             </span>
-                                            {ipqsConfig.email.criteria.valid
-                                              .enabled && (
-                                              <label className="flex items-center gap-1.5 text-[--color-text-muted]">
-                                                <input
-                                                  type="checkbox"
-                                                  className="h-3.5 w-3.5 accent-[--color-primary]"
-                                                  checked={
-                                                    ipqsConfig.email.criteria
-                                                      .valid.required
-                                                  }
-                                                  onChange={(e) =>
-                                                    setIpqsConfig((p) => ({
-                                                      ...p,
-                                                      email: {
-                                                        ...p.email,
-                                                        criteria: {
-                                                          ...p.email.criteria,
-                                                          valid: {
-                                                            ...p.email.criteria
-                                                              .valid,
-                                                            required:
-                                                              e.target.checked,
-                                                          },
-                                                        },
-                                                      },
-                                                    }))
-                                                  }
-                                                />
-                                                Required
-                                              </label>
-                                            )}
                                           </div>
                                           {/* fraud_score */}
                                           <div className="flex flex-wrap items-center gap-3 text-xs">
