@@ -627,7 +627,7 @@ export async function updateCriteriaValueMappings(
   mappings: CriteriaValueMapping[],
 ) {
   const url = buildUrl(
-    `/campaigns/${encodeURIComponent(campaignId)}/criteria/${encodeURIComponent(fieldId)}/value-mappings`,
+    `/campaigns/${encodeURIComponent(campaignId)}/criteria/${encodeURIComponent(fieldId)}/mappings`,
   );
   return request<ApiResponse<CriteriaField>>(url, {
     method: "PUT",

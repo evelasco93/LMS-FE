@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  ArrowLeftRight,
   ArrowRight,
   ChevronDown,
   Copy,
@@ -661,7 +660,7 @@ export function CampaignDetailModal({
           setStatusDraft(campaign.status);
           onClose();
         }}
-        width={900}
+        width={1080}
         bodyClassName="px-5 py-4 max-h-[78vh] overflow-y-auto"
       >
         <div className="space-y-4">
@@ -3392,39 +3391,37 @@ export function CampaignDetailModal({
                       {settingsSubTab === "base-criteria" && (
                         <div className="space-y-4">
                           {/* Header */}
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              {/* UI / JSON toggle */}
-                              <div className="flex overflow-hidden rounded-lg border border-[--color-border] divide-x divide-[--color-border] text-xs">
-                                {(["ui", "json"] as const).map((v) => (
-                                  <button
-                                    key={v}
-                                    type="button"
-                                    onClick={() => setCriteriaView(v)}
-                                    className={`px-3 py-1.5 transition-colors ${
-                                      criteriaView === v
-                                        ? "bg-[--color-primary] text-white"
-                                        : "bg-[--color-bg-muted] text-[--color-text-muted] hover:text-[--color-text]"
-                                    }`}
-                                  >
-                                    {v === "ui" ? "UI" : "JSON"}
-                                  </button>
-                                ))}
-                              </div>
-                              {criteriaView === "ui" && (
-                                <Button
-                                  size="sm"
-                                  iconLeft={<Plus size={14} />}
-                                  onClick={() => {
-                                    setFieldDraft(emptyFieldDraft);
-                                    setEditFieldData(null);
-                                    setAddFieldOpen(true);
-                                  }}
+                          <div className="flex items-center justify-end gap-2">
+                            {/* Editor / JSON toggle */}
+                            <div className="flex overflow-hidden rounded-lg border border-[--color-border] divide-x divide-[--color-border] text-xs">
+                              {(["ui", "json"] as const).map((v) => (
+                                <button
+                                  key={v}
+                                  type="button"
+                                  onClick={() => setCriteriaView(v)}
+                                  className={`px-3 py-1.5 transition-colors ${
+                                    criteriaView === v
+                                      ? "bg-[--color-primary] text-white"
+                                      : "bg-[--color-bg-muted] text-[--color-text-muted] hover:text-[--color-text]"
+                                  }`}
                                 >
-                                  Add Field
-                                </Button>
-                              )}
+                                  {v === "ui" ? "Editor" : "JSON"}
+                                </button>
+                              ))}
                             </div>
+                            {criteriaView === "ui" && (
+                              <Button
+                                size="sm"
+                                iconLeft={<Plus size={14} />}
+                                onClick={() => {
+                                  setFieldDraft(emptyFieldDraft);
+                                  setEditFieldData(null);
+                                  setAddFieldOpen(true);
+                                }}
+                              >
+                                Add Field
+                              </Button>
+                            )}
                           </div>
 
                           {criteriaLoading ? (
@@ -3461,11 +3458,14 @@ export function CampaignDetailModal({
                                       <th className="px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
                                         Field Name
                                       </th>
-                                      <th className="px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
+                                      <th className="w-28 px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted] whitespace-nowrap">
                                         Data Type
                                       </th>
                                       <th className="w-20 px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
                                         Required
+                                      </th>
+                                      <th className="w-20 px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
+                                        Mappings
                                       </th>
                                       <th className="w-20 px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
                                         Actions
@@ -3532,18 +3532,10 @@ export function CampaignDetailModal({
                                               List
                                             </button>
                                           ) : (
-                                            <span className="rounded-md border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs text-[--color-text-muted]">
+                                            <span className="rounded-md border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs text-[--color-text-muted] whitespace-nowrap">
                                               {CRITERIA_TYPE_LABELS[
                                                 field.data_type
                                               ] ?? field.data_type}
-                                            </span>
-                                          )}
-                                          {field.state_mapping && (
-                                            <span className="ml-1.5 rounded-md border border-blue-500/30 bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-medium text-blue-500">
-                                              {field.state_mapping ===
-                                              "abbr_to_name"
-                                                ? "abbr → name"
-                                                : "name → abbr"}
                                             </span>
                                           )}
                                         </td>
@@ -3555,6 +3547,36 @@ export function CampaignDetailModal({
                                                 : "bg-[--color-border]"
                                             }`}
                                           />
+                                        </td>
+                                        <td className="px-4 py-3">
+                                          <button
+                                            type="button"
+                                            title="Edit value mappings"
+                                            onClick={() => {
+                                              setValueMappingsField(field);
+                                              setValueMappingsStateDraft(
+                                                field.state_mapping ?? null,
+                                              );
+                                              setValueMappingsDraft(
+                                                (
+                                                  field.value_mappings ?? []
+                                                ).map((m) => ({
+                                                  fromText: m.from.join(", "),
+                                                  to: m.to,
+                                                })),
+                                              );
+                                            }}
+                                          >
+                                            <span
+                                              className={`inline-block h-2.5 w-2.5 rounded-full transition-colors ${
+                                                (field.value_mappings ?? [])
+                                                  .length > 0 ||
+                                                field.state_mapping
+                                                  ? "bg-green-500"
+                                                  : "bg-[--color-border] hover:bg-[--color-text-muted]"
+                                              }`}
+                                            />
+                                          </button>
                                         </td>
                                         <td className="px-4 py-3">
                                           <div className="flex items-center gap-3">
@@ -3580,27 +3602,6 @@ export function CampaignDetailModal({
                                               className="text-[--color-text-muted] transition-colors hover:text-[--color-primary]"
                                             >
                                               <Pencil size={13} />
-                                            </button>
-                                            <button
-                                              type="button"
-                                              title="Value mappings"
-                                              onClick={() => {
-                                                setValueMappingsField(field);
-                                                setValueMappingsStateDraft(
-                                                  field.state_mapping ?? null,
-                                                );
-                                                setValueMappingsDraft(
-                                                  (
-                                                    field.value_mappings ?? []
-                                                  ).map((m) => ({
-                                                    fromText: m.from.join(", "),
-                                                    to: m.to,
-                                                  })),
-                                                );
-                                              }}
-                                              className="text-[--color-text-muted] transition-colors hover:text-[--color-primary]"
-                                            >
-                                              <ArrowLeftRight size={13} />
                                             </button>
                                             <button
                                               type="button"
