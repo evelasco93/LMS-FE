@@ -6,7 +6,8 @@ export type CampaignDetailTab =
   | "overview"
   | "clients"
   | "affiliates"
-  | "integrations";
+  | "integrations"
+  | "settings";
 
 /** Identity of the user who performed an action (matches RequestActor schema). */
 export interface RequestActor {
@@ -101,9 +102,14 @@ export interface Campaign {
     };
     trusted_form?: {
       enabled?: boolean;
+      stage?: number;
+      gate?: boolean;
+      claim?: boolean;
     };
     ipqs?: {
       enabled?: boolean;
+      stage?: number;
+      gate?: boolean;
       phone?: {
         enabled?: boolean;
         criteria?: {
@@ -222,6 +228,10 @@ export interface Lead {
   rejection_reason?: string | null;
   trusted_form_result?: TrustedFormResult | null;
   ipqs_result?: IpqsResult | null;
+  pipeline_halted?: boolean;
+  halt_stage?: number;
+  halt_plugin?: string;
+  halt_reason?: string;
   created_at?: string;
   updated_at?: string;
   created_by?: string;
@@ -339,4 +349,40 @@ export interface CognitoUser {
   role: UserRole;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export type CriteriaFieldType =
+  | "Text"
+  | "Number"
+  | "Boolean"
+  | "Date"
+  | "List"
+  | "US State";
+
+export interface CriteriaValueMapping {
+  from: string[];
+  to: string;
+}
+
+export interface CriteriaFieldOption {
+  label: string;
+  value: string;
+}
+
+export interface CriteriaField {
+  id: string;
+  campaign_id: string;
+  field_label: string;
+  field_name: string;
+  data_type: CriteriaFieldType;
+  required: boolean;
+  order?: number;
+  description?: string;
+  options?: CriteriaFieldOption[];
+  value_mappings?: CriteriaValueMapping[];
+  state_mapping?: "abbr_to_name" | "name_to_abbr" | null;
+  client_override?: boolean;
+  affiliate_override?: boolean;
+  created_at?: string;
+  updated_at?: string;
 }

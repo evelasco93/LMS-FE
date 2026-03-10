@@ -414,8 +414,9 @@ function DashboardContent({
         const nextTab: CampaignDetailTab =
           sectionParam === "clients" ||
           sectionParam === "affiliates" ||
-          sectionParam === "integrations"
-            ? (sectionParam as any)
+          sectionParam === "integrations" ||
+          sectionParam === "settings"
+            ? (sectionParam as CampaignDetailTab)
             : "overview";
         setCampaignDetailTab(nextTab);
         setFocusedAffiliateId(searchParams?.get("affiliate") || null);
@@ -763,7 +764,13 @@ function DashboardContent({
                 isLoading={leadsLoading}
                 onOpenCampaign={openCampaign}
                 renderPayloadPreview={(lead, allLeads) => (
-                  <PayloadPreview lead={lead} allLeads={allLeads} />
+                  <PayloadPreview
+                    lead={lead}
+                    allLeads={allLeads}
+                    campaignPlugins={
+                      campaigns.find((c) => c.id === lead.campaign_id)?.plugins
+                    }
+                  />
                 )}
               />
             </motion.section>

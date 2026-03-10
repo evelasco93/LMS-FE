@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  ArrowLeftRight,
   ArrowRight,
   ChevronDown,
   Copy,
   HandHeart,
+  Settings2,
   Info,
   KeyRound,
   LayoutGrid,
@@ -16,6 +18,7 @@ import {
   Plug,
   Plus,
   RotateCcw,
+  Trash2,
   Users,
   UserPlus,
   X,
@@ -35,21 +38,26 @@ import {
   LinkClientModal,
   LinkAffiliateModal,
 } from "@/components/modals/entity-modals";
-import {
-  formatDateTime,
-  statusColorMap,
-  inputClass,
-} from "@/lib/utils";
+import { formatDateTime, statusColorMap, inputClass } from "@/lib/utils";
 import {
   listUsers,
   listPluginSettings,
   listCredentialSchemas,
+  listCriteria,
+  createCriteriaField,
+  updateCriteriaField,
+  deleteCriteriaField,
+  updateCriteriaValueMappings,
 } from "@/lib/api";
 import type {
   Affiliate,
   Campaign,
   Client,
   CognitoUser,
+  CriteriaField,
+  CriteriaFieldOption,
+  CriteriaFieldType,
+  CriteriaValueMapping,
   CredentialSchemaRecord,
   Lead,
   PluginSettingRecord,
@@ -107,9 +115,14 @@ export function CampaignDetailModal({
       };
       trusted_form?: {
         enabled?: boolean;
+        stage?: number;
+        gate?: boolean;
+        claim?: boolean;
       };
       ipqs?: {
         enabled?: boolean;
+        stage?: number;
+        gate?: boolean;
         phone?: { enabled?: boolean; criteria?: Record<string, unknown> };
         email?: { enabled?: boolean; criteria?: Record<string, unknown> };
         ip?: { enabled?: boolean; criteria?: Record<string, unknown> };
@@ -188,6 +201,76 @@ export function CampaignDetailModal({
     Array<"phone" | "email">
   >(["phone", "email"]);
   const [trustedFormEnabled, setTrustedFormEnabled] = useState(true);
+  const [trustedFormGate, setTrustedFormGate] = useState(true);
+  const [trustedFormClaim, setTrustedFormClaim] = useState(false);
+  const [ipqsGate, setIpqsGate] = useState(true);
+  const [tfStep, setTfStep] = useState(2);
+  const [ipqsStep, setIpqsStep] = useState(3);
+  const [tfStepEditing, setTfStepEditing] = useState(false);
+  const [ipqsStepEditing, setIpqsStepEditing] = useState(false);
+
+  // ── Settings tab ─────────────────────────────────────────────────────────
+  const [settingsSubTab, setSettingsSubTab] =
+    useState<"base-criteria">("base-criteria");
+  const [criteriaView, setCriteriaView] = useState<"ui" | "json">("ui");
+  const [addFieldOpen, setAddFieldOpen] = useState(false);
+  const [editFieldData, setEditFieldData] = useState<CriteriaField | null>(
+    null,
+  );
+  const [listMappingsField, setListMappingsField] =
+    useState<CriteriaField | null>(null);
+  const [listMappingsDraft, setListMappingsDraft] = useState<
+    CriteriaFieldOption[]
+  >([]);
+  const [listMappingsSaving, setListMappingsSaving] = useState(false);
+  // value mappings modal
+  const [valueMappingsField, setValueMappingsField] =
+    useState<CriteriaField | null>(null);
+  const [valueMappingsDraft, setValueMappingsDraft] = useState<
+    { fromText: string; to: string }[]
+  >([]);
+  const [valueMappingsStateDraft, setValueMappingsStateDraft] = useState<
+    "abbr_to_name" | "name_to_abbr" | null
+  >(null);
+  const [valueMappingsSaving, setValueMappingsSaving] = useState(false);
+  // options list editor tabs
+  const [optionsTab, setOptionsTab] = useState<"manual" | "bulk">("manual");
+  const [optionsBulkText, setOptionsBulkText] = useState("");
+  const [deleteFieldTarget, setDeleteFieldTarget] =
+    useState<CriteriaField | null>(null);
+  const [deletingField, setDeletingField] = useState(false);
+  const emptyFieldDraft = {
+    field_label: "",
+    field_name: "",
+    data_type: "Text" as CriteriaFieldType,
+    required: true,
+    description: "",
+    state_mapping: null as "abbr_to_name" | "name_to_abbr" | null,
+    options: [] as CriteriaFieldOption[],
+  };
+  const [fieldDraft, setFieldDraft] = useState<{
+    field_label: string;
+    field_name: string;
+    data_type: CriteriaFieldType;
+    required: boolean;
+    description: string;
+    state_mapping: "abbr_to_name" | "name_to_abbr" | null;
+    options: CriteriaFieldOption[];
+  }>(emptyFieldDraft);
+  const [fieldSaving, setFieldSaving] = useState(false);
+
+  const [localClientLinks, setLocalClientLinks] = useState<
+    NonNullable<Campaign["clients"]>
+  >(campaign?.clients ?? []);
+  const [localAffiliateLinks, setLocalAffiliateLinks] = useState<
+    NonNullable<Campaign["affiliates"]>
+  >(campaign?.affiliates ?? []);
+
+  const [dupCheckOpen, setDupCheckOpen] = useState(false);
+  const [trustedFormOpen, setTrustedFormOpen] = useState(false);
+  const [ipqsOpen, setIpqsOpen] = useState(false);
+  const [integrationsDirty, setIntegrationsDirty] = useState(false);
+  const pluginsInitRef = useRef(false);
 
   // ── IPQS config state ────────────────────────────────────────────────────
   interface IpqsCriterionFraud {
@@ -286,6 +369,18 @@ export function CampaignDetailModal({
   const globalPluginSettings: PluginSettingRecord[] =
     globalPluginSettingsData ?? [];
 
+  const {
+    data: criteriaData,
+    mutate: refreshCriteria,
+    isLoading: criteriaLoading,
+  } = useSWR(
+    isOpen && campaign?.id && tab === "settings"
+      ? `criteria-${campaign.id}`
+      : null,
+    () => listCriteria(campaign!.id),
+  );
+  const criteriaFields: CriteriaField[] = (criteriaData as any)?.data ?? [];
+
   const getGlobalPluginDisabled = (provider: string): boolean => {
     const schema = globalSchemas.find((s) => s.provider === provider);
     if (!schema) return false;
@@ -344,13 +439,18 @@ export function CampaignDetailModal({
 
   useEffect(() => {
     if (campaign) {
+      setIntegrationsDirty(false);
+      pluginsInitRef.current = false;
+      setDupCheckOpen(false);
+      setTrustedFormOpen(false);
+      setIpqsOpen(false);
       setStatusDraft(campaign.status);
       setNameDraft(campaign.name);
       setTitleEditing(false);
       setDuplicateCheckEnabled(
         dupCheckGloballyDisabled
           ? false
-          : campaign.plugins?.duplicate_check?.enabled ?? true,
+          : (campaign.plugins?.duplicate_check?.enabled ?? true),
       );
       setDuplicateCheckCriteria(
         campaign.plugins?.duplicate_check?.criteria?.length
@@ -360,12 +460,21 @@ export function CampaignDetailModal({
       setTrustedFormEnabled(
         trustedFormGloballyDisabled
           ? false
-          : campaign.plugins?.trusted_form?.enabled ?? true,
+          : (campaign.plugins?.trusted_form?.enabled ?? true),
       );
+      setTrustedFormGate(campaign.plugins?.trusted_form?.gate ?? true);
+      setTrustedFormClaim(campaign.plugins?.trusted_form?.claim ?? false);
+      setIpqsGate(campaign.plugins?.ipqs?.gate ?? true);
+      setTfStep(campaign.plugins?.trusted_form?.stage ?? 2);
+      setIpqsStep(campaign.plugins?.ipqs?.stage ?? 3);
+      setTfStepEditing(false);
+      setIpqsStepEditing(false);
+      setLocalClientLinks(campaign.clients ?? []);
+      setLocalAffiliateLinks(campaign.affiliates ?? []);
       // Init IPQS config
       const qi = campaign.plugins?.ipqs;
       setIpqsConfig({
-        enabled: ipqsGloballyDisabled ? false : qi?.enabled ?? false,
+        enabled: ipqsGloballyDisabled ? false : (qi?.enabled ?? false),
         phone: {
           enabled: qi?.phone?.enabled ?? true,
           criteria: {
@@ -439,7 +548,35 @@ export function CampaignDetailModal({
     if (ipqsGloballyDisabled) setIpqsConfig((p) => ({ ...p, enabled: false }));
   }, [ipqsGloballyDisabled]);
 
+  // Mark integrations dirty whenever any plugin state changes after initial load.
+  useEffect(() => {
+    if (!pluginsInitRef.current) {
+      pluginsInitRef.current = true;
+      return;
+    }
+    setIntegrationsDirty(true);
+  }, [
+    duplicateCheckEnabled,
+    duplicateCheckCriteria,
+    trustedFormEnabled,
+    trustedFormGate,
+    trustedFormClaim,
+    ipqsGate,
+    tfStep,
+    ipqsStep,
+    ipqsConfig,
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!campaign) return null;
+
+  const CRITERIA_TYPE_LABELS: Record<CriteriaFieldType, string> = {
+    Text: "Text",
+    Number: "Number",
+    Date: "Date",
+    List: "List",
+    "US State": "US State",
+    Boolean: "Boolean",
+  };
 
   const saveTitleEdit = async () => {
     const nameChanged = nameDraft.trim() && nameDraft.trim() !== campaign.name;
@@ -458,8 +595,8 @@ export function CampaignDetailModal({
     }
   };
 
-  const clientLinks = campaign.clients || [];
-  const affiliateLinks = campaign.affiliates || [];
+  const clientLinks = localClientLinks;
+  const affiliateLinks = localAffiliateLinks;
   const clientLinkMap = new Map(clientLinks.map((cc) => [cc.client_id, cc]));
   const affiliateLinkMap = new Map(
     affiliateLinks.map((ca) => [ca.affiliate_id, ca]),
@@ -536,6 +673,7 @@ export function CampaignDetailModal({
                   { key: "clients", label: "Clients", icon: Users },
                   { key: "affiliates", label: "Affiliates", icon: HandHeart },
                   { key: "integrations", label: "Integrations", icon: Plug },
+                  { key: "settings", label: "Settings", icon: Settings2 },
                 ] as const
               ).map((item) => {
                 const Icon = item.icon || Link2;
@@ -885,9 +1023,8 @@ export function CampaignDetailModal({
                                               Created By
                                             </p>
                                             <p className="font-medium text-[--color-text-strong]">
-                                              {resolveChangedBy(
-                                                c.created_by,
-                                              ) || "—"}
+                                              {resolveChangedBy(c.created_by) ||
+                                                "—"}
                                             </p>
                                           </div>
                                           <div>
@@ -906,9 +1043,7 @@ export function CampaignDetailModal({
                                                 Updated By
                                               </p>
                                               <p className="font-medium text-[--color-text-strong]">
-                                                {resolveChangedBy(
-                                                  c.updated_by,
-                                                )}
+                                                {resolveChangedBy(c.updated_by)}
                                               </p>
                                             </div>
                                           ) : null}
@@ -1220,9 +1355,8 @@ export function CampaignDetailModal({
                                               Created By
                                             </p>
                                             <p className="font-medium text-[--color-text-strong]">
-                                              {resolveChangedBy(
-                                                a.created_by,
-                                              ) || "—"}
+                                              {resolveChangedBy(a.created_by) ||
+                                                "—"}
                                             </p>
                                           </div>
                                           <div>
@@ -1241,9 +1375,7 @@ export function CampaignDetailModal({
                                                 Updated By
                                               </p>
                                               <p className="font-medium text-[--color-text-strong]">
-                                                {resolveChangedBy(
-                                                  a.updated_by,
-                                                )}
+                                                {resolveChangedBy(a.updated_by)}
                                               </p>
                                             </div>
                                           ) : null}
@@ -1388,16 +1520,29 @@ export function CampaignDetailModal({
                   {tab === "integrations" && (
                     <div className="space-y-3">
                       {/* Duplicate Check card */}
-                      <div className="rounded-xl border border-[--color-border] bg-[--color-bg-muted] p-4 space-y-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
+                      <div className="rounded-xl border border-[--color-border] bg-[--color-bg-muted] p-4">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setDupCheckOpen((v) => !v)}
+                            className="flex-1 flex items-center gap-2 text-left min-w-0"
+                          >
+                            <motion.span
+                              animate={{ rotate: dupCheckOpen ? 90 : 0 }}
+                              transition={{ duration: 0.15 }}
+                              className="shrink-0 text-[--color-text-muted]"
+                            >
+                              <ChevronDown className="h-3.5 w-3.5" />
+                            </motion.span>
                             <p className="text-sm font-semibold text-[--color-text-strong]">
                               Duplicate Check
                             </p>
-                            <p className="text-xs text-[--color-text-muted] mt-0.5">
-                              Detect duplicates by matching lead payload fields.
-                            </p>
-                          </div>
+                          </button>
+                          <HoverTooltip message="Duplicate check always runs first — it cannot be reordered">
+                            <span className="rounded border border-[--color-border] bg-[--color-bg] px-1.5 py-0.5 text-[10px] font-mono text-[--color-text-muted] cursor-help">
+                              Step 1
+                            </span>
+                          </HoverTooltip>
                           <DisabledTooltip
                             message={
                               dupCheckGloballyDisabled
@@ -1439,943 +1584,61 @@ export function CampaignDetailModal({
                           </DisabledTooltip>
                         </div>
 
-                        <div className="space-y-2">
-                          <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
-                            Matching Criteria
-                          </p>
-                          <div className="flex flex-wrap gap-4">
-                            {(["phone", "email"] as const).map((criterion) => {
-                              const checked =
-                                duplicateCheckCriteria.includes(criterion);
-                              return (
-                                <label
-                                  key={criterion}
-                                  className="flex items-center gap-2 text-sm text-[--color-text]"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    className="h-4 w-4 accent-[--color-primary]"
-                                    checked={checked}
-                                    onChange={(e) => {
-                                      setDuplicateCheckCriteria((prev) => {
-                                        if (e.target.checked) {
-                                          return prev.includes(criterion)
-                                            ? prev
-                                            : [...prev, criterion];
-                                        }
-                                        return prev.filter(
-                                          (item) => item !== criterion,
-                                        );
-                                      });
-                                    }}
-                                  />
-                                  <span className="capitalize">
-                                    {criterion}
-                                  </span>
-                                </label>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* TrustedForm card */}
-                      <div className="rounded-xl border border-[--color-border] bg-[--color-bg-muted] p-4">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-semibold text-[--color-text-strong]">
-                              TrustedForm
-                            </p>
-                            <p className="text-xs text-[--color-text-muted] mt-0.5">
-                              Validate TrustedForm certificates on incoming
-                              leads for this campaign.
-                            </p>
-                          </div>
-                          <DisabledTooltip
-                            message={
-                              trustedFormGloballyDisabled
-                                ? "Globally disabled by admin"
-                                : ""
-                            }
-                            inline
-                          >
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={
-                                trustedFormGloballyDisabled
-                                  ? false
-                                  : trustedFormEnabled
-                              }
-                              disabled={trustedFormGloballyDisabled}
-                              onClick={() =>
-                                !trustedFormGloballyDisabled &&
-                                setTrustedFormEnabled((prev) => !prev)
-                              }
-                              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition ${
-                                trustedFormGloballyDisabled
-                                  ? "opacity-40 cursor-not-allowed bg-[--color-border]"
-                                  : trustedFormEnabled
-                                    ? "bg-[--color-primary]"
-                                    : "bg-[--color-border]"
-                              }`}
-                            >
-                              <span
-                                className={`inline-block h-5 w-5 transform rounded-full bg-[--color-bg] transition ${
-                                  !trustedFormGloballyDisabled &&
-                                  trustedFormEnabled
-                                    ? "translate-x-5"
-                                    : "translate-x-1"
-                                }`}
-                              />
-                            </button>
-                          </DisabledTooltip>
-                        </div>
-                      </div>
-
-                      {/* IPQS card */}
-                      <div className="rounded-xl border border-[--color-border] bg-[--color-bg-muted] p-4 space-y-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-semibold text-[--color-text-strong]">
-                              IPQualityScore (IPQS)
-                            </p>
-                            <p className="text-xs text-[--color-text-muted] mt-0.5">
-                              Fraud and quality scoring on phone, email, and IP
-                              for incoming leads.
-                            </p>
-                          </div>
-                          <DisabledTooltip
-                            message={
-                              ipqsGloballyDisabled
-                                ? "Globally disabled by admin"
-                                : ""
-                            }
-                            inline
-                          >
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={
-                                ipqsGloballyDisabled
-                                  ? false
-                                  : ipqsConfig.enabled
-                              }
-                              disabled={ipqsGloballyDisabled}
-                              onClick={() =>
-                                !ipqsGloballyDisabled &&
-                                setIpqsConfig((p) => ({
-                                  ...p,
-                                  enabled: !p.enabled,
-                                }))
-                              }
-                              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition ${
-                                ipqsGloballyDisabled
-                                  ? "opacity-40 cursor-not-allowed bg-[--color-border]"
-                                  : ipqsConfig.enabled
-                                    ? "bg-[--color-primary]"
-                                    : "bg-[--color-border]"
-                              }`}
-                            >
-                              <span
-                                className={`inline-block h-5 w-5 transform rounded-full bg-[--color-bg] transition ${
-                                  !ipqsGloballyDisabled && ipqsConfig.enabled
-                                    ? "translate-x-5"
-                                    : "translate-x-1"
-                                }`}
-                              />
-                            </button>
-                          </DisabledTooltip>
-                        </div>
-
                         <AnimatePresence initial={false}>
-                          {!ipqsGloballyDisabled && ipqsConfig.enabled && (
+                          {dupCheckOpen && (
                             <motion.div
-                              key="ipqs-subs"
+                              key="dupcheck-details"
                               initial={{ height: 0, opacity: 0 }}
                               animate={{ height: "auto", opacity: 1 }}
                               exit={{ height: 0, opacity: 0 }}
-                              transition={{ duration: 0.2, ease: "easeInOut" }}
+                              transition={{ duration: 0.18, ease: "easeInOut" }}
                               style={{ overflow: "hidden" }}
                             >
-                              <div className="pt-2 space-y-2 border-t border-[--color-border]">
-                                {/* ── Phone sub-check ── */}
-                                <div className="rounded-lg border border-[--color-border] bg-[--color-bg] overflow-hidden">
-                                  <div className="flex items-center justify-between px-3 py-2 gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        setIpqsPhoneOpen((v) => !v)
-                                      }
-                                      className="flex items-center gap-1.5 text-sm font-medium text-[--color-text] hover:text-[--color-primary] transition-colors"
-                                    >
-                                      <motion.span
-                                        animate={{
-                                          rotate: ipqsPhoneOpen ? 90 : 0,
-                                        }}
-                                        transition={{ duration: 0.15 }}
-                                        className="text-[10px] text-[--color-text-muted]"
-                                      >
-                                        ▶
-                                      </motion.span>
-                                      Phone
-                                    </button>
-                                    <button
-                                      type="button"
-                                      role="switch"
-                                      aria-checked={ipqsConfig.phone.enabled}
-                                      onClick={() =>
-                                        setIpqsConfig((p) => ({
-                                          ...p,
-                                          phone: {
-                                            ...p.phone,
-                                            enabled: !p.phone.enabled,
-                                          },
-                                        }))
-                                      }
-                                      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition ${ipqsConfig.phone.enabled ? "bg-[--color-primary]" : "bg-[--color-border]"}`}
-                                    >
-                                      <span
-                                        className={`inline-block h-4 w-4 transform rounded-full bg-[--color-bg] transition ${ipqsConfig.phone.enabled ? "translate-x-4" : "translate-x-0.5"}`}
-                                      />
-                                    </button>
-                                  </div>
-                                  <AnimatePresence initial={false}>
-                                    {ipqsPhoneOpen && (
-                                      <motion.div
-                                        key="phone-criteria"
-                                        initial={{ height: 0 }}
-                                        animate={{ height: "auto" }}
-                                        exit={{ height: 0 }}
-                                        transition={{ duration: 0.18 }}
-                                        style={{ overflow: "hidden" }}
-                                      >
-                                        <div className="px-3 pb-3 space-y-2.5 border-t border-[--color-border] pt-2.5">
-                                          {/* valid */}
-                                          <div className="flex flex-wrap items-center gap-3 text-xs">
-                                            <input
-                                              type="checkbox"
-                                              className="h-3.5 w-3.5 accent-[--color-primary]"
-                                              checked={
-                                                ipqsConfig.phone.criteria.valid
-                                                  .enabled
-                                              }
-                                              onChange={(e) =>
-                                                setIpqsConfig((p) => ({
-                                                  ...p,
-                                                  phone: {
-                                                    ...p.phone,
-                                                    criteria: {
-                                                      ...p.phone.criteria,
-                                                      valid: {
-                                                        ...p.phone.criteria
-                                                          .valid,
-                                                        enabled:
-                                                          e.target.checked,
-                                                      },
-                                                    },
-                                                  },
-                                                }))
-                                              }
-                                            />
-                                            <span className="w-20 text-[--color-text-muted]">
-                                              Valid
-                                            </span>
-                                          </div>
-                                          {/* fraud_score */}
-                                          <div className="flex flex-wrap items-center gap-3 text-xs">
-                                            <input
-                                              type="checkbox"
-                                              className="h-3.5 w-3.5 accent-[--color-primary]"
-                                              checked={
-                                                ipqsConfig.phone.criteria
-                                                  .fraud_score.enabled
-                                              }
-                                              onChange={(e) =>
-                                                setIpqsConfig((p) => ({
-                                                  ...p,
-                                                  phone: {
-                                                    ...p.phone,
-                                                    criteria: {
-                                                      ...p.phone.criteria,
-                                                      fraud_score: {
-                                                        ...p.phone.criteria
-                                                          .fraud_score,
-                                                        enabled:
-                                                          e.target.checked,
-                                                      },
-                                                    },
-                                                  },
-                                                }))
-                                              }
-                                            />
-                                            <span className="w-20 text-[--color-text-muted]">
-                                              Fraud Score
-                                            </span>
-                                            {ipqsConfig.phone.criteria
-                                              .fraud_score.enabled && (
-                                              <>
-                                                <select
-                                                  className="rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
-                                                  value={
-                                                    ipqsConfig.phone.criteria
-                                                      .fraud_score.operator
+                              <div className="mt-3 pt-3 border-t border-[--color-border] space-y-2">
+                                <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+                                  Matching Criteria
+                                </p>
+                                <div className="flex flex-wrap gap-4">
+                                  {(["phone", "email"] as const).map(
+                                    (criterion) => {
+                                      const checked =
+                                        duplicateCheckCriteria.includes(
+                                          criterion,
+                                        );
+                                      return (
+                                        <label
+                                          key={criterion}
+                                          className="flex items-center gap-2 text-sm text-[--color-text]"
+                                        >
+                                          <input
+                                            type="checkbox"
+                                            className="h-4 w-4 accent-[--color-primary]"
+                                            checked={checked}
+                                            onChange={(e) => {
+                                              setDuplicateCheckCriteria(
+                                                (prev) => {
+                                                  if (e.target.checked) {
+                                                    return prev.includes(
+                                                      criterion,
+                                                    )
+                                                      ? prev
+                                                      : [...prev, criterion];
                                                   }
-                                                  onChange={(e) =>
-                                                    setIpqsConfig((p) => ({
-                                                      ...p,
-                                                      phone: {
-                                                        ...p.phone,
-                                                        criteria: {
-                                                          ...p.phone.criteria,
-                                                          fraud_score: {
-                                                            ...p.phone.criteria
-                                                              .fraud_score,
-                                                            operator: e.target
-                                                              .value as
-                                                              | "lte"
-                                                              | "gte"
-                                                              | "eq",
-                                                          },
-                                                        },
-                                                      },
-                                                    }))
-                                                  }
-                                                >
-                                                  <option value="lte">
-                                                    ≤ (lte)
-                                                  </option>
-                                                  <option value="gte">
-                                                    ≥ (gte)
-                                                  </option>
-                                                  <option value="eq">
-                                                    = (eq)
-                                                  </option>
-                                                </select>
-                                                <input
-                                                  type="number"
-                                                  min={0}
-                                                  max={100}
-                                                  className="w-16 rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
-                                                  value={
-                                                    ipqsConfig.phone.criteria
-                                                      .fraud_score.value
-                                                  }
-                                                  onChange={(e) =>
-                                                    setIpqsConfig((p) => ({
-                                                      ...p,
-                                                      phone: {
-                                                        ...p.phone,
-                                                        criteria: {
-                                                          ...p.phone.criteria,
-                                                          fraud_score: {
-                                                            ...p.phone.criteria
-                                                              .fraud_score,
-                                                            value: Number(
-                                                              e.target.value,
-                                                            ),
-                                                          },
-                                                        },
-                                                      },
-                                                    }))
-                                                  }
-                                                />
-                                              </>
-                                            )}
-                                          </div>
-                                          {/* country */}
-                                          <div className="flex flex-wrap items-center gap-3 text-xs">
-                                            <input
-                                              type="checkbox"
-                                              className="h-3.5 w-3.5 accent-[--color-primary]"
-                                              checked={
-                                                ipqsConfig.phone.criteria
-                                                  .country.enabled
-                                              }
-                                              onChange={(e) =>
-                                                setIpqsConfig((p) => ({
-                                                  ...p,
-                                                  phone: {
-                                                    ...p.phone,
-                                                    criteria: {
-                                                      ...p.phone.criteria,
-                                                      country: {
-                                                        ...p.phone.criteria
-                                                          .country,
-                                                        enabled:
-                                                          e.target.checked,
-                                                      },
-                                                    },
-                                                  },
-                                                }))
-                                              }
-                                            />
-                                            <span className="w-20 text-[--color-text-muted]">
-                                              Country
-                                            </span>
-                                            {ipqsConfig.phone.criteria.country
-                                              .enabled && (
-                                              <input
-                                                type="text"
-                                                placeholder="US, CA, GB…"
-                                                className="flex-1 min-w-0 rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
-                                                value={
-                                                  ipqsConfig.phone.criteria
-                                                    .country.allowed
-                                                }
-                                                onChange={(e) =>
-                                                  setIpqsConfig((p) => ({
-                                                    ...p,
-                                                    phone: {
-                                                      ...p.phone,
-                                                      criteria: {
-                                                        ...p.phone.criteria,
-                                                        country: {
-                                                          ...p.phone.criteria
-                                                            .country,
-                                                          allowed:
-                                                            e.target.value,
-                                                        },
-                                                      },
-                                                    },
-                                                  }))
-                                                }
-                                              />
-                                            )}
-                                          </div>
-                                        </div>
-                                      </motion.div>
-                                    )}
-                                  </AnimatePresence>
-                                </div>
-
-                                {/* ── Email sub-check ── */}
-                                <div className="rounded-lg border border-[--color-border] bg-[--color-bg] overflow-hidden">
-                                  <div className="flex items-center justify-between px-3 py-2 gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        setIpqsEmailOpen((v) => !v)
-                                      }
-                                      className="flex items-center gap-1.5 text-sm font-medium text-[--color-text] hover:text-[--color-primary] transition-colors"
-                                    >
-                                      <motion.span
-                                        animate={{
-                                          rotate: ipqsEmailOpen ? 90 : 0,
-                                        }}
-                                        transition={{ duration: 0.15 }}
-                                        className="text-[10px] text-[--color-text-muted]"
-                                      >
-                                        ▶
-                                      </motion.span>
-                                      Email
-                                    </button>
-                                    <button
-                                      type="button"
-                                      role="switch"
-                                      aria-checked={ipqsConfig.email.enabled}
-                                      onClick={() =>
-                                        setIpqsConfig((p) => ({
-                                          ...p,
-                                          email: {
-                                            ...p.email,
-                                            enabled: !p.email.enabled,
-                                          },
-                                        }))
-                                      }
-                                      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition ${ipqsConfig.email.enabled ? "bg-[--color-primary]" : "bg-[--color-border]"}`}
-                                    >
-                                      <span
-                                        className={`inline-block h-4 w-4 transform rounded-full bg-[--color-bg] transition ${ipqsConfig.email.enabled ? "translate-x-4" : "translate-x-0.5"}`}
-                                      />
-                                    </button>
-                                  </div>
-                                  <AnimatePresence initial={false}>
-                                    {ipqsEmailOpen && (
-                                      <motion.div
-                                        key="email-criteria"
-                                        initial={{ height: 0 }}
-                                        animate={{ height: "auto" }}
-                                        exit={{ height: 0 }}
-                                        transition={{ duration: 0.18 }}
-                                        style={{ overflow: "hidden" }}
-                                      >
-                                        <div className="px-3 pb-3 space-y-2.5 border-t border-[--color-border] pt-2.5">
-                                          {/* valid */}
-                                          <div className="flex flex-wrap items-center gap-3 text-xs">
-                                            <input
-                                              type="checkbox"
-                                              className="h-3.5 w-3.5 accent-[--color-primary]"
-                                              checked={
-                                                ipqsConfig.email.criteria.valid
-                                                  .enabled
-                                              }
-                                              onChange={(e) =>
-                                                setIpqsConfig((p) => ({
-                                                  ...p,
-                                                  email: {
-                                                    ...p.email,
-                                                    criteria: {
-                                                      ...p.email.criteria,
-                                                      valid: {
-                                                        ...p.email.criteria
-                                                          .valid,
-                                                        enabled:
-                                                          e.target.checked,
-                                                      },
-                                                    },
-                                                  },
-                                                }))
-                                              }
-                                            />
-                                            <span className="w-20 text-[--color-text-muted]">
-                                              Valid
-                                            </span>
-                                          </div>
-                                          {/* fraud_score */}
-                                          <div className="flex flex-wrap items-center gap-3 text-xs">
-                                            <input
-                                              type="checkbox"
-                                              className="h-3.5 w-3.5 accent-[--color-primary]"
-                                              checked={
-                                                ipqsConfig.email.criteria
-                                                  .fraud_score.enabled
-                                              }
-                                              onChange={(e) =>
-                                                setIpqsConfig((p) => ({
-                                                  ...p,
-                                                  email: {
-                                                    ...p.email,
-                                                    criteria: {
-                                                      ...p.email.criteria,
-                                                      fraud_score: {
-                                                        ...p.email.criteria
-                                                          .fraud_score,
-                                                        enabled:
-                                                          e.target.checked,
-                                                      },
-                                                    },
-                                                  },
-                                                }))
-                                              }
-                                            />
-                                            <span className="w-20 text-[--color-text-muted]">
-                                              Fraud Score
-                                            </span>
-                                            {ipqsConfig.email.criteria
-                                              .fraud_score.enabled && (
-                                              <>
-                                                <select
-                                                  className="rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
-                                                  value={
-                                                    ipqsConfig.email.criteria
-                                                      .fraud_score.operator
-                                                  }
-                                                  onChange={(e) =>
-                                                    setIpqsConfig((p) => ({
-                                                      ...p,
-                                                      email: {
-                                                        ...p.email,
-                                                        criteria: {
-                                                          ...p.email.criteria,
-                                                          fraud_score: {
-                                                            ...p.email.criteria
-                                                              .fraud_score,
-                                                            operator: e.target
-                                                              .value as
-                                                              | "lte"
-                                                              | "gte"
-                                                              | "eq",
-                                                          },
-                                                        },
-                                                      },
-                                                    }))
-                                                  }
-                                                >
-                                                  <option value="lte">
-                                                    ≤ (lte)
-                                                  </option>
-                                                  <option value="gte">
-                                                    ≥ (gte)
-                                                  </option>
-                                                  <option value="eq">
-                                                    = (eq)
-                                                  </option>
-                                                </select>
-                                                <input
-                                                  type="number"
-                                                  min={0}
-                                                  max={100}
-                                                  className="w-16 rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
-                                                  value={
-                                                    ipqsConfig.email.criteria
-                                                      .fraud_score.value
-                                                  }
-                                                  onChange={(e) =>
-                                                    setIpqsConfig((p) => ({
-                                                      ...p,
-                                                      email: {
-                                                        ...p.email,
-                                                        criteria: {
-                                                          ...p.email.criteria,
-                                                          fraud_score: {
-                                                            ...p.email.criteria
-                                                              .fraud_score,
-                                                            value: Number(
-                                                              e.target.value,
-                                                            ),
-                                                          },
-                                                        },
-                                                      },
-                                                    }))
-                                                  }
-                                                />
-                                              </>
-                                            )}
-                                          </div>
-                                        </div>
-                                      </motion.div>
-                                    )}
-                                  </AnimatePresence>
-                                </div>
-
-                                {/* ── IP sub-check ── */}
-                                <div className="rounded-lg border border-[--color-border] bg-[--color-bg] overflow-hidden">
-                                  <div className="flex items-center justify-between px-3 py-2 gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={() => setIpqsIpOpen((v) => !v)}
-                                      className="flex items-center gap-1.5 text-sm font-medium text-[--color-text] hover:text-[--color-primary] transition-colors"
-                                    >
-                                      <motion.span
-                                        animate={{
-                                          rotate: ipqsIpOpen ? 90 : 0,
-                                        }}
-                                        transition={{ duration: 0.15 }}
-                                        className="text-[10px] text-[--color-text-muted]"
-                                      >
-                                        ▶
-                                      </motion.span>
-                                      IP Address
-                                    </button>
-                                    <button
-                                      type="button"
-                                      role="switch"
-                                      aria-checked={ipqsConfig.ip.enabled}
-                                      onClick={() =>
-                                        setIpqsConfig((p) => ({
-                                          ...p,
-                                          ip: {
-                                            ...p.ip,
-                                            enabled: !p.ip.enabled,
-                                          },
-                                        }))
-                                      }
-                                      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition ${ipqsConfig.ip.enabled ? "bg-[--color-primary]" : "bg-[--color-border]"}`}
-                                    >
-                                      <span
-                                        className={`inline-block h-4 w-4 transform rounded-full bg-[--color-bg] transition ${ipqsConfig.ip.enabled ? "translate-x-4" : "translate-x-0.5"}`}
-                                      />
-                                    </button>
-                                  </div>
-                                  <AnimatePresence initial={false}>
-                                    {ipqsIpOpen && (
-                                      <motion.div
-                                        key="ip-criteria"
-                                        initial={{ height: 0 }}
-                                        animate={{ height: "auto" }}
-                                        exit={{ height: 0 }}
-                                        transition={{ duration: 0.18 }}
-                                        style={{ overflow: "hidden" }}
-                                      >
-                                        <div className="px-3 pb-3 space-y-2.5 border-t border-[--color-border] pt-2.5">
-                                          {/* fraud_score */}
-                                          <div className="flex flex-wrap items-center gap-3 text-xs">
-                                            <input
-                                              type="checkbox"
-                                              className="h-3.5 w-3.5 accent-[--color-primary]"
-                                              checked={
-                                                ipqsConfig.ip.criteria
-                                                  .fraud_score.enabled
-                                              }
-                                              onChange={(e) =>
-                                                setIpqsConfig((p) => ({
-                                                  ...p,
-                                                  ip: {
-                                                    ...p.ip,
-                                                    criteria: {
-                                                      ...p.ip.criteria,
-                                                      fraud_score: {
-                                                        ...p.ip.criteria
-                                                          .fraud_score,
-                                                        enabled:
-                                                          e.target.checked,
-                                                      },
-                                                    },
-                                                  },
-                                                }))
-                                              }
-                                            />
-                                            <span className="w-20 text-[--color-text-muted]">
-                                              Fraud Score
-                                            </span>
-                                            {ipqsConfig.ip.criteria.fraud_score
-                                              .enabled && (
-                                              <>
-                                                <select
-                                                  className="rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
-                                                  value={
-                                                    ipqsConfig.ip.criteria
-                                                      .fraud_score.operator
-                                                  }
-                                                  onChange={(e) =>
-                                                    setIpqsConfig((p) => ({
-                                                      ...p,
-                                                      ip: {
-                                                        ...p.ip,
-                                                        criteria: {
-                                                          ...p.ip.criteria,
-                                                          fraud_score: {
-                                                            ...p.ip.criteria
-                                                              .fraud_score,
-                                                            operator: e.target
-                                                              .value as
-                                                              | "lte"
-                                                              | "gte"
-                                                              | "eq",
-                                                          },
-                                                        },
-                                                      },
-                                                    }))
-                                                  }
-                                                >
-                                                  <option value="lte">
-                                                    ≤ (lte)
-                                                  </option>
-                                                  <option value="gte">
-                                                    ≥ (gte)
-                                                  </option>
-                                                  <option value="eq">
-                                                    = (eq)
-                                                  </option>
-                                                </select>
-                                                <input
-                                                  type="number"
-                                                  min={0}
-                                                  max={100}
-                                                  className="w-16 rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
-                                                  value={
-                                                    ipqsConfig.ip.criteria
-                                                      .fraud_score.value
-                                                  }
-                                                  onChange={(e) =>
-                                                    setIpqsConfig((p) => ({
-                                                      ...p,
-                                                      ip: {
-                                                        ...p.ip,
-                                                        criteria: {
-                                                          ...p.ip.criteria,
-                                                          fraud_score: {
-                                                            ...p.ip.criteria
-                                                              .fraud_score,
-                                                            value: Number(
-                                                              e.target.value,
-                                                            ),
-                                                          },
-                                                        },
-                                                      },
-                                                    }))
-                                                  }
-                                                />
-                                              </>
-                                            )}
-                                          </div>
-                                          {/* country_code */}
-                                          <div className="flex flex-wrap items-center gap-3 text-xs">
-                                            <input
-                                              type="checkbox"
-                                              className="h-3.5 w-3.5 accent-[--color-primary]"
-                                              checked={
-                                                ipqsConfig.ip.criteria
-                                                  .country_code.enabled
-                                              }
-                                              onChange={(e) =>
-                                                setIpqsConfig((p) => ({
-                                                  ...p,
-                                                  ip: {
-                                                    ...p.ip,
-                                                    criteria: {
-                                                      ...p.ip.criteria,
-                                                      country_code: {
-                                                        ...p.ip.criteria
-                                                          .country_code,
-                                                        enabled:
-                                                          e.target.checked,
-                                                      },
-                                                    },
-                                                  },
-                                                }))
-                                              }
-                                            />
-                                            <span className="w-20 text-[--color-text-muted]">
-                                              Country
-                                            </span>
-                                            {ipqsConfig.ip.criteria.country_code
-                                              .enabled && (
-                                              <input
-                                                type="text"
-                                                placeholder="US, CA, GB…"
-                                                className="flex-1 min-w-0 rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
-                                                value={
-                                                  ipqsConfig.ip.criteria
-                                                    .country_code.allowed
-                                                }
-                                                onChange={(e) =>
-                                                  setIpqsConfig((p) => ({
-                                                    ...p,
-                                                    ip: {
-                                                      ...p.ip,
-                                                      criteria: {
-                                                        ...p.ip.criteria,
-                                                        country_code: {
-                                                          ...p.ip.criteria
-                                                            .country_code,
-                                                          allowed:
-                                                            e.target.value,
-                                                        },
-                                                      },
-                                                    },
-                                                  }))
-                                                }
-                                              />
-                                            )}
-                                          </div>
-                                          {/* proxy */}
-                                          <div className="flex flex-wrap items-center gap-3 text-xs">
-                                            <input
-                                              type="checkbox"
-                                              className="h-3.5 w-3.5 accent-[--color-primary]"
-                                              checked={
-                                                ipqsConfig.ip.criteria.proxy
-                                                  .enabled
-                                              }
-                                              onChange={(e) =>
-                                                setIpqsConfig((p) => ({
-                                                  ...p,
-                                                  ip: {
-                                                    ...p.ip,
-                                                    criteria: {
-                                                      ...p.ip.criteria,
-                                                      proxy: {
-                                                        ...p.ip.criteria.proxy,
-                                                        enabled:
-                                                          e.target.checked,
-                                                      },
-                                                    },
-                                                  },
-                                                }))
-                                              }
-                                            />
-                                            <span className="w-20 text-[--color-text-muted]">
-                                              Proxy
-                                            </span>
-                                            {ipqsConfig.ip.criteria.proxy
-                                              .enabled && (
-                                              <label className="flex items-center gap-1.5 text-[--color-text-muted]">
-                                                <input
-                                                  type="checkbox"
-                                                  className="h-3.5 w-3.5 accent-[--color-primary]"
-                                                  checked={
-                                                    ipqsConfig.ip.criteria.proxy
-                                                      .allowed
-                                                  }
-                                                  onChange={(e) =>
-                                                    setIpqsConfig((p) => ({
-                                                      ...p,
-                                                      ip: {
-                                                        ...p.ip,
-                                                        criteria: {
-                                                          ...p.ip.criteria,
-                                                          proxy: {
-                                                            ...p.ip.criteria
-                                                              .proxy,
-                                                            allowed:
-                                                              e.target.checked,
-                                                          },
-                                                        },
-                                                      },
-                                                    }))
-                                                  }
-                                                />
-                                                Allow proxies
-                                              </label>
-                                            )}
-                                          </div>
-                                          {/* vpn */}
-                                          <div className="flex flex-wrap items-center gap-3 text-xs">
-                                            <input
-                                              type="checkbox"
-                                              className="h-3.5 w-3.5 accent-[--color-primary]"
-                                              checked={
-                                                ipqsConfig.ip.criteria.vpn
-                                                  .enabled
-                                              }
-                                              onChange={(e) =>
-                                                setIpqsConfig((p) => ({
-                                                  ...p,
-                                                  ip: {
-                                                    ...p.ip,
-                                                    criteria: {
-                                                      ...p.ip.criteria,
-                                                      vpn: {
-                                                        ...p.ip.criteria.vpn,
-                                                        enabled:
-                                                          e.target.checked,
-                                                      },
-                                                    },
-                                                  },
-                                                }))
-                                              }
-                                            />
-                                            <span className="w-20 text-[--color-text-muted]">
-                                              VPN
-                                            </span>
-                                            {ipqsConfig.ip.criteria.vpn
-                                              .enabled && (
-                                              <label className="flex items-center gap-1.5 text-[--color-text-muted]">
-                                                <input
-                                                  type="checkbox"
-                                                  className="h-3.5 w-3.5 accent-[--color-primary]"
-                                                  checked={
-                                                    ipqsConfig.ip.criteria.vpn
-                                                      .allowed
-                                                  }
-                                                  onChange={(e) =>
-                                                    setIpqsConfig((p) => ({
-                                                      ...p,
-                                                      ip: {
-                                                        ...p.ip,
-                                                        criteria: {
-                                                          ...p.ip.criteria,
-                                                          vpn: {
-                                                            ...p.ip.criteria
-                                                              .vpn,
-                                                            allowed:
-                                                              e.target.checked,
-                                                          },
-                                                        },
-                                                      },
-                                                    }))
-                                                  }
-                                                />
-                                                Allow VPNs
-                                              </label>
-                                            )}
-                                          </div>
-                                        </div>
-                                      </motion.div>
-                                    )}
-                                  </AnimatePresence>
+                                                  return prev.filter(
+                                                    (item) =>
+                                                      item !== criterion,
+                                                  );
+                                                },
+                                              );
+                                            }}
+                                          />
+                                          <span className="capitalize">
+                                            {criterion}
+                                          </span>
+                                        </label>
+                                      );
+                                    },
+                                  )}
                                 </div>
                               </div>
                             </motion.div>
@@ -2383,85 +1646,1651 @@ export function CampaignDetailModal({
                         </AnimatePresence>
                       </div>
 
-                      {/* Save button — outside all cards */}
-                      <div className="flex justify-end">
-                        <Button
-                          size="sm"
-                          onClick={async () => {
-                            if (
-                              !dupCheckGloballyDisabled &&
-                              duplicateCheckEnabled &&
-                              duplicateCheckCriteria.length === 0
-                            ) {
-                              toast.warning(
-                                "Select at least one criterion (phone or email) when duplicate check is enabled.",
-                              );
-                              return;
-                            }
-                            await onUpdatePlugins(campaign.id, {
-                              duplicate_check: {
-                                enabled: dupCheckGloballyDisabled
-                                  ? false
-                                  : duplicateCheckEnabled,
-                                criteria: duplicateCheckCriteria,
-                              },
-                              trusted_form: {
-                                enabled: trustedFormGloballyDisabled
-                                  ? false
-                                  : trustedFormEnabled,
-                              },
-                              ipqs: {
-                                enabled: ipqsGloballyDisabled
-                                  ? false
-                                  : ipqsConfig.enabled,
-                                phone: {
-                                  enabled: ipqsConfig.phone.enabled,
-                                  criteria: {
-                                    valid: ipqsConfig.phone.criteria.valid,
-                                    fraud_score:
-                                      ipqsConfig.phone.criteria.fraud_score,
-                                    country: {
-                                      enabled:
-                                        ipqsConfig.phone.criteria.country
-                                          .enabled,
-                                      allowed:
-                                        ipqsConfig.phone.criteria.country.allowed
-                                          .split(",")
-                                          .map((s) => s.trim())
-                                          .filter(Boolean),
-                                    },
-                                  },
-                                },
-                                email: {
-                                  enabled: ipqsConfig.email.enabled,
-                                  criteria: ipqsConfig.email.criteria,
-                                },
-                                ip: {
-                                  enabled: ipqsConfig.ip.enabled,
-                                  criteria: {
-                                    fraud_score:
-                                      ipqsConfig.ip.criteria.fraud_score,
-                                    country_code: {
-                                      enabled:
-                                        ipqsConfig.ip.criteria.country_code
-                                          .enabled,
-                                      allowed:
-                                        ipqsConfig.ip.criteria.country_code.allowed
-                                          .split(",")
-                                          .map((s) => s.trim())
-                                          .filter(Boolean),
-                                    },
-                                    proxy: ipqsConfig.ip.criteria.proxy,
-                                    vpn: ipqsConfig.ip.criteria.vpn,
-                                  },
-                                },
-                              },
-                            });
-                          }}
-                        >
-                          Save Integrations
-                        </Button>
+                      {/* Non-duplicate plugins */}
+                      <div className="flex flex-col gap-3">
+                        {/* Plugins — sorted by step number */}
+                        {(() => {
+                          const tfFirst = tfStep <= ipqsStep;
+                          return (
+                            <>
+                              {/* TrustedForm card */}
+                              <div
+                                style={{ order: tfFirst ? 1 : 3 }}
+                                className="rounded-xl border border-[--color-border] bg-[--color-bg-muted] p-4"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setTrustedFormOpen((v) => !v)
+                                    }
+                                    className="flex-1 flex items-start gap-2 text-left min-w-0"
+                                  >
+                                    <motion.span
+                                      animate={{
+                                        rotate: trustedFormOpen ? 90 : 0,
+                                      }}
+                                      transition={{ duration: 0.15 }}
+                                      className="shrink-0 text-[--color-text-muted] mt-0.5"
+                                    >
+                                      <ChevronDown className="h-3.5 w-3.5" />
+                                    </motion.span>
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-semibold text-[--color-text-strong]">
+                                        TrustedForm
+                                      </p>
+                                    </div>
+                                  </button>
+                                  {tfStepEditing ? (
+                                    <input
+                                      type="number"
+                                      min={2}
+                                      max={99}
+                                      autoFocus
+                                      value={tfStep}
+                                      className="w-12 rounded border border-[--color-primary] bg-[--color-bg] px-1 py-0.5 text-[10px] font-mono text-center text-[--color-text]"
+                                      onChange={(e) =>
+                                        setTfStep(
+                                          Math.max(
+                                            2,
+                                            parseInt(e.target.value, 10) || 2,
+                                          ),
+                                        )
+                                      }
+                                      onBlur={() => setTfStepEditing(false)}
+                                      onKeyDown={(e) => {
+                                        if (
+                                          e.key === "Enter" ||
+                                          e.key === "Escape"
+                                        )
+                                          setTfStepEditing(false);
+                                      }}
+                                      onClick={(e) => e.stopPropagation()}
+                                    />
+                                  ) : (
+                                    <HoverTooltip message="Click to manually set the step number">
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setTfStepEditing(true);
+                                        }}
+                                        className="rounded border border-[--color-border] bg-[--color-bg] px-1.5 py-0.5 text-[10px] font-mono text-[--color-text-muted] hover:border-[--color-primary] hover:text-[--color-primary] transition-colors"
+                                      >
+                                        Step {tfStep}
+                                      </button>
+                                    </HoverTooltip>
+                                  )}
+                                  <DisabledTooltip
+                                    message={
+                                      trustedFormGloballyDisabled
+                                        ? "Globally disabled by admin"
+                                        : ""
+                                    }
+                                    inline
+                                  >
+                                    <button
+                                      type="button"
+                                      role="switch"
+                                      aria-checked={
+                                        trustedFormGloballyDisabled
+                                          ? false
+                                          : trustedFormEnabled
+                                      }
+                                      disabled={trustedFormGloballyDisabled}
+                                      onClick={() =>
+                                        !trustedFormGloballyDisabled &&
+                                        setTrustedFormEnabled((prev) => !prev)
+                                      }
+                                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition ${
+                                        trustedFormGloballyDisabled
+                                          ? "opacity-40 cursor-not-allowed bg-[--color-border]"
+                                          : trustedFormEnabled
+                                            ? "bg-[--color-primary]"
+                                            : "bg-[--color-border]"
+                                      }`}
+                                    >
+                                      <span
+                                        className={`inline-block h-5 w-5 transform rounded-full bg-[--color-bg] transition ${
+                                          !trustedFormGloballyDisabled &&
+                                          trustedFormEnabled
+                                            ? "translate-x-5"
+                                            : "translate-x-1"
+                                        }`}
+                                      />
+                                    </button>
+                                  </DisabledTooltip>
+                                </div>
+                                {/* Reject-on-failure + Claim certificate — collapsed by default */}
+                                <AnimatePresence initial={false}>
+                                  {trustedFormOpen &&
+                                    !trustedFormGloballyDisabled &&
+                                    trustedFormEnabled && (
+                                      <motion.div
+                                        key="tf-details"
+                                        initial={{ height: 0, opacity: 0 }}
+                                        animate={{ height: "auto", opacity: 1 }}
+                                        exit={{ height: 0, opacity: 0 }}
+                                        transition={{
+                                          duration: 0.18,
+                                          ease: "easeInOut",
+                                        }}
+                                        style={{ overflow: "hidden" }}
+                                      >
+                                        <div className="mt-3 pt-3 border-t border-[--color-border] space-y-3">
+                                          <div className="flex items-center gap-1.5 text-xs">
+                                            <HoverTooltip message="When on, a TrustedForm failure rejects the lead. When off, failure is recorded but processing continues.">
+                                              <span className="cursor-help text-[--color-text-muted]">
+                                                Reject on failure
+                                              </span>
+                                            </HoverTooltip>
+                                            <button
+                                              type="button"
+                                              role="switch"
+                                              aria-checked={trustedFormGate}
+                                              onClick={() =>
+                                                setTrustedFormGate(
+                                                  (prev) => !prev,
+                                                )
+                                              }
+                                              className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition ${
+                                                trustedFormGate
+                                                  ? "bg-[--color-primary]"
+                                                  : "bg-[--color-border]"
+                                              }`}
+                                            >
+                                              <span
+                                                className={`inline-block h-4 w-4 transform rounded-full bg-[--color-bg] transition ${
+                                                  trustedFormGate
+                                                    ? "translate-x-4"
+                                                    : "translate-x-0.5"
+                                                }`}
+                                              />
+                                            </button>
+                                            <span className="text-[--color-text-muted]">
+                                              {trustedFormGate ? "On" : "Off"}
+                                            </span>
+                                          </div>
+                                          <div className="flex items-center gap-1.5 text-xs">
+                                            <HoverTooltip message="When on, a successful validation also claims (retains) the certificate with TrustedForm, consuming it. When off, the certificate is only validated.">
+                                              <span className="cursor-help text-[--color-text-muted]">
+                                                Claim certificate
+                                              </span>
+                                            </HoverTooltip>
+                                            <button
+                                              type="button"
+                                              role="switch"
+                                              aria-checked={trustedFormClaim}
+                                              onClick={() =>
+                                                setTrustedFormClaim(
+                                                  (prev) => !prev,
+                                                )
+                                              }
+                                              className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition ${
+                                                trustedFormClaim
+                                                  ? "bg-[--color-primary]"
+                                                  : "bg-[--color-border]"
+                                              }`}
+                                            >
+                                              <span
+                                                className={`inline-block h-4 w-4 transform rounded-full bg-[--color-bg] transition ${
+                                                  trustedFormClaim
+                                                    ? "translate-x-4"
+                                                    : "translate-x-0.5"
+                                                }`}
+                                              />
+                                            </button>
+                                            <span className="text-[--color-text-muted]">
+                                              {trustedFormClaim ? "On" : "Off"}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </motion.div>
+                                    )}
+                                </AnimatePresence>
+                              </div>
+                              {/* Divider between cards — only shown when parallel */}
+                              {tfStep === ipqsStep && (
+                                <div
+                                  style={{ order: 2 }}
+                                  className="flex w-full items-center gap-2 px-3 text-[10px] text-[--color-text-muted]"
+                                >
+                                  <div className="h-px flex-1 border-t border-dashed border-[--color-border]" />
+                                  <span className="flex items-center gap-1 font-medium">
+                                    <LayoutGrid className="h-3 w-3" />
+                                    Parallel
+                                  </span>
+                                  <div className="h-px flex-1 border-t border-dashed border-[--color-border]" />
+                                </div>
+                              )}
+                              {/* IPQS card */}
+                              <div
+                                style={{ order: tfFirst ? 3 : 1 }}
+                                className="rounded-xl border border-[--color-border] bg-[--color-bg-muted] p-4"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setIpqsOpen((v) => !v)}
+                                    className="flex-1 flex items-start gap-2 text-left min-w-0"
+                                  >
+                                    <motion.span
+                                      animate={{ rotate: ipqsOpen ? 90 : 0 }}
+                                      transition={{ duration: 0.15 }}
+                                      className="shrink-0 text-[--color-text-muted] mt-0.5"
+                                    >
+                                      <ChevronDown className="h-3.5 w-3.5" />
+                                    </motion.span>
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-semibold text-[--color-text-strong]">
+                                        IPQualityScore (IPQS)
+                                      </p>
+                                    </div>
+                                  </button>
+                                  {ipqsStepEditing ? (
+                                    <input
+                                      type="number"
+                                      min={2}
+                                      max={99}
+                                      autoFocus
+                                      value={ipqsStep}
+                                      className="w-12 rounded border border-[--color-primary] bg-[--color-bg] px-1 py-0.5 text-[10px] font-mono text-center text-[--color-text]"
+                                      onChange={(e) =>
+                                        setIpqsStep(
+                                          Math.max(
+                                            2,
+                                            parseInt(e.target.value, 10) || 2,
+                                          ),
+                                        )
+                                      }
+                                      onBlur={() => setIpqsStepEditing(false)}
+                                      onKeyDown={(e) => {
+                                        if (
+                                          e.key === "Enter" ||
+                                          e.key === "Escape"
+                                        )
+                                          setIpqsStepEditing(false);
+                                      }}
+                                      onClick={(e) => e.stopPropagation()}
+                                    />
+                                  ) : (
+                                    <HoverTooltip message="Click to manually set the step number">
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setIpqsStepEditing(true);
+                                        }}
+                                        className="rounded border border-[--color-border] bg-[--color-bg] px-1.5 py-0.5 text-[10px] font-mono text-[--color-text-muted] hover:border-[--color-primary] hover:text-[--color-primary] transition-colors"
+                                      >
+                                        Step {ipqsStep}
+                                      </button>
+                                    </HoverTooltip>
+                                  )}
+                                  <DisabledTooltip
+                                    message={
+                                      ipqsGloballyDisabled
+                                        ? "Globally disabled by admin"
+                                        : ""
+                                    }
+                                    inline
+                                  >
+                                    <button
+                                      type="button"
+                                      role="switch"
+                                      aria-checked={
+                                        ipqsGloballyDisabled
+                                          ? false
+                                          : ipqsConfig.enabled
+                                      }
+                                      disabled={ipqsGloballyDisabled}
+                                      onClick={() =>
+                                        !ipqsGloballyDisabled &&
+                                        setIpqsConfig((p) => ({
+                                          ...p,
+                                          enabled: !p.enabled,
+                                        }))
+                                      }
+                                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition ${
+                                        ipqsGloballyDisabled
+                                          ? "opacity-40 cursor-not-allowed bg-[--color-border]"
+                                          : ipqsConfig.enabled
+                                            ? "bg-[--color-primary]"
+                                            : "bg-[--color-border]"
+                                      }`}
+                                    >
+                                      <span
+                                        className={`inline-block h-5 w-5 transform rounded-full bg-[--color-bg] transition ${
+                                          !ipqsGloballyDisabled &&
+                                          ipqsConfig.enabled
+                                            ? "translate-x-5"
+                                            : "translate-x-1"
+                                        }`}
+                                      />
+                                    </button>
+                                  </DisabledTooltip>
+                                </div>
+
+                                {/* Settings — collapsed by default */}
+                                <AnimatePresence initial={false}>
+                                  {ipqsOpen && (
+                                    <motion.div
+                                      key="ipqs-details"
+                                      initial={{ height: 0, opacity: 0 }}
+                                      animate={{ height: "auto", opacity: 1 }}
+                                      exit={{ height: 0, opacity: 0 }}
+                                      transition={{
+                                        duration: 0.18,
+                                        ease: "easeInOut",
+                                      }}
+                                      style={{ overflow: "hidden" }}
+                                    >
+                                      <div className="mt-3 pt-3 border-t border-[--color-border] space-y-3">
+                                        {/* Reject-on-failure — hidden when plugin is disabled */}
+                                        {!ipqsGloballyDisabled &&
+                                          ipqsConfig.enabled && (
+                                            <div className="flex items-center gap-1.5 text-xs">
+                                              <HoverTooltip message="When on, an IPQS failure rejects the lead. When off, failure is recorded but processing continues.">
+                                                <span className="cursor-help text-[--color-text-muted]">
+                                                  Reject on failure
+                                                </span>
+                                              </HoverTooltip>
+                                              <button
+                                                type="button"
+                                                role="switch"
+                                                aria-checked={ipqsGate}
+                                                onClick={() =>
+                                                  setIpqsGate((prev) => !prev)
+                                                }
+                                                className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition ${
+                                                  ipqsGate
+                                                    ? "bg-[--color-primary]"
+                                                    : "bg-[--color-border]"
+                                                }`}
+                                              >
+                                                <span
+                                                  className={`inline-block h-4 w-4 transform rounded-full bg-[--color-bg] transition ${
+                                                    ipqsGate
+                                                      ? "translate-x-4"
+                                                      : "translate-x-0.5"
+                                                  }`}
+                                                />
+                                              </button>
+                                              <span className="text-[--color-text-muted]">
+                                                {ipqsGate ? "On" : "Off"}
+                                              </span>
+                                            </div>
+                                          )}
+
+                                        <AnimatePresence initial={false}>
+                                          {!ipqsGloballyDisabled &&
+                                            ipqsConfig.enabled && (
+                                              <motion.div
+                                                key="ipqs-subs"
+                                                initial={{
+                                                  height: 0,
+                                                  opacity: 0,
+                                                }}
+                                                animate={{
+                                                  height: "auto",
+                                                  opacity: 1,
+                                                }}
+                                                exit={{ height: 0, opacity: 0 }}
+                                                transition={{
+                                                  duration: 0.2,
+                                                  ease: "easeInOut",
+                                                }}
+                                                style={{ overflow: "hidden" }}
+                                              >
+                                                <div className="pt-2 space-y-2 border-t border-[--color-border]">
+                                                  {/* ── Phone sub-check ── */}
+                                                  <div className="rounded-lg border border-[--color-border] bg-[--color-bg] overflow-hidden">
+                                                    <div className="flex items-center justify-between px-3 py-2 gap-2">
+                                                      <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                          setIpqsPhoneOpen(
+                                                            (v) => !v,
+                                                          )
+                                                        }
+                                                        className="flex items-center gap-1.5 text-sm font-medium text-[--color-text] hover:text-[--color-primary] transition-colors"
+                                                      >
+                                                        <motion.span
+                                                          animate={{
+                                                            rotate:
+                                                              ipqsPhoneOpen
+                                                                ? 90
+                                                                : 0,
+                                                          }}
+                                                          transition={{
+                                                            duration: 0.15,
+                                                          }}
+                                                          className="text-[10px] text-[--color-text-muted]"
+                                                        >
+                                                          ▶
+                                                        </motion.span>
+                                                        Phone
+                                                      </button>
+                                                      <button
+                                                        type="button"
+                                                        role="switch"
+                                                        aria-checked={
+                                                          ipqsConfig.phone
+                                                            .enabled
+                                                        }
+                                                        onClick={() =>
+                                                          setIpqsConfig(
+                                                            (p) => ({
+                                                              ...p,
+                                                              phone: {
+                                                                ...p.phone,
+                                                                enabled:
+                                                                  !p.phone
+                                                                    .enabled,
+                                                              },
+                                                            }),
+                                                          )
+                                                        }
+                                                        className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition ${ipqsConfig.phone.enabled ? "bg-[--color-primary]" : "bg-[--color-border]"}`}
+                                                      >
+                                                        <span
+                                                          className={`inline-block h-4 w-4 transform rounded-full bg-[--color-bg] transition ${ipqsConfig.phone.enabled ? "translate-x-4" : "translate-x-0.5"}`}
+                                                        />
+                                                      </button>
+                                                    </div>
+                                                    <AnimatePresence
+                                                      initial={false}
+                                                    >
+                                                      {ipqsPhoneOpen && (
+                                                        <motion.div
+                                                          key="phone-criteria"
+                                                          initial={{
+                                                            height: 0,
+                                                          }}
+                                                          animate={{
+                                                            height: "auto",
+                                                          }}
+                                                          exit={{ height: 0 }}
+                                                          transition={{
+                                                            duration: 0.18,
+                                                          }}
+                                                          style={{
+                                                            overflow: "hidden",
+                                                          }}
+                                                        >
+                                                          <div className="px-3 pb-3 space-y-2.5 border-t border-[--color-border] pt-2.5">
+                                                            {/* valid */}
+                                                            <div className="flex flex-wrap items-center gap-3 text-xs">
+                                                              <input
+                                                                type="checkbox"
+                                                                className="h-3.5 w-3.5 accent-[--color-primary]"
+                                                                checked={
+                                                                  ipqsConfig
+                                                                    .phone
+                                                                    .criteria
+                                                                    .valid
+                                                                    .enabled
+                                                                }
+                                                                onChange={(e) =>
+                                                                  setIpqsConfig(
+                                                                    (p) => ({
+                                                                      ...p,
+                                                                      phone: {
+                                                                        ...p.phone,
+                                                                        criteria:
+                                                                          {
+                                                                            ...p
+                                                                              .phone
+                                                                              .criteria,
+                                                                            valid:
+                                                                              {
+                                                                                ...p
+                                                                                  .phone
+                                                                                  .criteria
+                                                                                  .valid,
+                                                                                enabled:
+                                                                                  e
+                                                                                    .target
+                                                                                    .checked,
+                                                                              },
+                                                                          },
+                                                                      },
+                                                                    }),
+                                                                  )
+                                                                }
+                                                              />
+                                                              <span className="w-20 text-[--color-text-muted]">
+                                                                Valid
+                                                              </span>
+                                                            </div>
+                                                            {/* fraud_score */}
+                                                            <div className="flex flex-wrap items-center gap-3 text-xs">
+                                                              <input
+                                                                type="checkbox"
+                                                                className="h-3.5 w-3.5 accent-[--color-primary]"
+                                                                checked={
+                                                                  ipqsConfig
+                                                                    .phone
+                                                                    .criteria
+                                                                    .fraud_score
+                                                                    .enabled
+                                                                }
+                                                                onChange={(e) =>
+                                                                  setIpqsConfig(
+                                                                    (p) => ({
+                                                                      ...p,
+                                                                      phone: {
+                                                                        ...p.phone,
+                                                                        criteria:
+                                                                          {
+                                                                            ...p
+                                                                              .phone
+                                                                              .criteria,
+                                                                            fraud_score:
+                                                                              {
+                                                                                ...p
+                                                                                  .phone
+                                                                                  .criteria
+                                                                                  .fraud_score,
+                                                                                enabled:
+                                                                                  e
+                                                                                    .target
+                                                                                    .checked,
+                                                                              },
+                                                                          },
+                                                                      },
+                                                                    }),
+                                                                  )
+                                                                }
+                                                              />
+                                                              <span className="w-20 text-[--color-text-muted]">
+                                                                Fraud Score
+                                                              </span>
+                                                              {ipqsConfig.phone
+                                                                .criteria
+                                                                .fraud_score
+                                                                .enabled && (
+                                                                <>
+                                                                  <select
+                                                                    className="rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
+                                                                    value={
+                                                                      ipqsConfig
+                                                                        .phone
+                                                                        .criteria
+                                                                        .fraud_score
+                                                                        .operator
+                                                                    }
+                                                                    onChange={(
+                                                                      e,
+                                                                    ) =>
+                                                                      setIpqsConfig(
+                                                                        (
+                                                                          p,
+                                                                        ) => ({
+                                                                          ...p,
+                                                                          phone:
+                                                                            {
+                                                                              ...p.phone,
+                                                                              criteria:
+                                                                                {
+                                                                                  ...p
+                                                                                    .phone
+                                                                                    .criteria,
+                                                                                  fraud_score:
+                                                                                    {
+                                                                                      ...p
+                                                                                        .phone
+                                                                                        .criteria
+                                                                                        .fraud_score,
+                                                                                      operator:
+                                                                                        e
+                                                                                          .target
+                                                                                          .value as
+                                                                                          | "lte"
+                                                                                          | "gte"
+                                                                                          | "eq",
+                                                                                    },
+                                                                                },
+                                                                            },
+                                                                        }),
+                                                                      )
+                                                                    }
+                                                                  >
+                                                                    <option value="lte">
+                                                                      ≤ (lte)
+                                                                    </option>
+                                                                    <option value="gte">
+                                                                      ≥ (gte)
+                                                                    </option>
+                                                                    <option value="eq">
+                                                                      = (eq)
+                                                                    </option>
+                                                                  </select>
+                                                                  <input
+                                                                    type="number"
+                                                                    min={0}
+                                                                    max={100}
+                                                                    className="w-16 rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
+                                                                    value={
+                                                                      ipqsConfig
+                                                                        .phone
+                                                                        .criteria
+                                                                        .fraud_score
+                                                                        .value
+                                                                    }
+                                                                    onChange={(
+                                                                      e,
+                                                                    ) =>
+                                                                      setIpqsConfig(
+                                                                        (
+                                                                          p,
+                                                                        ) => ({
+                                                                          ...p,
+                                                                          phone:
+                                                                            {
+                                                                              ...p.phone,
+                                                                              criteria:
+                                                                                {
+                                                                                  ...p
+                                                                                    .phone
+                                                                                    .criteria,
+                                                                                  fraud_score:
+                                                                                    {
+                                                                                      ...p
+                                                                                        .phone
+                                                                                        .criteria
+                                                                                        .fraud_score,
+                                                                                      value:
+                                                                                        Number(
+                                                                                          e
+                                                                                            .target
+                                                                                            .value,
+                                                                                        ),
+                                                                                    },
+                                                                                },
+                                                                            },
+                                                                        }),
+                                                                      )
+                                                                    }
+                                                                  />
+                                                                </>
+                                                              )}
+                                                            </div>
+                                                            {/* country */}
+                                                            <div className="flex flex-wrap items-center gap-3 text-xs">
+                                                              <input
+                                                                type="checkbox"
+                                                                className="h-3.5 w-3.5 accent-[--color-primary]"
+                                                                checked={
+                                                                  ipqsConfig
+                                                                    .phone
+                                                                    .criteria
+                                                                    .country
+                                                                    .enabled
+                                                                }
+                                                                onChange={(e) =>
+                                                                  setIpqsConfig(
+                                                                    (p) => ({
+                                                                      ...p,
+                                                                      phone: {
+                                                                        ...p.phone,
+                                                                        criteria:
+                                                                          {
+                                                                            ...p
+                                                                              .phone
+                                                                              .criteria,
+                                                                            country:
+                                                                              {
+                                                                                ...p
+                                                                                  .phone
+                                                                                  .criteria
+                                                                                  .country,
+                                                                                enabled:
+                                                                                  e
+                                                                                    .target
+                                                                                    .checked,
+                                                                              },
+                                                                          },
+                                                                      },
+                                                                    }),
+                                                                  )
+                                                                }
+                                                              />
+                                                              <span className="w-20 text-[--color-text-muted]">
+                                                                Country
+                                                              </span>
+                                                              {ipqsConfig.phone
+                                                                .criteria
+                                                                .country
+                                                                .enabled && (
+                                                                <input
+                                                                  type="text"
+                                                                  placeholder="US, CA, GB…"
+                                                                  className="flex-1 min-w-0 rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
+                                                                  value={
+                                                                    ipqsConfig
+                                                                      .phone
+                                                                      .criteria
+                                                                      .country
+                                                                      .allowed
+                                                                  }
+                                                                  onChange={(
+                                                                    e,
+                                                                  ) =>
+                                                                    setIpqsConfig(
+                                                                      (p) => ({
+                                                                        ...p,
+                                                                        phone: {
+                                                                          ...p.phone,
+                                                                          criteria:
+                                                                            {
+                                                                              ...p
+                                                                                .phone
+                                                                                .criteria,
+                                                                              country:
+                                                                                {
+                                                                                  ...p
+                                                                                    .phone
+                                                                                    .criteria
+                                                                                    .country,
+                                                                                  allowed:
+                                                                                    e
+                                                                                      .target
+                                                                                      .value,
+                                                                                },
+                                                                            },
+                                                                        },
+                                                                      }),
+                                                                    )
+                                                                  }
+                                                                />
+                                                              )}
+                                                            </div>
+                                                          </div>
+                                                        </motion.div>
+                                                      )}
+                                                    </AnimatePresence>
+                                                  </div>
+
+                                                  {/* ── Email sub-check ── */}
+                                                  <div className="rounded-lg border border-[--color-border] bg-[--color-bg] overflow-hidden">
+                                                    <div className="flex items-center justify-between px-3 py-2 gap-2">
+                                                      <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                          setIpqsEmailOpen(
+                                                            (v) => !v,
+                                                          )
+                                                        }
+                                                        className="flex items-center gap-1.5 text-sm font-medium text-[--color-text] hover:text-[--color-primary] transition-colors"
+                                                      >
+                                                        <motion.span
+                                                          animate={{
+                                                            rotate:
+                                                              ipqsEmailOpen
+                                                                ? 90
+                                                                : 0,
+                                                          }}
+                                                          transition={{
+                                                            duration: 0.15,
+                                                          }}
+                                                          className="text-[10px] text-[--color-text-muted]"
+                                                        >
+                                                          ▶
+                                                        </motion.span>
+                                                        Email
+                                                      </button>
+                                                      <button
+                                                        type="button"
+                                                        role="switch"
+                                                        aria-checked={
+                                                          ipqsConfig.email
+                                                            .enabled
+                                                        }
+                                                        onClick={() =>
+                                                          setIpqsConfig(
+                                                            (p) => ({
+                                                              ...p,
+                                                              email: {
+                                                                ...p.email,
+                                                                enabled:
+                                                                  !p.email
+                                                                    .enabled,
+                                                              },
+                                                            }),
+                                                          )
+                                                        }
+                                                        className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition ${ipqsConfig.email.enabled ? "bg-[--color-primary]" : "bg-[--color-border]"}`}
+                                                      >
+                                                        <span
+                                                          className={`inline-block h-4 w-4 transform rounded-full bg-[--color-bg] transition ${ipqsConfig.email.enabled ? "translate-x-4" : "translate-x-0.5"}`}
+                                                        />
+                                                      </button>
+                                                    </div>
+                                                    <AnimatePresence
+                                                      initial={false}
+                                                    >
+                                                      {ipqsEmailOpen && (
+                                                        <motion.div
+                                                          key="email-criteria"
+                                                          initial={{
+                                                            height: 0,
+                                                          }}
+                                                          animate={{
+                                                            height: "auto",
+                                                          }}
+                                                          exit={{ height: 0 }}
+                                                          transition={{
+                                                            duration: 0.18,
+                                                          }}
+                                                          style={{
+                                                            overflow: "hidden",
+                                                          }}
+                                                        >
+                                                          <div className="px-3 pb-3 space-y-2.5 border-t border-[--color-border] pt-2.5">
+                                                            {/* valid */}
+                                                            <div className="flex flex-wrap items-center gap-3 text-xs">
+                                                              <input
+                                                                type="checkbox"
+                                                                className="h-3.5 w-3.5 accent-[--color-primary]"
+                                                                checked={
+                                                                  ipqsConfig
+                                                                    .email
+                                                                    .criteria
+                                                                    .valid
+                                                                    .enabled
+                                                                }
+                                                                onChange={(e) =>
+                                                                  setIpqsConfig(
+                                                                    (p) => ({
+                                                                      ...p,
+                                                                      email: {
+                                                                        ...p.email,
+                                                                        criteria:
+                                                                          {
+                                                                            ...p
+                                                                              .email
+                                                                              .criteria,
+                                                                            valid:
+                                                                              {
+                                                                                ...p
+                                                                                  .email
+                                                                                  .criteria
+                                                                                  .valid,
+                                                                                enabled:
+                                                                                  e
+                                                                                    .target
+                                                                                    .checked,
+                                                                              },
+                                                                          },
+                                                                      },
+                                                                    }),
+                                                                  )
+                                                                }
+                                                              />
+                                                              <span className="w-20 text-[--color-text-muted]">
+                                                                Valid
+                                                              </span>
+                                                            </div>
+                                                            {/* fraud_score */}
+                                                            <div className="flex flex-wrap items-center gap-3 text-xs">
+                                                              <input
+                                                                type="checkbox"
+                                                                className="h-3.5 w-3.5 accent-[--color-primary]"
+                                                                checked={
+                                                                  ipqsConfig
+                                                                    .email
+                                                                    .criteria
+                                                                    .fraud_score
+                                                                    .enabled
+                                                                }
+                                                                onChange={(e) =>
+                                                                  setIpqsConfig(
+                                                                    (p) => ({
+                                                                      ...p,
+                                                                      email: {
+                                                                        ...p.email,
+                                                                        criteria:
+                                                                          {
+                                                                            ...p
+                                                                              .email
+                                                                              .criteria,
+                                                                            fraud_score:
+                                                                              {
+                                                                                ...p
+                                                                                  .email
+                                                                                  .criteria
+                                                                                  .fraud_score,
+                                                                                enabled:
+                                                                                  e
+                                                                                    .target
+                                                                                    .checked,
+                                                                              },
+                                                                          },
+                                                                      },
+                                                                    }),
+                                                                  )
+                                                                }
+                                                              />
+                                                              <span className="w-20 text-[--color-text-muted]">
+                                                                Fraud Score
+                                                              </span>
+                                                              {ipqsConfig.email
+                                                                .criteria
+                                                                .fraud_score
+                                                                .enabled && (
+                                                                <>
+                                                                  <select
+                                                                    className="rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
+                                                                    value={
+                                                                      ipqsConfig
+                                                                        .email
+                                                                        .criteria
+                                                                        .fraud_score
+                                                                        .operator
+                                                                    }
+                                                                    onChange={(
+                                                                      e,
+                                                                    ) =>
+                                                                      setIpqsConfig(
+                                                                        (
+                                                                          p,
+                                                                        ) => ({
+                                                                          ...p,
+                                                                          email:
+                                                                            {
+                                                                              ...p.email,
+                                                                              criteria:
+                                                                                {
+                                                                                  ...p
+                                                                                    .email
+                                                                                    .criteria,
+                                                                                  fraud_score:
+                                                                                    {
+                                                                                      ...p
+                                                                                        .email
+                                                                                        .criteria
+                                                                                        .fraud_score,
+                                                                                      operator:
+                                                                                        e
+                                                                                          .target
+                                                                                          .value as
+                                                                                          | "lte"
+                                                                                          | "gte"
+                                                                                          | "eq",
+                                                                                    },
+                                                                                },
+                                                                            },
+                                                                        }),
+                                                                      )
+                                                                    }
+                                                                  >
+                                                                    <option value="lte">
+                                                                      ≤ (lte)
+                                                                    </option>
+                                                                    <option value="gte">
+                                                                      ≥ (gte)
+                                                                    </option>
+                                                                    <option value="eq">
+                                                                      = (eq)
+                                                                    </option>
+                                                                  </select>
+                                                                  <input
+                                                                    type="number"
+                                                                    min={0}
+                                                                    max={100}
+                                                                    className="w-16 rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
+                                                                    value={
+                                                                      ipqsConfig
+                                                                        .email
+                                                                        .criteria
+                                                                        .fraud_score
+                                                                        .value
+                                                                    }
+                                                                    onChange={(
+                                                                      e,
+                                                                    ) =>
+                                                                      setIpqsConfig(
+                                                                        (
+                                                                          p,
+                                                                        ) => ({
+                                                                          ...p,
+                                                                          email:
+                                                                            {
+                                                                              ...p.email,
+                                                                              criteria:
+                                                                                {
+                                                                                  ...p
+                                                                                    .email
+                                                                                    .criteria,
+                                                                                  fraud_score:
+                                                                                    {
+                                                                                      ...p
+                                                                                        .email
+                                                                                        .criteria
+                                                                                        .fraud_score,
+                                                                                      value:
+                                                                                        Number(
+                                                                                          e
+                                                                                            .target
+                                                                                            .value,
+                                                                                        ),
+                                                                                    },
+                                                                                },
+                                                                            },
+                                                                        }),
+                                                                      )
+                                                                    }
+                                                                  />
+                                                                </>
+                                                              )}
+                                                            </div>
+                                                          </div>
+                                                        </motion.div>
+                                                      )}
+                                                    </AnimatePresence>
+                                                  </div>
+
+                                                  {/* ── IP sub-check ── */}
+                                                  <div className="rounded-lg border border-[--color-border] bg-[--color-bg] overflow-hidden">
+                                                    <div className="flex items-center justify-between px-3 py-2 gap-2">
+                                                      <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                          setIpqsIpOpen(
+                                                            (v) => !v,
+                                                          )
+                                                        }
+                                                        className="flex items-center gap-1.5 text-sm font-medium text-[--color-text] hover:text-[--color-primary] transition-colors"
+                                                      >
+                                                        <motion.span
+                                                          animate={{
+                                                            rotate: ipqsIpOpen
+                                                              ? 90
+                                                              : 0,
+                                                          }}
+                                                          transition={{
+                                                            duration: 0.15,
+                                                          }}
+                                                          className="text-[10px] text-[--color-text-muted]"
+                                                        >
+                                                          ▶
+                                                        </motion.span>
+                                                        IP Address
+                                                      </button>
+                                                      <button
+                                                        type="button"
+                                                        role="switch"
+                                                        aria-checked={
+                                                          ipqsConfig.ip.enabled
+                                                        }
+                                                        onClick={() =>
+                                                          setIpqsConfig(
+                                                            (p) => ({
+                                                              ...p,
+                                                              ip: {
+                                                                ...p.ip,
+                                                                enabled:
+                                                                  !p.ip.enabled,
+                                                              },
+                                                            }),
+                                                          )
+                                                        }
+                                                        className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition ${ipqsConfig.ip.enabled ? "bg-[--color-primary]" : "bg-[--color-border]"}`}
+                                                      >
+                                                        <span
+                                                          className={`inline-block h-4 w-4 transform rounded-full bg-[--color-bg] transition ${ipqsConfig.ip.enabled ? "translate-x-4" : "translate-x-0.5"}`}
+                                                        />
+                                                      </button>
+                                                    </div>
+                                                    <AnimatePresence
+                                                      initial={false}
+                                                    >
+                                                      {ipqsIpOpen && (
+                                                        <motion.div
+                                                          key="ip-criteria"
+                                                          initial={{
+                                                            height: 0,
+                                                          }}
+                                                          animate={{
+                                                            height: "auto",
+                                                          }}
+                                                          exit={{ height: 0 }}
+                                                          transition={{
+                                                            duration: 0.18,
+                                                          }}
+                                                          style={{
+                                                            overflow: "hidden",
+                                                          }}
+                                                        >
+                                                          <div className="px-3 pb-3 space-y-2.5 border-t border-[--color-border] pt-2.5">
+                                                            {/* fraud_score */}
+                                                            <div className="flex flex-wrap items-center gap-3 text-xs">
+                                                              <input
+                                                                type="checkbox"
+                                                                className="h-3.5 w-3.5 accent-[--color-primary]"
+                                                                checked={
+                                                                  ipqsConfig.ip
+                                                                    .criteria
+                                                                    .fraud_score
+                                                                    .enabled
+                                                                }
+                                                                onChange={(e) =>
+                                                                  setIpqsConfig(
+                                                                    (p) => ({
+                                                                      ...p,
+                                                                      ip: {
+                                                                        ...p.ip,
+                                                                        criteria:
+                                                                          {
+                                                                            ...p
+                                                                              .ip
+                                                                              .criteria,
+                                                                            fraud_score:
+                                                                              {
+                                                                                ...p
+                                                                                  .ip
+                                                                                  .criteria
+                                                                                  .fraud_score,
+                                                                                enabled:
+                                                                                  e
+                                                                                    .target
+                                                                                    .checked,
+                                                                              },
+                                                                          },
+                                                                      },
+                                                                    }),
+                                                                  )
+                                                                }
+                                                              />
+                                                              <span className="w-20 text-[--color-text-muted]">
+                                                                Fraud Score
+                                                              </span>
+                                                              {ipqsConfig.ip
+                                                                .criteria
+                                                                .fraud_score
+                                                                .enabled && (
+                                                                <>
+                                                                  <select
+                                                                    className="rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
+                                                                    value={
+                                                                      ipqsConfig
+                                                                        .ip
+                                                                        .criteria
+                                                                        .fraud_score
+                                                                        .operator
+                                                                    }
+                                                                    onChange={(
+                                                                      e,
+                                                                    ) =>
+                                                                      setIpqsConfig(
+                                                                        (
+                                                                          p,
+                                                                        ) => ({
+                                                                          ...p,
+                                                                          ip: {
+                                                                            ...p.ip,
+                                                                            criteria:
+                                                                              {
+                                                                                ...p
+                                                                                  .ip
+                                                                                  .criteria,
+                                                                                fraud_score:
+                                                                                  {
+                                                                                    ...p
+                                                                                      .ip
+                                                                                      .criteria
+                                                                                      .fraud_score,
+                                                                                    operator:
+                                                                                      e
+                                                                                        .target
+                                                                                        .value as
+                                                                                        | "lte"
+                                                                                        | "gte"
+                                                                                        | "eq",
+                                                                                  },
+                                                                              },
+                                                                          },
+                                                                        }),
+                                                                      )
+                                                                    }
+                                                                  >
+                                                                    <option value="lte">
+                                                                      ≤ (lte)
+                                                                    </option>
+                                                                    <option value="gte">
+                                                                      ≥ (gte)
+                                                                    </option>
+                                                                    <option value="eq">
+                                                                      = (eq)
+                                                                    </option>
+                                                                  </select>
+                                                                  <input
+                                                                    type="number"
+                                                                    min={0}
+                                                                    max={100}
+                                                                    className="w-16 rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
+                                                                    value={
+                                                                      ipqsConfig
+                                                                        .ip
+                                                                        .criteria
+                                                                        .fraud_score
+                                                                        .value
+                                                                    }
+                                                                    onChange={(
+                                                                      e,
+                                                                    ) =>
+                                                                      setIpqsConfig(
+                                                                        (
+                                                                          p,
+                                                                        ) => ({
+                                                                          ...p,
+                                                                          ip: {
+                                                                            ...p.ip,
+                                                                            criteria:
+                                                                              {
+                                                                                ...p
+                                                                                  .ip
+                                                                                  .criteria,
+                                                                                fraud_score:
+                                                                                  {
+                                                                                    ...p
+                                                                                      .ip
+                                                                                      .criteria
+                                                                                      .fraud_score,
+                                                                                    value:
+                                                                                      Number(
+                                                                                        e
+                                                                                          .target
+                                                                                          .value,
+                                                                                      ),
+                                                                                  },
+                                                                              },
+                                                                          },
+                                                                        }),
+                                                                      )
+                                                                    }
+                                                                  />
+                                                                </>
+                                                              )}
+                                                            </div>
+                                                            {/* country_code */}
+                                                            <div className="flex flex-wrap items-center gap-3 text-xs">
+                                                              <input
+                                                                type="checkbox"
+                                                                className="h-3.5 w-3.5 accent-[--color-primary]"
+                                                                checked={
+                                                                  ipqsConfig.ip
+                                                                    .criteria
+                                                                    .country_code
+                                                                    .enabled
+                                                                }
+                                                                onChange={(e) =>
+                                                                  setIpqsConfig(
+                                                                    (p) => ({
+                                                                      ...p,
+                                                                      ip: {
+                                                                        ...p.ip,
+                                                                        criteria:
+                                                                          {
+                                                                            ...p
+                                                                              .ip
+                                                                              .criteria,
+                                                                            country_code:
+                                                                              {
+                                                                                ...p
+                                                                                  .ip
+                                                                                  .criteria
+                                                                                  .country_code,
+                                                                                enabled:
+                                                                                  e
+                                                                                    .target
+                                                                                    .checked,
+                                                                              },
+                                                                          },
+                                                                      },
+                                                                    }),
+                                                                  )
+                                                                }
+                                                              />
+                                                              <span className="w-20 text-[--color-text-muted]">
+                                                                Country
+                                                              </span>
+                                                              {ipqsConfig.ip
+                                                                .criteria
+                                                                .country_code
+                                                                .enabled && (
+                                                                <input
+                                                                  type="text"
+                                                                  placeholder="US, CA, GB…"
+                                                                  className="flex-1 min-w-0 rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
+                                                                  value={
+                                                                    ipqsConfig
+                                                                      .ip
+                                                                      .criteria
+                                                                      .country_code
+                                                                      .allowed
+                                                                  }
+                                                                  onChange={(
+                                                                    e,
+                                                                  ) =>
+                                                                    setIpqsConfig(
+                                                                      (p) => ({
+                                                                        ...p,
+                                                                        ip: {
+                                                                          ...p.ip,
+                                                                          criteria:
+                                                                            {
+                                                                              ...p
+                                                                                .ip
+                                                                                .criteria,
+                                                                              country_code:
+                                                                                {
+                                                                                  ...p
+                                                                                    .ip
+                                                                                    .criteria
+                                                                                    .country_code,
+                                                                                  allowed:
+                                                                                    e
+                                                                                      .target
+                                                                                      .value,
+                                                                                },
+                                                                            },
+                                                                        },
+                                                                      }),
+                                                                    )
+                                                                  }
+                                                                />
+                                                              )}
+                                                            </div>
+                                                            {/* proxy */}
+                                                            <div className="flex flex-wrap items-center gap-3 text-xs">
+                                                              <input
+                                                                type="checkbox"
+                                                                className="h-3.5 w-3.5 accent-[--color-primary]"
+                                                                checked={
+                                                                  ipqsConfig.ip
+                                                                    .criteria
+                                                                    .proxy
+                                                                    .enabled
+                                                                }
+                                                                onChange={(e) =>
+                                                                  setIpqsConfig(
+                                                                    (p) => ({
+                                                                      ...p,
+                                                                      ip: {
+                                                                        ...p.ip,
+                                                                        criteria:
+                                                                          {
+                                                                            ...p
+                                                                              .ip
+                                                                              .criteria,
+                                                                            proxy:
+                                                                              {
+                                                                                ...p
+                                                                                  .ip
+                                                                                  .criteria
+                                                                                  .proxy,
+                                                                                enabled:
+                                                                                  e
+                                                                                    .target
+                                                                                    .checked,
+                                                                              },
+                                                                          },
+                                                                      },
+                                                                    }),
+                                                                  )
+                                                                }
+                                                              />
+                                                              <span className="w-20 text-[--color-text-muted]">
+                                                                Proxy
+                                                              </span>
+                                                              {ipqsConfig.ip
+                                                                .criteria.proxy
+                                                                .enabled && (
+                                                                <label className="flex items-center gap-1.5 text-[--color-text-muted]">
+                                                                  <input
+                                                                    type="checkbox"
+                                                                    className="h-3.5 w-3.5 accent-[--color-primary]"
+                                                                    checked={
+                                                                      ipqsConfig
+                                                                        .ip
+                                                                        .criteria
+                                                                        .proxy
+                                                                        .allowed
+                                                                    }
+                                                                    onChange={(
+                                                                      e,
+                                                                    ) =>
+                                                                      setIpqsConfig(
+                                                                        (
+                                                                          p,
+                                                                        ) => ({
+                                                                          ...p,
+                                                                          ip: {
+                                                                            ...p.ip,
+                                                                            criteria:
+                                                                              {
+                                                                                ...p
+                                                                                  .ip
+                                                                                  .criteria,
+                                                                                proxy:
+                                                                                  {
+                                                                                    ...p
+                                                                                      .ip
+                                                                                      .criteria
+                                                                                      .proxy,
+                                                                                    allowed:
+                                                                                      e
+                                                                                        .target
+                                                                                        .checked,
+                                                                                  },
+                                                                              },
+                                                                          },
+                                                                        }),
+                                                                      )
+                                                                    }
+                                                                  />
+                                                                  Allow proxies
+                                                                </label>
+                                                              )}
+                                                            </div>
+                                                            {/* vpn */}
+                                                            <div className="flex flex-wrap items-center gap-3 text-xs">
+                                                              <input
+                                                                type="checkbox"
+                                                                className="h-3.5 w-3.5 accent-[--color-primary]"
+                                                                checked={
+                                                                  ipqsConfig.ip
+                                                                    .criteria
+                                                                    .vpn.enabled
+                                                                }
+                                                                onChange={(e) =>
+                                                                  setIpqsConfig(
+                                                                    (p) => ({
+                                                                      ...p,
+                                                                      ip: {
+                                                                        ...p.ip,
+                                                                        criteria:
+                                                                          {
+                                                                            ...p
+                                                                              .ip
+                                                                              .criteria,
+                                                                            vpn: {
+                                                                              ...p
+                                                                                .ip
+                                                                                .criteria
+                                                                                .vpn,
+                                                                              enabled:
+                                                                                e
+                                                                                  .target
+                                                                                  .checked,
+                                                                            },
+                                                                          },
+                                                                      },
+                                                                    }),
+                                                                  )
+                                                                }
+                                                              />
+                                                              <span className="w-20 text-[--color-text-muted]">
+                                                                VPN
+                                                              </span>
+                                                              {ipqsConfig.ip
+                                                                .criteria.vpn
+                                                                .enabled && (
+                                                                <label className="flex items-center gap-1.5 text-[--color-text-muted]">
+                                                                  <input
+                                                                    type="checkbox"
+                                                                    className="h-3.5 w-3.5 accent-[--color-primary]"
+                                                                    checked={
+                                                                      ipqsConfig
+                                                                        .ip
+                                                                        .criteria
+                                                                        .vpn
+                                                                        .allowed
+                                                                    }
+                                                                    onChange={(
+                                                                      e,
+                                                                    ) =>
+                                                                      setIpqsConfig(
+                                                                        (
+                                                                          p,
+                                                                        ) => ({
+                                                                          ...p,
+                                                                          ip: {
+                                                                            ...p.ip,
+                                                                            criteria:
+                                                                              {
+                                                                                ...p
+                                                                                  .ip
+                                                                                  .criteria,
+                                                                                vpn: {
+                                                                                  ...p
+                                                                                    .ip
+                                                                                    .criteria
+                                                                                    .vpn,
+                                                                                  allowed:
+                                                                                    e
+                                                                                      .target
+                                                                                      .checked,
+                                                                                },
+                                                                              },
+                                                                          },
+                                                                        }),
+                                                                      )
+                                                                    }
+                                                                  />
+                                                                  Allow VPNs
+                                                                </label>
+                                                              )}
+                                                            </div>
+                                                          </div>
+                                                        </motion.div>
+                                                      )}
+                                                    </AnimatePresence>
+                                                  </div>
+                                                </div>
+                                              </motion.div>
+                                            )}
+                                        </AnimatePresence>
+                                      </div>
+                                    </motion.div>
+                                  )}
+                                </AnimatePresence>
+                              </div>
+                            </>
+                          );
+                        })()}
                       </div>
+                      {/* end sorted plugins container */}
+
+                      {/* Save button — only when dirty */}
+                      {integrationsDirty && (
+                        <div className="flex justify-end">
+                          <Button
+                            size="sm"
+                            onClick={async () => {
+                              if (
+                                !dupCheckGloballyDisabled &&
+                                duplicateCheckEnabled &&
+                                duplicateCheckCriteria.length === 0
+                              ) {
+                                toast.warning(
+                                  "Select at least one criterion (phone or email) when duplicate check is enabled.",
+                                );
+                                return;
+                              }
+                              await onUpdatePlugins(campaign.id, {
+                                duplicate_check: {
+                                  enabled: dupCheckGloballyDisabled
+                                    ? false
+                                    : duplicateCheckEnabled,
+                                  criteria: duplicateCheckCriteria,
+                                },
+                                trusted_form: {
+                                  enabled: trustedFormGloballyDisabled
+                                    ? false
+                                    : trustedFormEnabled,
+                                  stage: tfStep,
+                                  gate: trustedFormGate,
+                                  claim: trustedFormClaim,
+                                },
+                                ipqs: {
+                                  enabled: ipqsGloballyDisabled
+                                    ? false
+                                    : ipqsConfig.enabled,
+                                  stage: ipqsStep,
+                                  gate: ipqsGate,
+                                  phone: {
+                                    enabled: ipqsConfig.phone.enabled,
+                                    criteria: {
+                                      valid: ipqsConfig.phone.criteria.valid,
+                                      fraud_score:
+                                        ipqsConfig.phone.criteria.fraud_score,
+                                      country: {
+                                        enabled:
+                                          ipqsConfig.phone.criteria.country
+                                            .enabled,
+                                        allowed:
+                                          ipqsConfig.phone.criteria.country.allowed
+                                            .split(",")
+                                            .map((s) => s.trim())
+                                            .filter(Boolean),
+                                      },
+                                    },
+                                  },
+                                  email: {
+                                    enabled: ipqsConfig.email.enabled,
+                                    criteria: ipqsConfig.email.criteria,
+                                  },
+                                  ip: {
+                                    enabled: ipqsConfig.ip.enabled,
+                                    criteria: {
+                                      fraud_score:
+                                        ipqsConfig.ip.criteria.fraud_score,
+                                      country_code: {
+                                        enabled:
+                                          ipqsConfig.ip.criteria.country_code
+                                            .enabled,
+                                        allowed:
+                                          ipqsConfig.ip.criteria.country_code.allowed
+                                            .split(",")
+                                            .map((s) => s.trim())
+                                            .filter(Boolean),
+                                      },
+                                      proxy: ipqsConfig.ip.criteria.proxy,
+                                      vpn: ipqsConfig.ip.criteria.vpn,
+                                    },
+                                  },
+                                },
+                              });
+                              setIntegrationsDirty(false);
+                            }}
+                          >
+                            Save
+                          </Button>
+                        </div>
+                      )}
 
                       {/* Plugin change history */}
                       {(() => {
@@ -2534,12 +3363,956 @@ export function CampaignDetailModal({
                       })()}
                     </div>
                   )}
+
+                  {tab === "settings" && (
+                    <div className="space-y-4">
+                      {/* Settings sub-tabs */}
+                      <div
+                        role="tablist"
+                        className="flex items-center gap-1 border-b border-[--color-border]"
+                      >
+                        {(["base-criteria"] as const).map((sub) => (
+                          <button
+                            key={sub}
+                            type="button"
+                            role="tab"
+                            aria-selected={settingsSubTab === sub}
+                            onClick={() => setSettingsSubTab(sub)}
+                            className={`border-b-2 px-3 py-2 text-sm font-medium transition ${
+                              settingsSubTab === sub
+                                ? "border-[--color-primary] text-[--color-text-strong]"
+                                : "border-transparent text-[--color-text-muted] hover:text-[--color-text]"
+                            }`}
+                          >
+                            {sub === "base-criteria" ? "Criteria" : sub}
+                          </button>
+                        ))}
+                      </div>
+
+                      {settingsSubTab === "base-criteria" && (
+                        <div className="space-y-4">
+                          {/* Header */}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              {/* UI / JSON toggle */}
+                              <div className="flex overflow-hidden rounded-lg border border-[--color-border] divide-x divide-[--color-border] text-xs">
+                                {(["ui", "json"] as const).map((v) => (
+                                  <button
+                                    key={v}
+                                    type="button"
+                                    onClick={() => setCriteriaView(v)}
+                                    className={`px-3 py-1.5 transition-colors ${
+                                      criteriaView === v
+                                        ? "bg-[--color-primary] text-white"
+                                        : "bg-[--color-bg-muted] text-[--color-text-muted] hover:text-[--color-text]"
+                                    }`}
+                                  >
+                                    {v === "ui" ? "UI" : "JSON"}
+                                  </button>
+                                ))}
+                              </div>
+                              {criteriaView === "ui" && (
+                                <Button
+                                  size="sm"
+                                  iconLeft={<Plus size={14} />}
+                                  onClick={() => {
+                                    setFieldDraft(emptyFieldDraft);
+                                    setEditFieldData(null);
+                                    setAddFieldOpen(true);
+                                  }}
+                                >
+                                  Add Field
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+
+                          {criteriaLoading ? (
+                            <p className="text-sm text-[--color-text-muted]">
+                              Loading…
+                            </p>
+                          ) : criteriaView === "ui" ? (
+                            criteriaFields.length === 0 ? (
+                              <div className="rounded-xl border border-dashed border-[--color-border] py-12 text-center text-sm text-[--color-text-muted]">
+                                No criteria fields yet.{" "}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setFieldDraft(emptyFieldDraft);
+                                    setEditFieldData(null);
+                                    setAddFieldOpen(true);
+                                  }}
+                                  className="text-[--color-primary] hover:underline"
+                                >
+                                  Add the first field
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="overflow-hidden rounded-xl border border-[--color-border]">
+                                <table className="w-full text-sm">
+                                  <thead>
+                                    <tr className="border-b border-[--color-border] bg-[--color-bg-muted]">
+                                      <th className="w-10 px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
+                                        #
+                                      </th>
+                                      <th className="px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
+                                        Field Label
+                                      </th>
+                                      <th className="px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
+                                        Field Name
+                                      </th>
+                                      <th className="px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
+                                        Data Type
+                                      </th>
+                                      <th className="w-20 px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
+                                        Required
+                                      </th>
+                                      <th className="w-20 px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
+                                        Actions
+                                      </th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-[--color-border]">
+                                    {criteriaFields.map((field, idx) => (
+                                      <tr
+                                        key={field.id}
+                                        className="bg-[--color-bg] transition-colors hover:bg-[--color-bg-muted]"
+                                      >
+                                        <td className="px-4 py-3 text-xs text-[--color-text-muted]">
+                                          {idx + 1}
+                                        </td>
+                                        <td className="px-4 py-3">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setFieldDraft({
+                                                field_label: field.field_label,
+                                                field_name: field.field_name,
+                                                data_type: field.data_type,
+                                                required: field.required,
+                                                description:
+                                                  field.description ?? "",
+                                                state_mapping:
+                                                  field.state_mapping ?? null,
+                                                options: field.options ?? [],
+                                              });
+                                              setEditFieldData(field);
+                                              setAddFieldOpen(true);
+                                            }}
+                                            className="text-left font-medium text-[--color-primary] hover:underline"
+                                          >
+                                            {field.field_label}
+                                          </button>
+                                        </td>
+                                        <td className="px-4 py-3 font-mono text-xs text-[--color-text-muted]">
+                                          {field.field_name}
+                                        </td>
+                                        <td className="px-4 py-3">
+                                          {field.data_type === "List" ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setFieldDraft({
+                                                  field_label:
+                                                    field.field_label,
+                                                  field_name: field.field_name,
+                                                  data_type: field.data_type,
+                                                  required: field.required,
+                                                  description:
+                                                    field.description ?? "",
+                                                  state_mapping:
+                                                    field.state_mapping ?? null,
+                                                  options: field.options ?? [],
+                                                });
+                                                setEditFieldData(field);
+                                                setAddFieldOpen(true);
+                                              }}
+                                              className="rounded-md border border-[--color-primary]/30 bg-[--color-primary]/10 px-2 py-0.5 text-xs font-medium text-[--color-primary] transition-colors hover:bg-[--color-primary]/20"
+                                            >
+                                              List
+                                            </button>
+                                          ) : (
+                                            <span className="rounded-md border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs text-[--color-text-muted]">
+                                              {CRITERIA_TYPE_LABELS[
+                                                field.data_type
+                                              ] ?? field.data_type}
+                                            </span>
+                                          )}
+                                          {field.state_mapping && (
+                                            <span className="ml-1.5 rounded-md border border-blue-500/30 bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-medium text-blue-500">
+                                              {field.state_mapping ===
+                                              "abbr_to_name"
+                                                ? "abbr → name"
+                                                : "name → abbr"}
+                                            </span>
+                                          )}
+                                        </td>
+                                        <td className="px-4 py-3">
+                                          <span
+                                            className={`inline-block h-2.5 w-2.5 rounded-full ${
+                                              field.required
+                                                ? "bg-green-500"
+                                                : "bg-[--color-border]"
+                                            }`}
+                                          />
+                                        </td>
+                                        <td className="px-4 py-3">
+                                          <div className="flex items-center gap-3">
+                                            <button
+                                              type="button"
+                                              title="Edit field"
+                                              onClick={() => {
+                                                setFieldDraft({
+                                                  field_label:
+                                                    field.field_label,
+                                                  field_name: field.field_name,
+                                                  data_type: field.data_type,
+                                                  required: field.required,
+                                                  description:
+                                                    field.description ?? "",
+                                                  state_mapping:
+                                                    field.state_mapping ?? null,
+                                                  options: field.options ?? [],
+                                                });
+                                                setEditFieldData(field);
+                                                setAddFieldOpen(true);
+                                              }}
+                                              className="text-[--color-text-muted] transition-colors hover:text-[--color-primary]"
+                                            >
+                                              <Pencil size={13} />
+                                            </button>
+                                            <button
+                                              type="button"
+                                              title="Value mappings"
+                                              onClick={() => {
+                                                setValueMappingsField(field);
+                                                setValueMappingsStateDraft(
+                                                  field.state_mapping ?? null,
+                                                );
+                                                setValueMappingsDraft(
+                                                  (
+                                                    field.value_mappings ?? []
+                                                  ).map((m) => ({
+                                                    fromText: m.from.join(", "),
+                                                    to: m.to,
+                                                  })),
+                                                );
+                                              }}
+                                              className="text-[--color-text-muted] transition-colors hover:text-[--color-primary]"
+                                            >
+                                              <ArrowLeftRight size={13} />
+                                            </button>
+                                            <button
+                                              type="button"
+                                              title="Delete field"
+                                              onClick={() =>
+                                                setDeleteFieldTarget(field)
+                                              }
+                                              className="text-[--color-text-muted] transition-colors hover:text-red-500"
+                                            >
+                                              <Trash2 size={13} />
+                                            </button>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )
+                          ) : (
+                            /* JSON view */
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <p className="text-xs text-[--color-text-muted]">
+                                  Current criteria schema — matches the expected
+                                  lead payload field structure.
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(
+                                      JSON.stringify(
+                                        criteriaFields.map((f) => ({
+                                          field_name: f.field_name,
+                                          field_label: f.field_label,
+                                          data_type: f.data_type,
+                                          required: f.required,
+                                          ...(f.value_mappings?.length
+                                            ? {
+                                                value_mappings:
+                                                  f.value_mappings,
+                                              }
+                                            : {}),
+                                        })),
+                                        null,
+                                        2,
+                                      ),
+                                    );
+                                    toast.success("Copied to clipboard");
+                                  }}
+                                  className="flex shrink-0 items-center gap-1.5 text-xs text-[--color-text-muted] transition-colors hover:text-[--color-primary]"
+                                >
+                                  <Copy className="h-3.5 w-3.5" />
+                                  Copy
+                                </button>
+                              </div>
+                              <div className="overflow-hidden rounded-xl border border-[--color-border]">
+                                <textarea
+                                  readOnly
+                                  value={JSON.stringify(
+                                    criteriaFields.map((f) => ({
+                                      field_name: f.field_name,
+                                      field_label: f.field_label,
+                                      data_type: f.data_type,
+                                      required: f.required,
+                                      ...(f.value_mappings?.length
+                                        ? { value_mappings: f.value_mappings }
+                                        : {}),
+                                    })),
+                                    null,
+                                    2,
+                                  )}
+                                  className="w-full min-h-[320px] resize-none bg-[--color-bg-muted] p-4 font-mono text-xs text-[--color-text] outline-none"
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </motion.div>
               </AnimatePresence>
             </div>
           </div>
         </div>
       </Modal>
+
+      {/* ── Add / Edit Criteria Field modal ────────────────────────────── */}
+      {addFieldOpen && (
+        <Modal
+          title={editFieldData ? "Edit Field" : "Add Field"}
+          isOpen={addFieldOpen}
+          onClose={() => {
+            setAddFieldOpen(false);
+            setEditFieldData(null);
+          }}
+          width={440}
+        >
+          <div className="space-y-4 text-sm">
+            <div className="space-y-1">
+              <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+                Field Label
+              </p>
+              <input
+                className={inputClass}
+                placeholder="e.g. Rideshare Abuse"
+                value={fieldDraft.field_label}
+                onChange={(e) => {
+                  const label = e.target.value;
+                  setFieldDraft((p) => ({
+                    ...p,
+                    field_label: label,
+                    // Auto-fill field_name only when the user hasn't manually edited it
+                    // (i.e. it still matches the auto-generated slug of the previous label)
+                    field_name:
+                      p.field_name ===
+                      p.field_label
+                        .toLowerCase()
+                        .replace(/\s+/g, "_")
+                        .replace(/[^a-z0-9_]/g, "")
+                        ? label
+                            .toLowerCase()
+                            .replace(/\s+/g, "_")
+                            .replace(/[^a-z0-9_]/g, "")
+                        : p.field_name,
+                  }));
+                }}
+              />
+            </div>
+            <div className="space-y-1">
+              <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+                Field Name (internal key)
+              </p>
+              <input
+                className={inputClass}
+                placeholder="e.g. rideshare_abuse"
+                value={fieldDraft.field_name}
+                onChange={(e) =>
+                  setFieldDraft((p) => ({
+                    ...p,
+                    field_name: e.target.value
+                      .toLowerCase()
+                      .replace(/\s+/g, "_")
+                      .replace(/[^a-z0-9_]/g, ""),
+                  }))
+                }
+              />
+            </div>
+            <div className="space-y-1">
+              <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+                Data Type
+              </p>
+              <select
+                className={inputClass}
+                value={fieldDraft.data_type}
+                onChange={(e) =>
+                  setFieldDraft((p) => ({
+                    ...p,
+                    data_type: e.target.value as CriteriaFieldType,
+                  }))
+                }
+              >
+                {(
+                  [
+                    "Text",
+                    "Number",
+                    "Date",
+                    "List",
+                    "US State",
+                    "Boolean",
+                  ] as CriteriaFieldType[]
+                ).map((t) => (
+                  <option key={t} value={t}>
+                    {CRITERIA_TYPE_LABELS[t]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-[--color-primary]"
+                checked={fieldDraft.required}
+                onChange={(e) =>
+                  setFieldDraft((p) => ({ ...p, required: e.target.checked }))
+                }
+              />
+              Required field
+            </label>
+            {/* ── Description ───────────────────────────────────────── */}
+            <div className="space-y-1">
+              <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+                Description{" "}
+                <span className="normal-case text-[10px]">(optional)</span>
+              </p>
+              <input
+                className={inputClass}
+                placeholder="Short description of this field"
+                value={fieldDraft.description}
+                onChange={(e) =>
+                  setFieldDraft((p) => ({
+                    ...p,
+                    description: e.target.value,
+                  }))
+                }
+              />
+            </div>
+            {/* ── State Mapping preset (US State only) ──────────────── */}
+            {fieldDraft.data_type === "US State" && (
+              <div className="space-y-1">
+                <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+                  State Mapping Preset
+                </p>
+                <select
+                  className={inputClass}
+                  value={fieldDraft.state_mapping ?? ""}
+                  onChange={(e) =>
+                    setFieldDraft((p) => ({
+                      ...p,
+                      state_mapping: (e.target.value || null) as
+                        | "abbr_to_name"
+                        | "name_to_abbr"
+                        | null,
+                    }))
+                  }
+                >
+                  <option value="">None</option>
+                  <option value="abbr_to_name">
+                    Abbreviation → Full name (CA → California)
+                  </option>
+                  <option value="name_to_abbr">
+                    Full name → Abbreviation (California → CA)
+                  </option>
+                </select>
+                <p className="text-[11px] text-[--color-text-muted]">
+                  Covers all 50 US states automatically.
+                </p>
+              </div>
+            )}
+            {/* ── List Options (List only) ───────────────────────────── */}
+            {fieldDraft.data_type === "List" && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+                    Options
+                  </p>
+                  {/* tab switcher */}
+                  <div className="flex rounded-lg border border-[--color-border] text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setOptionsTab("manual")}
+                      className={`px-2.5 py-1 rounded-l-md transition-colors ${
+                        optionsTab === "manual"
+                          ? "bg-[--color-primary] text-white"
+                          : "text-[--color-text-muted] hover:text-[--color-text]"
+                      }`}
+                    >
+                      Manual
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setOptionsTab("bulk")}
+                      className={`px-2.5 py-1 rounded-r-md transition-colors ${
+                        optionsTab === "bulk"
+                          ? "bg-[--color-primary] text-white"
+                          : "text-[--color-text-muted] hover:text-[--color-text]"
+                      }`}
+                    >
+                      Bulk
+                    </button>
+                  </div>
+                </div>
+                {optionsTab === "manual" ? (
+                  <>
+                    {/* column headers */}
+                    {fieldDraft.options.length > 0 && (
+                      <div className="grid grid-cols-[1fr_1fr_auto] gap-x-2 px-0.5">
+                        <p className="text-[10px] uppercase tracking-wide text-[--color-text-muted]">
+                          Value (internal)
+                        </p>
+                        <p className="text-[10px] uppercase tracking-wide text-[--color-text-muted]">
+                          Label (display)
+                        </p>
+                        <span />
+                      </div>
+                    )}
+                    {fieldDraft.options.map((opt, i) => (
+                      <div
+                        key={i}
+                        className="grid grid-cols-[1fr_1fr_auto] items-center gap-2"
+                      >
+                        {/* value — left */}
+                        <input
+                          className={inputClass}
+                          placeholder="uber"
+                          value={opt.value}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setFieldDraft((p) => ({
+                              ...p,
+                              options: p.options.map((o, oi) =>
+                                oi === i
+                                  ? {
+                                      value: val,
+                                      // autofill label only when it was empty or matched old value
+                                      label:
+                                        o.label === "" || o.label === o.value
+                                          ? val
+                                          : o.label,
+                                    }
+                                  : o,
+                              ),
+                            }));
+                          }}
+                        />
+                        {/* label — right */}
+                        <input
+                          className={inputClass}
+                          placeholder="Uber"
+                          value={opt.label}
+                          onChange={(e) =>
+                            setFieldDraft((p) => ({
+                              ...p,
+                              options: p.options.map((o, oi) =>
+                                oi === i ? { ...o, label: e.target.value } : o,
+                              ),
+                            }))
+                          }
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setFieldDraft((p) => ({
+                              ...p,
+                              options: p.options.filter((_, oi) => oi !== i),
+                            }))
+                          }
+                          className="shrink-0 text-[--color-text-muted] hover:text-red-500 transition-colors"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setFieldDraft((p) => ({
+                          ...p,
+                          options: [...p.options, { value: "", label: "" }],
+                        }))
+                      }
+                      className="w-full rounded-lg border border-dashed border-[--color-border] py-2 text-xs text-[--color-text-muted] hover:border-[--color-primary] hover:text-[--color-primary] transition-colors"
+                    >
+                      + Add Option
+                    </button>
+                  </>
+                ) : (
+                  /* ── Bulk import tab ── */
+                  <div className="space-y-2">
+                    <p className="text-[11px] text-[--color-text-muted]">
+                      Enter values separated by commas. Labels will be
+                      title-cased automatically.
+                    </p>
+                    <textarea
+                      className={`${inputClass} min-h-[80px] resize-y font-mono`}
+                      placeholder="uber,lyft,doordash,instacart"
+                      value={optionsBulkText}
+                      onChange={(e) => setOptionsBulkText(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newOpts = optionsBulkText
+                          .split(",")
+                          .map((s) => s.trim())
+                          .filter(Boolean)
+                          .map((v) => ({
+                            value: v,
+                            label: v
+                              .replace(/_/g, " ")
+                              .replace(/\b\w/g, (c) => c.toUpperCase()),
+                          }));
+                        setFieldDraft((p) => ({
+                          ...p,
+                          options: [
+                            ...p.options.filter(
+                              (o) => !newOpts.some((n) => n.value === o.value),
+                            ),
+                            ...newOpts,
+                          ],
+                        }));
+                        setOptionsBulkText("");
+                        setOptionsTab("manual");
+                      }}
+                      className="w-full rounded-lg bg-[--color-primary] py-2 text-xs font-medium text-white transition-opacity hover:opacity-90"
+                    >
+                      Add to list
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setAddFieldOpen(false);
+                  setEditFieldData(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={
+                  fieldSaving ||
+                  !fieldDraft.field_label ||
+                  !fieldDraft.field_name
+                }
+                onClick={async () => {
+                  setFieldSaving(true);
+                  try {
+                    if (editFieldData) {
+                      await updateCriteriaField(campaign.id, editFieldData.id, {
+                        field_label: fieldDraft.field_label,
+                        field_name: fieldDraft.field_name,
+                        data_type: fieldDraft.data_type,
+                        required: fieldDraft.required,
+                        description: fieldDraft.description || undefined,
+                        state_mapping: fieldDraft.state_mapping ?? null,
+                        ...(fieldDraft.data_type === "List"
+                          ? { options: fieldDraft.options }
+                          : {}),
+                      });
+                      toast.success("Field updated");
+                    } else {
+                      await createCriteriaField(campaign.id, {
+                        field_label: fieldDraft.field_label,
+                        field_name: fieldDraft.field_name,
+                        data_type: fieldDraft.data_type,
+                        required: fieldDraft.required,
+                        ...(fieldDraft.description
+                          ? { description: fieldDraft.description }
+                          : {}),
+                        ...(fieldDraft.state_mapping
+                          ? { state_mapping: fieldDraft.state_mapping }
+                          : {}),
+                        ...(fieldDraft.data_type === "List"
+                          ? { options: fieldDraft.options }
+                          : {}),
+                      });
+                      toast.success("Field added");
+                    }
+                    await refreshCriteria();
+                    setAddFieldOpen(false);
+                    setEditFieldData(null);
+                  } catch (err: any) {
+                    toast.error(err?.message || "Unable to save field");
+                  } finally {
+                    setFieldSaving(false);
+                  }
+                }}
+              >
+                {fieldSaving
+                  ? "Saving…"
+                  : editFieldData
+                    ? "Save Changes"
+                    : "Add Field"}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Value Mappings modal ────────────────────────────────────────── */}
+      {valueMappingsField && (
+        <Modal
+          title={`Value Mappings: ${valueMappingsField.field_label}`}
+          isOpen={!!valueMappingsField}
+          onClose={() => setValueMappingsField(null)}
+          width={560}
+        >
+          <div className="space-y-4 text-sm">
+            {/* State mapping preset — only for US State fields */}
+            {valueMappingsField.data_type === "US State" && (
+              <div className="space-y-2 rounded-xl border border-[--color-border] p-3">
+                <p className="text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
+                  State Mapping Preset
+                </p>
+                <p className="text-[11px] text-[--color-text-muted]">
+                  Enable a built-in backend lookup for all 50 US states. Custom
+                  mappings below always run first.
+                </p>
+                <div className="flex flex-col gap-1.5">
+                  {(
+                    [
+                      ["", "None"],
+                      [
+                        "abbr_to_name",
+                        "Abbreviation → Full name  (CA → California)",
+                      ],
+                      [
+                        "name_to_abbr",
+                        "Full name → Abbreviation  (California → CA)",
+                      ],
+                    ] as [string, string][]
+                  ).map(([val, label]) => (
+                    <label
+                      key={val}
+                      className="flex cursor-pointer items-center gap-2 text-xs"
+                    >
+                      <input
+                        type="radio"
+                        name="state_mapping_preset"
+                        className="accent-[--color-primary]"
+                        value={val}
+                        checked={(valueMappingsStateDraft ?? "") === val}
+                        onChange={() =>
+                          setValueMappingsStateDraft(
+                            (val || null) as
+                              | "abbr_to_name"
+                              | "name_to_abbr"
+                              | null,
+                          )
+                        }
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* Custom value mappings */}
+            <div className="grid grid-cols-[1fr_auto_1fr_auto] items-center gap-x-3 gap-y-0.5 pb-1">
+              <p className="text-[10px] uppercase tracking-wide text-[--color-text-muted]">
+                From (aliases, comma-separated)
+              </p>
+              <span />
+              <p className="text-[10px] uppercase tracking-wide text-[--color-text-muted]">
+                To (normalised value)
+              </p>
+              <span />
+            </div>
+            <div className="space-y-2">
+              {valueMappingsDraft.map((row, i) => (
+                <div
+                  key={i}
+                  className="grid grid-cols-[1fr_auto_1fr_auto] items-center gap-x-3"
+                >
+                  <input
+                    className={inputClass}
+                    placeholder="CA, ca, calif"
+                    value={row.fromText}
+                    onChange={(e) =>
+                      setValueMappingsDraft((prev) =>
+                        prev.map((r, ri) =>
+                          ri === i ? { ...r, fromText: e.target.value } : r,
+                        ),
+                      )
+                    }
+                  />
+                  <ArrowRight size={13} className="text-[--color-text-muted]" />
+                  <input
+                    className={inputClass}
+                    placeholder="California"
+                    value={row.to}
+                    onChange={(e) =>
+                      setValueMappingsDraft((prev) =>
+                        prev.map((r, ri) =>
+                          ri === i ? { ...r, to: e.target.value } : r,
+                        ),
+                      )
+                    }
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setValueMappingsDraft((prev) =>
+                        prev.filter((_, ri) => ri !== i),
+                      )
+                    }
+                    className="shrink-0 text-[--color-text-muted] transition-colors hover:text-red-500"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                setValueMappingsDraft((prev) => [
+                  ...prev,
+                  { fromText: "", to: "" },
+                ])
+              }
+              className="w-full rounded-lg border border-dashed border-[--color-border] py-2 text-xs text-[--color-text-muted] transition-colors hover:border-[--color-primary] hover:text-[--color-primary]"
+            >
+              + Add Mapping
+            </button>
+            <div className="flex justify-end gap-2 border-t border-[--color-border] pt-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setValueMappingsField(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={valueMappingsSaving}
+                onClick={async () => {
+                  if (!valueMappingsField) return;
+                  setValueMappingsSaving(true);
+                  try {
+                    // Save state_mapping preset if this is a US State field and it changed
+                    if (
+                      valueMappingsField.data_type === "US State" &&
+                      valueMappingsStateDraft !==
+                        valueMappingsField.state_mapping
+                    ) {
+                      await updateCriteriaField(
+                        campaign.id,
+                        valueMappingsField.id,
+                        { state_mapping: valueMappingsStateDraft },
+                      );
+                    }
+                    // Save custom value_mappings
+                    const mappings: CriteriaValueMapping[] = valueMappingsDraft
+                      .map((r) => ({
+                        from: r.fromText
+                          .split(",")
+                          .map((s) => s.trim())
+                          .filter(Boolean),
+                        to: r.to.trim(),
+                      }))
+                      .filter((m) => m.from.length > 0 && m.to);
+                    await updateCriteriaValueMappings(
+                      campaign.id,
+                      valueMappingsField.id,
+                      mappings,
+                    );
+                    await refreshCriteria();
+                    toast.success("Mappings saved");
+                    setValueMappingsField(null);
+                  } catch (err: any) {
+                    toast.error(err?.message || "Unable to save mappings");
+                  } finally {
+                    setValueMappingsSaving(false);
+                  }
+                }}
+              >
+                {valueMappingsSaving ? "Saving…" : "Save"}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Delete Criteria Field confirm modal ────────────────────────── */}
+      {deleteFieldTarget && (
+        <Modal
+          title="Delete Field"
+          isOpen={!!deleteFieldTarget}
+          onClose={() => setDeleteFieldTarget(null)}
+          width={420}
+        >
+          <div className="space-y-4 text-sm">
+            <p className="text-[--color-text]">
+              Delete field{" "}
+              <span className="font-semibold text-[--color-text-strong]">
+                {deleteFieldTarget.field_label}
+              </span>
+              ? This cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setDeleteFieldTarget(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                variant="danger"
+                disabled={deletingField}
+                onClick={async () => {
+                  setDeletingField(true);
+                  try {
+                    await deleteCriteriaField(
+                      campaign.id,
+                      deleteFieldTarget.id,
+                    );
+                    await refreshCriteria();
+                    toast.success("Field deleted");
+                    setDeleteFieldTarget(null);
+                  } catch (err: any) {
+                    toast.error(err?.message || "Unable to delete field");
+                  } finally {
+                    setDeletingField(false);
+                  }
+                }}
+              >
+                {deletingField ? "Deleting…" : "Delete"}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {participantAction &&
         (() => {
@@ -2622,11 +4395,31 @@ export function CampaignDetailModal({
                             pid,
                             participantAction.statusDraft,
                           );
+                          setLocalClientLinks((prev) =>
+                            prev.map((l) =>
+                              l.client_id === pid
+                                ? {
+                                    ...l,
+                                    status: participantAction.statusDraft,
+                                  }
+                                : l,
+                            ),
+                          );
                         } else {
                           await onUpdateAffiliateStatus(
                             campaign.id,
                             pid,
                             participantAction.statusDraft,
+                          );
+                          setLocalAffiliateLinks((prev) =>
+                            prev.map((l) =>
+                              l.affiliate_id === pid
+                                ? {
+                                    ...l,
+                                    status: participantAction.statusDraft,
+                                  }
+                                : l,
+                            ),
                           );
                         }
                         setParticipantAction(null);
@@ -2710,8 +4503,14 @@ export function CampaignDetailModal({
                         if (cantRemove) return;
                         if (isClient) {
                           await onRemoveClient(campaign.id, pid);
+                          setLocalClientLinks((prev) =>
+                            prev.filter((l) => l.client_id !== pid),
+                          );
                         } else {
                           await onRemoveAffiliate(campaign.id, pid);
+                          setLocalAffiliateLinks((prev) =>
+                            prev.filter((l) => l.affiliate_id !== pid),
+                          );
                         }
                         setParticipantAction(null);
                       }}
@@ -2731,6 +4530,17 @@ export function CampaignDetailModal({
         clients={availableClients}
         onSubmit={async (clientId) => {
           await onLinkClient(campaign.id, clientId);
+          setLocalClientLinks((prev) =>
+            prev.some((l) => l.client_id === clientId)
+              ? prev
+              : [
+                  ...prev,
+                  {
+                    client_id: clientId,
+                    status: "TEST" as CampaignParticipantStatus,
+                  },
+                ],
+          );
           setLinkClientModalOpen(false);
         }}
       />
@@ -2741,6 +4551,18 @@ export function CampaignDetailModal({
         affiliates={availableAffiliates}
         onSubmit={async (affiliateId) => {
           await onLinkAffiliate(campaign.id, affiliateId);
+          setLocalAffiliateLinks((prev) =>
+            prev.some((l) => l.affiliate_id === affiliateId)
+              ? prev
+              : [
+                  ...prev,
+                  {
+                    affiliate_id: affiliateId,
+                    campaign_key: "",
+                    status: "TEST" as CampaignParticipantStatus,
+                  },
+                ],
+          );
           setLinkAffiliateModalOpen(false);
         }}
       />

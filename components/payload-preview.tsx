@@ -16,6 +16,7 @@ import {
   normalizeFieldLabel,
 } from "@/lib/utils";
 import type {
+  Campaign,
   Lead,
   TrustedFormResult,
   IpqsResult,
@@ -61,8 +62,10 @@ function formatLocalDateTimeWithZone(value?: string) {
 
 function TrustedFormCard({
   result,
+  pluginEnabled = true,
 }: {
   result: TrustedFormResult | null | undefined;
+  pluginEnabled?: boolean;
 }) {
   const noResult = result == null;
   const passed = !noResult && result.success === true;
@@ -77,7 +80,9 @@ function TrustedFormCard({
         <div className="mt-2 flex items-center gap-2">
           {noResult ? (
             <span className="text-sm text-[--color-text-muted]">
-              Not evaluated — no TrustedForm credential linked to this campaign
+              {pluginEnabled === false
+                ? "TrustedForm is disabled for this campaign"
+                : "Not evaluated"}
             </span>
           ) : passed ? (
             <>
@@ -346,7 +351,13 @@ function IpqsCheckSection({
   );
 }
 
-function IpqsResultCard({ result }: { result: IpqsResult | null | undefined }) {
+function IpqsResultCard({
+  result,
+  pluginEnabled = true,
+}: {
+  result: IpqsResult | null | undefined;
+  pluginEnabled?: boolean;
+}) {
   const noResult = result == null;
   const overallPassed = !noResult && result.success === true;
   const overallFailed = !noResult && result.success === false;
@@ -360,7 +371,9 @@ function IpqsResultCard({ result }: { result: IpqsResult | null | undefined }) {
         <div className="mt-2 flex items-center gap-2">
           {noResult ? (
             <span className="text-sm text-[--color-text-muted]">
-              Not evaluated — no IPQS credential linked to this campaign
+              {pluginEnabled === false
+                ? "IPQS is disabled for this campaign"
+                : "Not evaluated"}
             </span>
           ) : overallPassed ? (
             <>
@@ -400,9 +413,11 @@ function IpqsResultCard({ result }: { result: IpqsResult | null | undefined }) {
 export function PayloadPreview({
   lead,
   allLeads,
+  campaignPlugins,
 }: {
   lead: Lead;
   allLeads: Lead[];
+  campaignPlugins?: Campaign["plugins"];
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -905,48 +920,48 @@ export function PayloadPreview({
                   transition={{ duration: 0.15, ease: "easeOut" }}
                 >
                   <div className="space-y-3">
-                    {/* QC sub-tabs */}
+                    {/* QC sub-tabs — ordered by execution stage */}
                     <div
                       role="tablist"
                       aria-label="Quality control modules"
                       className="flex items-center gap-2"
                     >
-                      {subTabBtn(
-                        "Duplicate Check",
-                        () => {
-                          setQualityTab("duplicate-check");
-                          setLeadQueryParams({
-                            lead: currentLead.id,
-                            leadTab: "quality-control",
-                            leadQc: "duplicate-check",
-                          });
+                      {[
+                        {
+                          key: "duplicate-check" as const,
+                          label: "Duplicate Check",
+                          stage: 1,
                         },
-                        qualityTab === "duplicate-check",
-                      )}
-                      {subTabBtn(
-                        "TrustedForm",
-                        () => {
-                          setQualityTab("trusted-form");
-                          setLeadQueryParams({
-                            lead: currentLead.id,
-                            leadTab: "quality-control",
-                            leadQc: "trusted-form",
-                          });
+                        {
+                          key: "trusted-form" as const,
+                          label: "TrustedForm",
+                          stage: campaignPlugins?.trusted_form?.stage ?? 2,
                         },
-                        qualityTab === "trusted-form",
-                      )}
-                      {subTabBtn(
-                        "IPQS",
-                        () => {
-                          setQualityTab("ipqs");
-                          setLeadQueryParams({
-                            lead: currentLead.id,
-                            leadTab: "quality-control",
-                            leadQc: "ipqs",
-                          });
+                        {
+                          key: "ipqs" as const,
+                          label: "IPQS",
+                          stage: campaignPlugins?.ipqs?.stage ?? 3,
                         },
-                        qualityTab === "ipqs",
-                      )}
+                      ]
+                        .sort((a, b) =>
+                          a.stage !== b.stage
+                            ? a.stage - b.stage
+                            : a.key.localeCompare(b.key),
+                        )
+                        .map(({ key, label }) =>
+                          subTabBtn(
+                            label,
+                            () => {
+                              setQualityTab(key);
+                              setLeadQueryParams({
+                                lead: currentLead.id,
+                                leadTab: "quality-control",
+                                leadQc: key,
+                              });
+                            },
+                            qualityTab === key,
+                          ),
+                        )}
                     </div>
 
                     <AnimatePresence mode="wait" initial={false}>
@@ -1042,7 +1057,12 @@ export function PayloadPreview({
                           exit={{ opacity: 0, y: -3 }}
                           transition={{ duration: 0.12, ease: "easeOut" }}
                         >
-                          <TrustedFormCard result={trustedFormResult} />
+                          <TrustedFormCard
+                            result={trustedFormResult}
+                            pluginEnabled={
+                              campaignPlugins?.trusted_form?.enabled !== false
+                            }
+                          />
                         </motion.div>
                       )}
 
@@ -1055,7 +1075,12 @@ export function PayloadPreview({
                           exit={{ opacity: 0, y: -3 }}
                           transition={{ duration: 0.12, ease: "easeOut" }}
                         >
-                          <IpqsResultCard result={ipqsResult} />
+                          <IpqsResultCard
+                            result={ipqsResult}
+                            pluginEnabled={
+                              campaignPlugins?.ipqs?.enabled !== false
+                            }
+                          />
                         </motion.div>
                       )}
                     </AnimatePresence>

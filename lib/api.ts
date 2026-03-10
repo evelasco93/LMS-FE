@@ -213,9 +213,14 @@ export async function updateCampaignPlugins(
     };
     trusted_form?: {
       enabled?: boolean;
+      stage?: number;
+      gate?: boolean;
+      claim?: boolean;
     };
     ipqs?: {
       enabled?: boolean;
+      stage?: number;
+      gate?: boolean;
       phone?: { enabled?: boolean; criteria?: Record<string, unknown> };
       email?: { enabled?: boolean; criteria?: Record<string, unknown> };
       ip?: { enabled?: boolean; criteria?: Record<string, unknown> };
@@ -537,6 +542,96 @@ export async function enableUser(id: string) {
   const url = `${API_BASE_URL}/users/${encodeURIComponent(id)}/enable`;
   return request<{ success: boolean; message?: string; data?: unknown }>(url, {
     method: "PUT",
+  });
+}
+
+// ─── Campaign Criteria ─────────────────────────────────────────────────────────
+import type {
+  CriteriaField,
+  CriteriaFieldOption,
+  CriteriaValueMapping,
+  CriteriaFieldType,
+} from "./types";
+
+export async function listCriteria(campaignId: string) {
+  const url = buildUrl(`/campaigns/${encodeURIComponent(campaignId)}/criteria`);
+  return request<{
+    success: boolean;
+    data: CriteriaField[];
+  }>(url);
+}
+
+export async function createCriteriaField(
+  campaignId: string,
+  payload: {
+    field_label: string;
+    field_name: string;
+    data_type: CriteriaFieldType;
+    required: boolean;
+    description?: string;
+    state_mapping?: "abbr_to_name" | "name_to_abbr";
+    options?: CriteriaFieldOption[];
+  },
+) {
+  const url = buildUrl(`/campaigns/${encodeURIComponent(campaignId)}/criteria`);
+  return request<ApiResponse<CriteriaField>>(url, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateCriteriaField(
+  campaignId: string,
+  fieldId: string,
+  payload: {
+    field_label?: string;
+    field_name?: string;
+    data_type?: CriteriaFieldType;
+    required?: boolean;
+    description?: string;
+    state_mapping?: "abbr_to_name" | "name_to_abbr" | null;
+    options?: CriteriaFieldOption[];
+  },
+) {
+  const url = buildUrl(
+    `/campaigns/${encodeURIComponent(campaignId)}/criteria/${encodeURIComponent(fieldId)}`,
+  );
+  return request<ApiResponse<CriteriaField>>(url, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteCriteriaField(campaignId: string, fieldId: string) {
+  const url = buildUrl(
+    `/campaigns/${encodeURIComponent(campaignId)}/criteria/${encodeURIComponent(fieldId)}`,
+  );
+  return request<{ success: boolean; message?: string }>(url, {
+    method: "DELETE",
+  });
+}
+
+export async function reorderCriteria(campaignId: string, fieldIds: string[]) {
+  const url = buildUrl(
+    `/campaigns/${encodeURIComponent(campaignId)}/criteria/reorder`,
+  );
+  return request<{ success: boolean; message?: string }>(url, {
+    method: "PUT",
+    body: JSON.stringify({ field_ids: fieldIds }),
+  });
+}
+
+export async function updateCriteriaValueMappings(
+  campaignId: string,
+  fieldId: string,
+  mappings: CriteriaValueMapping[],
+) {
+  const url = buildUrl(
+    `/campaigns/${encodeURIComponent(campaignId)}/criteria/${encodeURIComponent(fieldId)}/value-mappings`,
+  );
+  return request<ApiResponse<CriteriaField>>(url, {
+    method: "PUT",
+    body: JSON.stringify({ value_mappings: mappings }),
   });
 }
 
