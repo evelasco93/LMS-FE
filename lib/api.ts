@@ -566,6 +566,7 @@ import type {
   CriteriaFieldOption,
   CriteriaValueMapping,
   CriteriaFieldType,
+  LogicRule,
 } from "./types";
 
 export async function listCriteria(campaignId: string) {
@@ -651,20 +652,32 @@ export async function updateCriteriaValueMappings(
 }
 
 // ─── QA Tools ─────────────────────────────────────────────────────────────────
+  export async function seedBaseFields(campaignId: string) {
+    const url = buildUrl(`/campaigns/${encodeURIComponent(campaignId)}/criteria/base-fields`);
+    return request<{ success: boolean; message?: string }>(url, {
+      method: "POST",
+    });
+  }
 
-export async function qaCheckTrustedForm(certId: string) {
+export async function qaCheckTrustedForm(
+  certId: string,
+  credentialsId?: string | null,
+) {
   const url = `${API_BASE_URL}/qa/trusted-form/validate`;
   return request<{ success: boolean; data?: Record<string, unknown> }>(url, {
     method: "POST",
-    body: JSON.stringify({ cert_id: certId }),
+    body: JSON.stringify(
+      credentialsId
+        ? { cert_id: certId, credentials_id: credentialsId }
+        : { cert_id: certId },
+    ),
   });
 }
 
-export async function qaCheckIpqs(payload: {
-  phone?: string;
-  email?: string;
-  ip_address?: string;
-}) {
+export async function qaCheckIpqs(
+  payload: { phone?: string; email?: string; ip_address?: string },
+  credentialsId?: string | null,
+) {
   const url = `${API_BASE_URL}/qa/ipqs/check`;
   return request<{
     success: boolean;
@@ -684,6 +697,75 @@ export async function qaCheckIpqs(payload: {
     };
   }>(url, {
     method: "POST",
+    body: JSON.stringify(
+      credentialsId ? { ...payload, credentials_id: credentialsId } : payload,
+    ),
+  });
+}
+
+// ─── Logic Rules ─────────────────────────────────────────────────────────────
+
+export async function listLogicRules(campaignId: string) {
+  const url = buildUrl(
+    `/campaigns/${encodeURIComponent(campaignId)}/logic-rules`,
+  );
+  return request<{ result: boolean; data: LogicRule[] }>(url);
+}
+
+export async function createLogicRule(
+  campaignId: string,
+  payload: {
+    name: string;
+    action: "pass" | "fail";
+    enabled?: boolean;
+    groups: {
+      conditions: {
+        field_name: string;
+        operator: string;
+        value?: string | string[];
+      }[];
+    }[];
+  },
+) {
+  const url = buildUrl(
+    `/campaigns/${encodeURIComponent(campaignId)}/logic-rules`,
+  );
+  return request<{ result: boolean; data: LogicRule }>(url, {
+    method: "POST",
     body: JSON.stringify(payload),
+  });
+}
+
+export async function updateLogicRule(
+  campaignId: string,
+  ruleId: string,
+  payload: {
+    name?: string;
+    action?: "pass" | "fail";
+    enabled?: boolean;
+    groups?: {
+      conditions: {
+        field_name: string;
+        operator: string;
+        value?: string | string[];
+      }[];
+    }[];
+  },
+) {
+  const url = buildUrl(
+    `/campaigns/${encodeURIComponent(campaignId)}/logic-rules/${encodeURIComponent(ruleId)}`,
+  );
+  return request<{ result: boolean; data: LogicRule }>(url, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteLogicRule(campaignId: string, ruleId: string) {
+  const url = buildUrl(
+    `/campaigns/${encodeURIComponent(campaignId)}/logic-rules/${encodeURIComponent(ruleId)}`,
+  );
+  return request<{ result: boolean; data: LogicRule }>(url, {
+    method: "DELETE",
   });
 }

@@ -37,6 +37,10 @@ import {
   LinkClientModal,
   LinkAffiliateModal,
 } from "@/components/modals/entity-modals";
+import {
+  LogicBuilderModal,
+  type LogicRuleDraft,
+} from "@/components/modals/logic-builder-modal";
 import { formatDateTime, statusColorMap, inputClass } from "@/lib/utils";
 import {
   listUsers,
@@ -46,6 +50,11 @@ import {
   updateCriteriaField,
   deleteCriteriaField,
   updateCriteriaValueMappings,
+  seedBaseFields,
+  listLogicRules,
+  createLogicRule,
+  updateLogicRule,
+  deleteLogicRule,
 } from "@/lib/api";
 import type {
   Affiliate,
@@ -57,6 +66,7 @@ import type {
   CriteriaFieldType,
   CriteriaValueMapping,
   Lead,
+  LogicRule,
   PluginSettingRecord,
 } from "@/lib/types";
 import type { CampaignDetailTab, CampaignParticipantStatus } from "@/lib/types";
@@ -156,23 +166,42 @@ export function CampaignDetailModal({
   const [historyOpen, setHistoryOpen] = useState(false);
 
   const campaignChangeHistory = useMemo(() => {
+    type Actor =
+      | string
+      | {
+          username?: string;
+          email?: string;
+          full_name?: string;
+          first_name?: string;
+          last_name?: string;
+        }
+      | null
+      | undefined;
     type StatusEntry = {
       kind: "status";
       from?: string;
       to: string;
       changed_at: string;
-      changed_by?: string;
+      changed_by?: Actor;
     };
     type NameEntry = {
       kind: "name";
       previous_value?: unknown;
       new_value?: unknown;
       changed_at: string;
-      changed_by?: { username?: string; email?: string } | null;
+      changed_by?: Actor;
     };
     const entries: Array<StatusEntry | NameEntry> = [
       ...(campaign?.status_history ?? []).map(
-        (s): StatusEntry => ({ kind: "status", ...s }),
+        (s): StatusEntry => ({
+          kind: "status",
+          ...s,
+          // API doesn't include per-entry changed_by for status changes; fall back
+          // to campaign.updated_by for user-initiated transitions (those with a `from`)
+          changed_by:
+            (s as { changed_by?: Actor }).changed_by ??
+            (s.from != null ? (campaign?.updated_by as Actor) : undefined),
+        }),
       ),
       ...(campaign?.edit_history ?? [])
         .filter((e) => e.field === "name")
@@ -207,9 +236,11 @@ export function CampaignDetailModal({
   const [ipqsStepEditing, setIpqsStepEditing] = useState(false);
 
   // ── Settings tab ─────────────────────────────────────────────────────────
-  const [settingsSubTab, setSettingsSubTab] =
-    useState<"base-criteria">("base-criteria");
-  const [criteriaView, setCriteriaView] = useState<"ui" | "json">("ui");
+  const [settingsSubTab, setSettingsSubTab] = useState<
+    "base-criteria" | "logic"
+  >("base-criteria");
+
+  const [seedingBaseFields, setSeedingBaseFields] = useState(false);
   const [addFieldOpen, setAddFieldOpen] = useState(false);
   const [editFieldData, setEditFieldData] = useState<CriteriaField | null>(
     null,
@@ -369,6 +400,24 @@ export function CampaignDetailModal({
   );
   const criteriaFields: CriteriaField[] = (criteriaData as any)?.data ?? [];
 
+  const {
+    data: logicRulesData,
+    mutate: refreshLogicRules,
+    isLoading: logicRulesLoading,
+  } = useSWR(
+    isOpen && campaign?.id && tab === "settings"
+      ? `logic-rules-${campaign.id}`
+      : null,
+    () => listLogicRules(campaign!.id),
+  );
+  const logicRules: LogicRule[] = (logicRulesData as any)?.data ?? [];
+
+  // Logic builder state
+  const [logicBuilderOpen, setLogicBuilderOpen] = useState(false);
+  const [editingRule, setEditingRule] = useState<LogicRule | null>(null);
+  const [savingRule, setSavingRule] = useState(false);
+  const [deletingRuleId, setDeletingRuleId] = useState<string | null>(null);
+
   const getGlobalPluginDisabled = (provider: string): boolean => {
     const setting = globalPluginSettings.find(
       (ps) => ps.provider === provider,
@@ -438,6 +487,73 @@ export function CampaignDetailModal({
     }
     return changed_by.email || changed_by.username || "";
   }
+
+  const handleSaveLogicRule = async (draft: LogicRuleDraft) => {
+    if (!campaign?.id) return;
+    if (!draft.name.trim()) {
+      toast.warning("Rule name is required.");
+      return;
+    }
+    setSavingRule(true);
+    try {
+      if (editingRule) {
+        const res = await updateLogicRule(campaign.id, editingRule.id, draft);
+        if ((res as any)?.result === false) {
+          toast.error((res as any)?.message || "Failed to update rule.");
+          return;
+        }
+        toast.success("Logic rule updated.");
+      } else {
+        const res = await createLogicRule(campaign.id, draft);
+        if ((res as any)?.result === false) {
+          toast.error((res as any)?.message || "Failed to create rule.");
+          return;
+        }
+        toast.success("Logic rule created.");
+      }
+      await refreshLogicRules();
+      setLogicBuilderOpen(false);
+      setEditingRule(null);
+    } catch (err: any) {
+      toast.error(err?.message || "An error occurred.");
+    } finally {
+      setSavingRule(false);
+    }
+  };
+
+  const handleDeleteLogicRule = async (ruleId: string) => {
+    if (!campaign?.id) return;
+    setDeletingRuleId(ruleId);
+    try {
+      const res = await deleteLogicRule(campaign.id, ruleId);
+      if ((res as any)?.result === false) {
+        toast.error((res as any)?.message || "Failed to delete rule.");
+        return;
+      }
+      toast.success("Logic rule deleted.");
+      await refreshLogicRules();
+    } catch (err: any) {
+      toast.error(err?.message || "An error occurred.");
+    } finally {
+      setDeletingRuleId(null);
+    }
+  };
+
+  const handleToggleLogicRule = async (rule: LogicRule) => {
+    if (!campaign?.id) return;
+    try {
+      const res = await updateLogicRule(campaign.id, rule.id, {
+        enabled: !rule.enabled,
+      });
+      if ((res as any)?.result === false) {
+        toast.error((res as any)?.message || "Failed to toggle rule.");
+        return;
+      }
+      await refreshLogicRules();
+    } catch (err: any) {
+      toast.error(err?.message || "An error occurred.");
+    }
+  };
 
   useEffect(() => {
     if (campaign) {
@@ -664,10 +780,10 @@ export function CampaignDetailModal({
           onClose();
         }}
         width={1080}
-        bodyClassName="px-5 py-4 max-h-[78vh] overflow-y-auto"
+        bodyClassName="px-5 py-4"
       >
         <div className="space-y-4">
-          <div className="flex gap-6 min-h-[480px]">
+          <div className="flex gap-6 h-[65vh]">
             <nav className="w-44 shrink-0 space-y-1">
               {(
                 [
@@ -675,7 +791,7 @@ export function CampaignDetailModal({
                   { key: "clients", label: "Clients", icon: Users },
                   { key: "affiliates", label: "Affiliates", icon: HandHeart },
                   { key: "integrations", label: "Integrations", icon: Plug },
-                  { key: "settings", label: "Settings", icon: Settings2 },
+                  { key: "settings", label: "Configuration", icon: Settings2 },
                 ] as const
               ).map((item) => {
                 const Icon = item.icon || Link2;
@@ -694,7 +810,7 @@ export function CampaignDetailModal({
               })}
             </nav>
 
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 overflow-y-auto">
               <AnimatePresence mode="wait">
                 <motion.div
                   key={tab}
@@ -846,9 +962,7 @@ export function CampaignDetailModal({
                                         )}
                                         <p className="mt-0.5 text-xs text-[--color-text-muted]">
                                           {formatDateTime(entry.changed_at)}
-                                          {resolveChangedBy(entry.changed_by)
-                                            ? ` · by ${resolveChangedBy(entry.changed_by)}`
-                                            : ""}
+                                          {` · by ${resolveChangedBy(entry.changed_by) || "System"}`}
                                         </p>
                                       </div>
                                     </li>
@@ -3373,7 +3487,7 @@ export function CampaignDetailModal({
                         role="tablist"
                         className="flex items-center gap-1 border-b border-[--color-border]"
                       >
-                        {(["base-criteria"] as const).map((sub) => (
+                        {(["base-criteria", "logic"] as const).map((sub) => (
                           <button
                             key={sub}
                             type="button"
@@ -3386,7 +3500,7 @@ export function CampaignDetailModal({
                                 : "border-transparent text-[--color-text-muted] hover:text-[--color-text]"
                             }`}
                           >
-                            {sub === "base-criteria" ? "Criteria" : sub}
+                            {sub === "base-criteria" ? "Criteria" : "Logic"}
                           </button>
                         ))}
                       </div>
@@ -3395,36 +3509,17 @@ export function CampaignDetailModal({
                         <div className="space-y-4">
                           {/* Header */}
                           <div className="flex items-center justify-end gap-2">
-                            {/* Editor / JSON toggle */}
-                            <div className="flex overflow-hidden rounded-lg border border-[--color-border] divide-x divide-[--color-border] text-xs">
-                              {(["ui", "json"] as const).map((v) => (
-                                <button
-                                  key={v}
-                                  type="button"
-                                  onClick={() => setCriteriaView(v)}
-                                  className={`px-3 py-1.5 transition-colors ${
-                                    criteriaView === v
-                                      ? "bg-[--color-primary] text-white"
-                                      : "bg-[--color-bg-muted] text-[--color-text-muted] hover:text-[--color-text]"
-                                  }`}
-                                >
-                                  {v === "ui" ? "Editor" : "JSON"}
-                                </button>
-                              ))}
-                            </div>
-                            {criteriaView === "ui" && (
-                              <Button
-                                size="sm"
-                                iconLeft={<Plus size={14} />}
-                                onClick={() => {
-                                  setFieldDraft(emptyFieldDraft);
-                                  setEditFieldData(null);
-                                  setAddFieldOpen(true);
-                                }}
-                              >
-                                Add Field
-                              </Button>
-                            )}
+                            <Button
+                              size="sm"
+                              iconLeft={<Plus size={14} />}
+                              onClick={() => {
+                                setFieldDraft(emptyFieldDraft);
+                                setEditFieldData(null);
+                                setAddFieldOpen(true);
+                              }}
+                            >
+                              Add Field
+                            </Button>
                           </div>
 
                           {criteriaLoading ? (
@@ -3434,66 +3529,95 @@ export function CampaignDetailModal({
                           ) : (
                             <AnimatePresence mode="wait">
                               <motion.div
-                                key={criteriaView}
                                 initial={{ opacity: 0, y: 6 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, y: -6 }}
                                 transition={{ duration: 0.15, ease: "easeOut" }}
                               >
-                                {criteriaView === "ui" ? (
-                                  criteriaFields.length === 0 ? (
-                                    <div className="rounded-xl border border-dashed border-[--color-border] py-12 text-center text-sm text-[--color-text-muted]">
-                                      No criteria fields yet.{" "}
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setFieldDraft(emptyFieldDraft);
-                                          setEditFieldData(null);
-                                          setAddFieldOpen(true);
-                                        }}
-                                        className="text-[--color-primary] hover:underline"
-                                      >
-                                        Add the first field
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <div className="overflow-hidden rounded-xl border border-[--color-border]">
-                                      <table className="w-full text-sm">
-                                        <thead>
-                                          <tr className="border-b border-[--color-border] bg-[--color-bg-muted]">
-                                            <th className="w-10 px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
-                                              #
-                                            </th>
-                                            <th className="px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
-                                              Field Label
-                                            </th>
-                                            <th className="px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
-                                              Field Name
-                                            </th>
-                                            <th className="w-28 px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted] whitespace-nowrap">
-                                              Data Type
-                                            </th>
-                                            <th className="w-20 px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
-                                              Required
-                                            </th>
-                                            <th className="w-20 px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
-                                              Mappings
-                                            </th>
-                                            <th className="w-20 px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
-                                              Actions
-                                            </th>
-                                          </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-[--color-border]">
-                                          {criteriaFields.map((field, idx) => (
-                                            <tr
-                                              key={field.id}
-                                              className="bg-[--color-bg] transition-colors hover:bg-[--color-bg-muted]"
-                                            >
-                                              <td className="px-4 py-3 text-xs text-[--color-text-muted]">
-                                                {idx + 1}
-                                              </td>
-                                              <td className="px-4 py-3">
+                                {criteriaFields.length === 0 ? (
+                                  <div className="rounded-xl border border-dashed border-[--color-border] py-12 text-center text-sm text-[--color-text-muted]">
+                                    No criteria fields yet.{" "}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setFieldDraft(emptyFieldDraft);
+                                        setEditFieldData(null);
+                                        setAddFieldOpen(true);
+                                      }}
+                                      className="text-[--color-primary] hover:underline"
+                                    >
+                                      Add the first field
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="overflow-hidden rounded-xl border border-[--color-border]">
+                                    <table className="w-full text-sm">
+                                      <thead>
+                                        <tr className="border-b border-[--color-border] bg-[--color-bg-muted]">
+                                          <th className="w-10 px-4 py-2.5 text-center text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
+                                            #
+                                          </th>
+                                          <th className="px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
+                                            Field Label
+                                          </th>
+                                          <th className="px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
+                                            Field Name
+                                          </th>
+                                          <th className="w-28 px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted] whitespace-nowrap">
+                                            Data Type
+                                          </th>
+                                          <th className="w-20 px-4 py-2.5 text-center text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
+                                            Required
+                                          </th>
+                                          <th className="w-20 px-4 py-2.5 text-center text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
+                                            Mappings
+                                          </th>
+                                          <th className="w-20 px-4 py-2.5 text-center text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
+                                            Actions
+                                          </th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-[--color-border]">
+                                        {criteriaFields.map((field, idx) => (
+                                          <tr
+                                            key={field.id}
+                                            className="bg-[--color-bg] transition-colors hover:bg-[--color-bg-muted]"
+                                          >
+                                            <td className="px-4 py-3 text-center text-xs text-[--color-text-muted]">
+                                              {idx + 1}
+                                            </td>
+                                            <td className="px-4 py-3">
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setFieldDraft({
+                                                    field_label:
+                                                      field.field_label,
+                                                    field_name:
+                                                      field.field_name,
+                                                    data_type: field.data_type,
+                                                    required: field.required,
+                                                    description:
+                                                      field.description ?? "",
+                                                    state_mapping:
+                                                      field.state_mapping ??
+                                                      null,
+                                                    options:
+                                                      field.options ?? [],
+                                                  });
+                                                  setEditFieldData(field);
+                                                  setAddFieldOpen(true);
+                                                }}
+                                                className="text-left font-medium text-[--color-primary] hover:underline"
+                                              >
+                                                {field.field_label}
+                                              </button>
+                                            </td>
+                                            <td className="px-4 py-3 font-mono text-xs text-[--color-text-muted]">
+                                              {field.field_name}
+                                            </td>
+                                            <td className="px-4 py-3">
+                                              {field.data_type === "List" ? (
                                                 <button
                                                   type="button"
                                                   onClick={() => {
@@ -3516,212 +3640,237 @@ export function CampaignDetailModal({
                                                     setEditFieldData(field);
                                                     setAddFieldOpen(true);
                                                   }}
-                                                  className="text-left font-medium text-[--color-primary] hover:underline"
+                                                  className="rounded-md border border-[--color-primary]/30 bg-[--color-primary]/10 px-2 py-0.5 text-xs font-medium text-[--color-primary] transition-colors hover:bg-[--color-primary]/20"
                                                 >
-                                                  {field.field_label}
+                                                  List
                                                 </button>
-                                              </td>
-                                              <td className="px-4 py-3 font-mono text-xs text-[--color-text-muted]">
-                                                {field.field_name}
-                                              </td>
-                                              <td className="px-4 py-3">
-                                                {field.data_type === "List" ? (
-                                                  <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                      setFieldDraft({
-                                                        field_label:
-                                                          field.field_label,
-                                                        field_name:
-                                                          field.field_name,
-                                                        data_type:
-                                                          field.data_type,
-                                                        required:
-                                                          field.required,
-                                                        description:
-                                                          field.description ??
-                                                          "",
-                                                        state_mapping:
-                                                          field.state_mapping ??
-                                                          null,
-                                                        options:
-                                                          field.options ?? [],
-                                                      });
-                                                      setEditFieldData(field);
-                                                      setAddFieldOpen(true);
-                                                    }}
-                                                    className="rounded-md border border-[--color-primary]/30 bg-[--color-primary]/10 px-2 py-0.5 text-xs font-medium text-[--color-primary] transition-colors hover:bg-[--color-primary]/20"
-                                                  >
-                                                    List
-                                                  </button>
-                                                ) : (
-                                                  <span className="rounded-md border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs text-[--color-text-muted] whitespace-nowrap">
-                                                    {CRITERIA_TYPE_LABELS[
-                                                      field.data_type
-                                                    ] ?? field.data_type}
-                                                  </span>
-                                                )}
-                                              </td>
-                                              <td className="px-4 py-3">
+                                              ) : (
+                                                <span className="rounded-md border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs text-[--color-text-muted] whitespace-nowrap">
+                                                  {CRITERIA_TYPE_LABELS[
+                                                    field.data_type
+                                                  ] ?? field.data_type}
+                                                </span>
+                                              )}
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                              <span
+                                                className={`inline-block h-2.5 w-2.5 rounded-full ${
+                                                  field.required
+                                                    ? "bg-green-500"
+                                                    : "bg-[--color-border]"
+                                                }`}
+                                              />
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                              <button
+                                                type="button"
+                                                title="Edit value mappings"
+                                                onClick={() => {
+                                                  setValueMappingsField(field);
+                                                  setValueMappingsStateDraft(
+                                                    field.state_mapping ?? null,
+                                                  );
+                                                  setValueMappingsDraft(
+                                                    (
+                                                      field.value_mappings ?? []
+                                                    ).map((m) => ({
+                                                      fromText:
+                                                        m.from.join(", "),
+                                                      to: m.to,
+                                                    })),
+                                                  );
+                                                }}
+                                              >
                                                 <span
-                                                  className={`inline-block h-2.5 w-2.5 rounded-full ${
-                                                    field.required
+                                                  className={`inline-block h-2.5 w-2.5 rounded-full transition-colors ${
+                                                    (field.value_mappings ?? [])
+                                                      .length > 0 ||
+                                                    field.state_mapping
                                                       ? "bg-green-500"
-                                                      : "bg-[--color-border]"
+                                                      : "bg-[--color-border] hover:bg-[--color-text-muted]"
                                                   }`}
                                                 />
-                                              </td>
-                                              <td className="px-4 py-3">
+                                              </button>
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                              <div className="flex items-center justify-center gap-3">
                                                 <button
                                                   type="button"
-                                                  title="Edit value mappings"
+                                                  title="Edit field"
                                                   onClick={() => {
-                                                    setValueMappingsField(
-                                                      field,
-                                                    );
-                                                    setValueMappingsStateDraft(
-                                                      field.state_mapping ??
+                                                    setFieldDraft({
+                                                      field_label:
+                                                        field.field_label,
+                                                      field_name:
+                                                        field.field_name,
+                                                      data_type:
+                                                        field.data_type,
+                                                      required: field.required,
+                                                      description:
+                                                        field.description ?? "",
+                                                      state_mapping:
+                                                        field.state_mapping ??
                                                         null,
-                                                    );
-                                                    setValueMappingsDraft(
-                                                      (
-                                                        field.value_mappings ??
-                                                        []
-                                                      ).map((m) => ({
-                                                        fromText:
-                                                          m.from.join(", "),
-                                                        to: m.to,
-                                                      })),
-                                                    );
+                                                      options:
+                                                        field.options ?? [],
+                                                    });
+                                                    setEditFieldData(field);
+                                                    setAddFieldOpen(true);
                                                   }}
+                                                  className="text-[--color-text-muted] transition-colors hover:text-[--color-primary]"
                                                 >
-                                                  <span
-                                                    className={`inline-block h-2.5 w-2.5 rounded-full transition-colors ${
-                                                      (
-                                                        field.value_mappings ??
-                                                        []
-                                                      ).length > 0 ||
-                                                      field.state_mapping
-                                                        ? "bg-green-500"
-                                                        : "bg-[--color-border] hover:bg-[--color-text-muted]"
-                                                    }`}
-                                                  />
+                                                  <Pencil size={13} />
                                                 </button>
-                                              </td>
-                                              <td className="px-4 py-3">
-                                                <div className="flex items-center gap-3">
-                                                  <button
-                                                    type="button"
-                                                    title="Edit field"
-                                                    onClick={() => {
-                                                      setFieldDraft({
-                                                        field_label:
-                                                          field.field_label,
-                                                        field_name:
-                                                          field.field_name,
-                                                        data_type:
-                                                          field.data_type,
-                                                        required:
-                                                          field.required,
-                                                        description:
-                                                          field.description ??
-                                                          "",
-                                                        state_mapping:
-                                                          field.state_mapping ??
-                                                          null,
-                                                        options:
-                                                          field.options ?? [],
-                                                      });
-                                                      setEditFieldData(field);
-                                                      setAddFieldOpen(true);
-                                                    }}
-                                                    className="text-[--color-text-muted] transition-colors hover:text-[--color-primary]"
-                                                  >
-                                                    <Pencil size={13} />
-                                                  </button>
-                                                  <button
-                                                    type="button"
-                                                    title="Delete field"
-                                                    onClick={() =>
-                                                      setDeleteFieldTarget(
-                                                        field,
-                                                      )
-                                                    }
-                                                    className="text-[--color-text-muted] transition-colors hover:text-red-500"
-                                                  >
-                                                    <Trash2 size={13} />
-                                                  </button>
-                                                </div>
-                                              </td>
-                                            </tr>
-                                          ))}
-                                        </tbody>
-                                      </table>
-                                    </div>
-                                  )
-                                ) : (
-                                  /* JSON view */
-                                  <div className="space-y-2">
-                                    <div className="flex items-center justify-between">
-                                      <p className="text-xs text-[--color-text-muted]">
-                                        Current criteria schema — matches the
-                                        expected lead payload field structure.
-                                      </p>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          navigator.clipboard.writeText(
-                                            JSON.stringify(
-                                              criteriaFields.map((f) => ({
-                                                field_name: f.field_name,
-                                                field_label: f.field_label,
-                                                data_type: f.data_type,
-                                                required: f.required,
-                                                ...(f.value_mappings?.length
-                                                  ? {
-                                                      value_mappings:
-                                                        f.value_mappings,
-                                                    }
-                                                  : {}),
-                                              })),
-                                              null,
-                                              2,
-                                            ),
-                                          );
-                                          toast.success("Copied to clipboard");
-                                        }}
-                                        className="flex shrink-0 items-center gap-1.5 text-xs text-[--color-text-muted] transition-colors hover:text-[--color-primary]"
-                                      >
-                                        <Copy className="h-3.5 w-3.5" />
-                                        Copy
-                                      </button>
-                                    </div>
-                                    <div className="overflow-hidden rounded-xl border border-[--color-border]">
-                                      <textarea
-                                        readOnly
-                                        value={JSON.stringify(
-                                          criteriaFields.map((f) => ({
-                                            field_name: f.field_name,
-                                            field_label: f.field_label,
-                                            data_type: f.data_type,
-                                            required: f.required,
-                                            ...(f.value_mappings?.length
-                                              ? {
-                                                  value_mappings:
-                                                    f.value_mappings,
-                                                }
-                                              : {}),
-                                          })),
-                                          null,
-                                          2,
-                                        )}
-                                        className="w-full min-h-[320px] resize-none bg-[--color-bg-muted] p-4 font-mono text-xs text-[--color-text] outline-none"
-                                      />
-                                    </div>
+                                                <button
+                                                  type="button"
+                                                  title="Delete field"
+                                                  onClick={() =>
+                                                    setDeleteFieldTarget(field)
+                                                  }
+                                                  className="text-[--color-text-muted] transition-colors hover:text-red-500"
+                                                >
+                                                  <Trash2 size={13} />
+                                                </button>
+                                              </div>
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
                                   </div>
                                 )}
                               </motion.div>
                             </AnimatePresence>
+                          )}
+                        </div>
+                      )}
+
+                      {settingsSubTab === "logic" && (
+                        <div className="space-y-4">
+                          {/* Header */}
+                          <div className="flex items-center justify-end gap-2">
+                            <Button
+                              size="sm"
+                              iconLeft={<Plus size={14} />}
+                              onClick={() => {
+                                setEditingRule(null);
+                                setLogicBuilderOpen(true);
+                              }}
+                            >
+                              Create Rule
+                            </Button>
+                          </div>
+
+                          {logicRulesLoading ? (
+                            <p className="text-sm text-[--color-text-muted]">
+                              Loading…
+                            </p>
+                          ) : logicRules.length === 0 ? (
+                            <div className="rounded-xl border border-dashed border-[--color-border] py-12 text-center text-sm text-[--color-text-muted]">
+                              No logic rules yet.{" "}
+                              <button
+                                type="button"
+                                className="text-[--color-primary] hover:underline"
+                                onClick={() => {
+                                  setEditingRule(null);
+                                  setLogicBuilderOpen(true);
+                                }}
+                              >
+                                Create one
+                              </button>
+                              .
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              {logicRules.map((rule) => (
+                                <div
+                                  key={rule.id}
+                                  className="flex items-center gap-3 rounded-xl border border-[--color-border] bg-[--color-bg] px-4 py-3"
+                                >
+                                  {/* Enable toggle */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleLogicRule(rule)}
+                                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors ${
+                                      rule.enabled
+                                        ? "bg-[--color-primary]"
+                                        : "bg-[--color-border]"
+                                    }`}
+                                    aria-label={`${
+                                      rule.enabled ? "Disable" : "Enable"
+                                    } rule`}
+                                  >
+                                    <span
+                                      className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition-transform ${
+                                        rule.enabled
+                                          ? "translate-x-4"
+                                          : "translate-x-0"
+                                      }`}
+                                    />
+                                  </button>
+
+                                  {/* Action badge */}
+                                  <span
+                                    className={`shrink-0 rounded px-2 py-0.5 text-[11px] font-semibold ${
+                                      rule.action === "pass"
+                                        ? "bg-green-500/10 text-green-600"
+                                        : "bg-red-500/10 text-red-500"
+                                    }`}
+                                  >
+                                    {rule.action === "pass" ? "Pass" : "Fail"}
+                                  </span>
+
+                                  {/* Name */}
+                                  <span
+                                    className={`flex-1 text-sm truncate ${
+                                      rule.enabled
+                                        ? "text-[--color-text-strong]"
+                                        : "text-[--color-text-muted] line-through"
+                                    }`}
+                                  >
+                                    {rule.name}
+                                  </span>
+
+                                  {/* Group / condition count */}
+                                  <span className="shrink-0 text-[11px] text-[--color-text-muted]">
+                                    {rule.groups.length}{" "}
+                                    {rule.groups.length === 1
+                                      ? "group"
+                                      : "groups"}
+                                    {" · "}
+                                    {rule.groups.reduce(
+                                      (acc, g) => acc + g.conditions.length,
+                                      0,
+                                    )}{" "}
+                                    cond.
+                                  </span>
+
+                                  {/* Edit */}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingRule(rule);
+                                      setLogicBuilderOpen(true);
+                                    }}
+                                    className="shrink-0 text-[--color-text-muted] hover:text-[--color-text] transition-colors"
+                                  >
+                                    <Pencil size={13} />
+                                  </button>
+
+                                  {/* Delete */}
+                                  <button
+                                    type="button"
+                                    disabled={deletingRuleId === rule.id}
+                                    onClick={() =>
+                                      handleDeleteLogicRule(rule.id)
+                                    }
+                                    className="shrink-0 text-[--color-text-muted] hover:text-red-500 transition-colors disabled:opacity-40"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
                           )}
                         </div>
                       )}
@@ -3733,6 +3882,19 @@ export function CampaignDetailModal({
           </div>
         </div>
       </Modal>
+
+      {/* ── Logic Builder modal ────────────────────────────────────────── */}
+      <LogicBuilderModal
+        isOpen={logicBuilderOpen}
+        onClose={() => {
+          setLogicBuilderOpen(false);
+          setEditingRule(null);
+        }}
+        onSave={handleSaveLogicRule}
+        rule={editingRule}
+        criteriaFields={criteriaFields}
+        saving={savingRule}
+      />
 
       {/* ── Add / Edit Criteria Field modal ────────────────────────────── */}
       <Modal
@@ -3746,6 +3908,50 @@ export function CampaignDetailModal({
       >
         {addFieldOpen && (
           <div className="space-y-4 text-sm">
+            {/* ── Seed base fields quickstart ───────────────────────── */}
+            {!editFieldData && (
+              <div className="rounded-lg border border-[--color-border] bg-[--color-bg-muted] p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-medium text-[--color-text-strong] text-[13px]">
+                      Seed standard fields
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-[--color-text-muted] leading-snug">
+                      Instantly add 10 pre-defined fields — First Name, Last
+                      Name, Phone, State, Email, IP Address, and more. Existing
+                      fields are skipped.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={seedingBaseFields}
+                    onClick={async () => {
+                      setSeedingBaseFields(true);
+                      try {
+                        await seedBaseFields(campaign.id);
+                        toast.success("Standard fields seeded.");
+                        refreshCriteria();
+                        setAddFieldOpen(false);
+                      } catch {
+                        toast.error("Failed to seed base fields.");
+                      } finally {
+                        setSeedingBaseFields(false);
+                      }
+                    }}
+                    className="shrink-0 rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-1.5 text-[11px] font-medium text-[--color-text] hover:bg-[--color-bg-muted] disabled:opacity-50 transition-colors"
+                  >
+                    {seedingBaseFields ? "Seeding…" : "Add All"}
+                  </button>
+                </div>
+              </div>
+            )}
+            {!editFieldData && (
+              <div className="flex items-center gap-2 text-[11px] text-[--color-text-muted]">
+                <div className="flex-1 border-t border-[--color-border]" />
+                or add a custom field
+                <div className="flex-1 border-t border-[--color-border]" />
+              </div>
+            )}
             <div className="space-y-1">
               <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
                 Field Label

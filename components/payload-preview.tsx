@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, X } from "lucide-react";
+import { Check, ChevronDown, ExternalLink, X } from "lucide-react";
 import { toast } from "sonner";
 import { AnimatePresence, motion } from "framer-motion";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -103,11 +103,20 @@ function TrustedFormCard({
         {passed && (
           <div className="mt-2 space-y-1 text-xs text-[--color-text-muted]">
             {result.cert_id && (
-              <p>
+              <p className="flex items-center gap-1.5">
                 <span className="font-medium text-[--color-text]">
                   Cert ID:{" "}
                 </span>
-                {result.cert_id}
+                <span className="font-mono">{result.cert_id}</span>
+                <a
+                  href={`https://cert.trustedform.com/${result.cert_id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ml-0.5 text-[--color-primary] hover:opacity-75"
+                  aria-label="View TrustedForm certificate"
+                >
+                  <ExternalLink size={11} />
+                </a>
               </p>
             )}
             {result.expires_at && (
@@ -200,8 +209,17 @@ function TrustedFormCard({
                 <span className="w-36 shrink-0 font-medium text-[--color-text-muted]">
                   Cert ID
                 </span>
-                <span className="break-all text-[--color-text]">
-                  {result.cert_id}
+                <span className="flex items-center gap-1.5 break-all text-[--color-text]">
+                  <span className="font-mono">{result.cert_id}</span>
+                  <a
+                    href={`https://cert.trustedform.com/${result.cert_id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="shrink-0 text-[--color-primary] hover:opacity-75"
+                    aria-label="View TrustedForm certificate"
+                  >
+                    <ExternalLink size={11} />
+                  </a>
                 </span>
               </div>
             )}
@@ -852,44 +870,25 @@ export function PayloadPreview({
                                           !e.changed_by?.username,
                                       );
 
-                                    const wrapperBorder = isDirty
-                                      ? "border-l-2 border-[--color-warning]"
+                                    // Input ring style for edited/remapped/dirty
+                                    const inputRing = isDirty
+                                      ? "border-[--color-warning] shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-warning)_20%,transparent)]"
                                       : isEdited
-                                        ? "border-l-2 border-amber-500"
+                                        ? "border-amber-400 shadow-[0_0_0_3px_color-mix(in_srgb,#f59e0b_18%,transparent)]"
                                         : isRemapped
-                                          ? "border-l-2 border-violet-500"
-                                          : "border-l-2 border-transparent";
-                                    const wrapperBg = isDirty
-                                      ? "bg-[--color-warning]/5"
-                                      : isEdited
-                                        ? "bg-amber-50/40 dark:bg-amber-900/10"
-                                        : isRemapped
-                                          ? "bg-violet-50/40 dark:bg-violet-900/10"
+                                          ? "border-violet-400 shadow-[0_0_0_3px_color-mix(in_srgb,#8b5cf6_18%,transparent)]"
                                           : "";
+                                    const showHistory =
+                                      isDirty || isEdited || isRemapped;
 
                                     return (
-                                      <div
-                                        key={key}
-                                        className={`space-y-1 rounded-r-lg pl-2 -ml-2 pr-1 py-1.5 ${wrapperBorder} ${wrapperBg}`}
-                                      >
-                                        <div className="flex items-center gap-1.5">
-                                          <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
-                                            {normalizeFieldLabel(key)}
-                                          </p>
-                                          {isEdited && (
-                                            <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
-                                              Edited
-                                            </span>
-                                          )}
-                                          {isRemapped && (
-                                            <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
-                                              Mapped
-                                            </span>
-                                          )}
-                                        </div>
-                                        <div className="flex items-center gap-1.5">
+                                      <div key={key} className="space-y-1">
+                                        <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+                                          {normalizeFieldLabel(key)}
+                                        </p>
+                                        <div className="relative flex items-center">
                                           <input
-                                            className={inputClass}
+                                            className={`${inputClass} ${inputRing}`}
                                             value={current}
                                             onChange={(e) =>
                                               setLocalPayload((prev) => ({
@@ -898,21 +897,30 @@ export function PayloadPreview({
                                               }))
                                             }
                                           />
-                                          <EditHistoryPopover
-                                            originalValue={
-                                              isDirty ? original : undefined
-                                            }
-                                            updatedBy={currentLead.updated_by}
-                                            updatedAt={currentLead.updated_at}
-                                            dirty={isDirty}
-                                            fieldLabel={normalizeFieldLabel(
-                                              key,
-                                            )}
-                                            history={currentLead.edit_history?.filter(
-                                              (e) =>
-                                                e.field === `payload.${key}`,
-                                            )}
-                                          />
+                                          {showHistory && (
+                                            <span className="absolute right-2">
+                                              <EditHistoryPopover
+                                                originalValue={
+                                                  isDirty ? original : undefined
+                                                }
+                                                updatedBy={
+                                                  currentLead.updated_by
+                                                }
+                                                updatedAt={
+                                                  currentLead.updated_at
+                                                }
+                                                dirty={isDirty}
+                                                fieldLabel={normalizeFieldLabel(
+                                                  key,
+                                                )}
+                                                history={currentLead.edit_history?.filter(
+                                                  (e) =>
+                                                    e.field ===
+                                                    `payload.${key}`,
+                                                )}
+                                              />
+                                            </span>
+                                          )}
                                         </div>
                                       </div>
                                     );

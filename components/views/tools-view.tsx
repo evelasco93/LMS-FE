@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import useSWR from "swr";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Shield,
@@ -8,6 +9,7 @@ import {
   Check,
   X,
   ChevronDown,
+  ExternalLink,
   Phone,
   Mail,
   Globe,
@@ -15,8 +17,9 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/button";
 import { Modal } from "@/components/modal";
-import { qaCheckTrustedForm, qaCheckIpqs } from "@/lib/api";
+import { qaCheckTrustedForm, qaCheckIpqs, listPluginSettings } from "@/lib/api";
 import { inputClass } from "@/lib/utils";
+import type { PluginView } from "@/lib/types";
 
 // ─── Shared helpers ────────────────────────────────────────────────────────────
 
@@ -152,12 +155,15 @@ function FlipCard({
 
 // ─── TrustedForm Card ──────────────────────────────────────────────────────────
 
-function TrustedFormCard() {
+function TrustedFormCard({ plugin }: { plugin?: PluginView | null }) {
   const [flipped, setFlipped] = useState(false);
   const [certId, setCertId] = useState("");
+  const [submittedCertId, setSubmittedCertId] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
   const [resultOpen, setResultOpen] = useState(false);
+
+  const credentialsId = plugin?.credentials_id ?? null;
 
   const handleCheck = async () => {
     const id = certId.trim();
@@ -167,9 +173,10 @@ function TrustedFormCard() {
     }
     setLoading(true);
     try {
-      const res = await qaCheckTrustedForm(id);
+      const res = await qaCheckTrustedForm(id, credentialsId);
       const data = (res as any)?.data;
       if (data) {
+        setSubmittedCertId(id);
         setResult(data);
         setResultOpen(true);
       } else {
@@ -245,10 +252,6 @@ function TrustedFormCard() {
             Enter a bare 40-char hex ID or fullcert URL.
           </p>
         </div>
-        <p className="text-[11px] text-amber-500/90 flex items-start gap-1">
-          <span className="shrink-0 mt-0.5">⚠</span>A certificate ID is required
-          to run a check.
-        </p>
       </div>
 
       <Button
@@ -273,13 +276,21 @@ function TrustedFormCard() {
         onClose={() => setResultOpen(false)}
         width={480}
       >
-        {result && <TrustedFormResult data={result} />}
+        {result && (
+          <TrustedFormResult data={result} submittedCertId={submittedCertId} />
+        )}
       </Modal>
     </>
   );
 }
 
-function TrustedFormResult({ data }: { data: Record<string, unknown> }) {
+function TrustedFormResult({
+  data,
+  submittedCertId,
+}: {
+  data: Record<string, unknown>;
+  submittedCertId?: string;
+}) {
   const success = data?.outcome === "success";
 
   return (
@@ -313,13 +324,32 @@ function TrustedFormResult({ data }: { data: Record<string, unknown> }) {
           {data.outcome !== undefined && (
             <ResultField label="Outcome" value={String(data.outcome)} />
           )}
-          {data.cert_id !== undefined && (
-            <ResultField
-              label="Certificate ID"
-              value={String(data.cert_id)}
-              mono
-            />
-          )}
+          {(() => {
+            const certId =
+              data.cert_id !== undefined
+                ? String(data.cert_id)
+                : submittedCertId || undefined;
+            if (!certId) return null;
+            return (
+              <ResultField
+                label="Certificate ID"
+                value={
+                  <span className="flex items-center gap-1.5 justify-end">
+                    <span className="font-mono break-all">{certId}</span>
+                    <a
+                      href={`https://cert.trustedform.com/${certId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="shrink-0 text-[--color-primary] hover:opacity-75"
+                      aria-label="View TrustedForm certificate"
+                    >
+                      <ExternalLink size={11} />
+                    </a>
+                  </span>
+                }
+              />
+            );
+          })()}
           {data.reason !== undefined && (
             <ResultField label="Reason" value={String(data.reason)} />
           )}
@@ -428,7 +458,7 @@ function IpqsIcon({ size = 44 }: { size?: number }) {
   );
 }
 
-function IpqsCard() {
+function IpqsCard({ plugin }: { plugin?: PluginView | null }) {
   const [flipped, setFlipped] = useState(false);
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -446,6 +476,8 @@ function IpqsCard() {
     ip: boolean;
   }>({ phone: false, email: false, ip: false });
   const [resultOpen, setResultOpen] = useState(false);
+
+  const credentialsId = plugin?.credentials_id ?? null;
 
   const handleCheck = async () => {
     const p = phone.trim();
@@ -466,7 +498,7 @@ function IpqsCard() {
 
     setLoading(true);
     try {
-      const res = await qaCheckIpqs(payload);
+      const res = await qaCheckIpqs(payload, credentialsId);
       const data = (res as any)?.data;
       if (data !== undefined) {
         setResult(data);
@@ -771,6 +803,22 @@ function formatRawValue(value: unknown): React.ReactNode {
 // ─── ToolsView ─────────────────────────────────────────────────────────────────
 
 export function ToolsView() {
+  const { data: pluginSettings = [] } = useSWR<PluginView[]>(
+    "tools-plugin-settings",
+    async () => {
+      try {
+        const res = await listPluginSettings();
+        const raw = (res as any)?.data;
+        return Array.isArray(raw) ? raw : [];
+      } catch {
+        return [];
+      }
+    },
+  );
+
+  const tfPlugin = pluginSettings.find((p) => p.provider === "trusted_form");
+  const ipqsPlugin = pluginSettings.find((p) => p.provider === "ipqs");
+
   return (
     <motion.section
       key="tools-content"
@@ -782,8 +830,8 @@ export function ToolsView() {
     >
       {/* Cards grid */}
       <div className="flex flex-wrap gap-6">
-        <TrustedFormCard />
-        <IpqsCard />
+        <TrustedFormCard plugin={tfPlugin} />
+        <IpqsCard plugin={ipqsPlugin} />
       </div>
     </motion.section>
   );

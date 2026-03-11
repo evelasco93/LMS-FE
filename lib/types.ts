@@ -408,3 +408,41 @@ export interface CriteriaField {
   created_at?: string;
   updated_at?: string;
 }
+
+// ─── Logic Rules ──────────────────────────────────────────────────────────────
+
+export type LogicRuleOperator =
+  | "is"
+  | "is_not"
+  | "contains"
+  | "does_not_contain"
+  | "starts_with"
+  | "ends_with"
+  | "greater_than"
+  | "less_than"
+  | "is_empty"
+  | "is_not_empty";
+
+export interface LogicRuleCondition {
+  id?: string;
+  field_name: string;
+  operator: LogicRuleOperator;
+  value?: string | string[];
+}
+
+export interface LogicRuleGroup {
+  id?: string;
+  conditions: LogicRuleCondition[];
+}
+
+export interface LogicRule {
+  id: string;
+  name: string;
+  action: "pass" | "fail";
+  enabled: boolean;
+  groups: LogicRuleGroup[];
+  created_at?: string;
+  updated_at?: string;
+  created_by?: string;
+  updated_by?: string;
+}
