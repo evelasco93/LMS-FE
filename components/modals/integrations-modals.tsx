@@ -27,6 +27,7 @@ import type {
   PluginSchemaField,
   PluginSchemaFieldType,
   CredentialType,
+  PluginSettingRecord,
 } from "@/lib/types";
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
@@ -1459,7 +1460,6 @@ export function CredentialSchemaDetailModal({
 export function PluginSettingDetailModal({
   isOpen,
   onClose,
-  plugin,
   plugin,
   credentials,
   onSuccess,

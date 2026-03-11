@@ -347,9 +347,6 @@ export interface PluginSettingRecord {
   edit_history?: EditHistoryEntry[];
   created_at?: string;
   updated_at?: string;
-  deleted_by?: string | null;
-  deleted_at?: string | null;
-  edit_history?: EditHistoryEntry[];
 }
 
 /**
