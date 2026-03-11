@@ -41,7 +41,6 @@ import { formatDateTime, statusColorMap, inputClass } from "@/lib/utils";
 import {
   listUsers,
   listPluginSettings,
-  listCredentialSchemas,
   listCriteria,
   createCriteriaField,
   updateCriteriaField,
@@ -57,7 +56,6 @@ import type {
   CriteriaFieldOption,
   CriteriaFieldType,
   CriteriaValueMapping,
-  CredentialSchemaRecord,
   Lead,
   PluginSettingRecord,
 } from "@/lib/types";
@@ -349,21 +347,11 @@ export function CampaignDetailModal({
     return res?.data ?? [];
   });
 
-  const { data: globalSchemasData } = useSWR(
-    isOpen ? "credential-schemas:all" : null,
-    async () => {
-      const res = await listCredentialSchemas();
-      return (res as any)?.data?.items ?? [];
-    },
-  );
-  const globalSchemas: CredentialSchemaRecord[] = globalSchemasData ?? [];
-
   const { data: globalPluginSettingsData } = useSWR(
     isOpen ? "plugin-settings:all" : null,
     async () => {
       const res = await listPluginSettings();
-      const raw = (res as any)?.data;
-      return Array.isArray(raw) ? raw : [];
+      return (res as any)?.data ?? [];
     },
   );
   const globalPluginSettings: PluginSettingRecord[] =
@@ -382,7 +370,9 @@ export function CampaignDetailModal({
   const criteriaFields: CriteriaField[] = (criteriaData as any)?.data ?? [];
 
   const getGlobalPluginDisabled = (provider: string): boolean => {
-    const setting = globalPluginSettings.find((ps) => ps.provider === provider);
+    const setting = globalPluginSettings.find(
+      (ps) => ps.provider === provider,
+    );
     return setting ? setting.enabled === false : false;
   };
 
@@ -414,23 +404,39 @@ export function CampaignDetailModal({
       | null,
   ): string {
     if (!changed_by) return "";
-    // Plain string — try userNameMap first, then return as-is
+    // Plain string — try userNameMap first, then email-local fallback
     if (typeof changed_by === "string") {
-      return userNameMap.get(changed_by) || changed_by;
+      if (userNameMap.has(changed_by)) return userNameMap.get(changed_by)!;
+      if (changed_by.includes("@")) {
+        const local = changed_by.split("@")[0];
+        return local
+          .split(/[._\-+]+/)
+          .filter(Boolean)
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(" ");
+      }
+      return changed_by;
     }
-    // Object — prefer embedded full name, then userNameMap lookup
+    // Object — prefer embedded full name, then userNameMap lookup, then email-local fallback
     const fullName =
       changed_by.full_name ||
       [changed_by.first_name, changed_by.last_name].filter(Boolean).join(" ");
     if (fullName) return fullName;
     const key = changed_by.email ?? changed_by.username ?? "";
-    return (
-      userNameMap.get(key) ||
-      userNameMap.get(changed_by.username ?? "") ||
-      changed_by.email ||
-      changed_by.username ||
-      ""
-    );
+    if (userNameMap.has(key)) return userNameMap.get(key)!;
+    if (changed_by.username && userNameMap.has(changed_by.username))
+      return userNameMap.get(changed_by.username)!;
+    // Email-local fallback
+    const email = changed_by.email ?? "";
+    if (email.includes("@")) {
+      const local = email.split("@")[0];
+      return local
+        .split(/[._\-+]+/)
+        .filter(Boolean)
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ");
+    }
+    return changed_by.email || changed_by.username || "";
   }
 
   useEffect(() => {

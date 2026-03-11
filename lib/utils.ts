@@ -114,16 +114,21 @@ export function normalizeFieldLabel(key: string): string {
 }
 
 /**
- * The API occasionally returns user objects {sub, full_name, email, …} instead
- * of plain strings for created_by / updated_by fields.
+ * The API occasionally returns user objects {sub, full_name, first_name,
+ * last_name, email, …} instead of plain strings for created_by / updated_by
+ * fields.  Prefers full name over email.
  */
 export const resolveDisplayName = (value: unknown): string | null => {
   if (!value) return null;
   if (typeof value === "string") return value || null;
   if (typeof value === "object") {
     const u = value as Record<string, unknown>;
+    const first = typeof u.first_name === "string" ? u.first_name : "";
+    const last = typeof u.last_name === "string" ? u.last_name : "";
+    const fromParts = [first, last].filter(Boolean).join(" ");
     return (
       (typeof u.full_name === "string" && u.full_name) ||
+      fromParts ||
       (typeof u.email === "string" && u.email) ||
       (typeof u.username === "string" && u.username) ||
       (typeof u.sub === "string" && u.sub) ||

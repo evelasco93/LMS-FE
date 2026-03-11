@@ -342,6 +342,9 @@ export interface PluginSettingRecord {
   enabled: boolean;
   is_deleted?: boolean;
   active?: boolean;
+  deleted_at?: string | null;
+  deleted_by?: unknown;
+  edit_history?: EditHistoryEntry[];
   created_at?: string;
   updated_at?: string;
   deleted_by?: string | null;

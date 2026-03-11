@@ -1303,6 +1303,10 @@ export function CredentialSchemaDetailModal({
                     Credentials using provider{" "}
                     <span className="font-mono text-[--color-text]">
                       {schema.provider}
+                    </span>{" "}
+                    with type{" "}
+                    <span className="font-mono text-[--color-text]">
+                      {schema.credential_type}
                     </span>
                     . These must be deleted before this schema can be removed.
                   </p>
@@ -1455,6 +1459,7 @@ export function CredentialSchemaDetailModal({
 export function PluginSettingDetailModal({
   isOpen,
   onClose,
+  plugin,
   plugin,
   credentials,
   onSuccess,

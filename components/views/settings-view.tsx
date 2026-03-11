@@ -728,7 +728,9 @@ export function SettingsView({ role }: SettingsViewProps) {
         onClose={() => setViewSchemaTarget(null)}
         schema={viewSchemaTarget}
         linkedCredentials={credentials.filter(
-          (c) => c.provider === viewSchemaTarget?.provider,
+          (c) =>
+            c.provider === viewSchemaTarget?.provider &&
+            c.credential_type === viewSchemaTarget?.credential_type,
         )}
         isWiredToPlugin={pluginSettings.some(
           (ps) =>

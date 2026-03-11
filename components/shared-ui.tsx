@@ -1,17 +1,18 @@
 "use client";
 
 import type React from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { Info } from "lucide-react";
+import useSWR from "swr";
 import PhoneInput from "react-phone-input-2";
 import {
   formatDate,
   formatDateTime,
-  resolveDisplayName,
   inputClass,
 } from "@/lib/utils";
+import { listUsers } from "@/lib/api";
 import type { EditHistoryEntry } from "@/lib/types";
 import { Modal } from "@/components/modal";
 
@@ -53,6 +54,91 @@ export function InfoItem({
   );
 }
 
+// ─── Shared author-resolution helpers ────────────────────────────────────────
+
+/** Converts an email address to a readable display name.
+ *  e.g. "edgar.velasco@example.com" → "Edgar Velasco"
+ *       "edgar@example.com"          → "Edgar"
+ */
+function emailToDisplayName(email: string): string {
+  const local = email.split("@")[0];
+  return local
+    .split(/[._\-+]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+/**
+ * Shared hook — fetches users once (SWR deduplicates) and returns a resolver
+ * function that converts any author value (plain string, RequestActor object)
+ * to the best available display name.
+ *
+ * Resolution order:
+ *  1. full_name / first_name+last_name from embedded RequestActor fields
+ *  2. firstName+lastName from the users list (matched by email or username)
+ *  3. Email-local-part fallback: "edgar@..." → "Edgar"
+ *  4. Plain string as-is
+ */
+function useAuthorResolver(): (value: unknown) => string | null {
+  const { data: usersRaw = [] } = useSWR("users:name-map", async () => {
+    try {
+      const res = await listUsers();
+      return (res as any)?.data || [];
+    } catch {
+      return [];
+    }
+  });
+
+  return useMemo(() => {
+    // Build map: email/username → full name (only when name actually exists)
+    const map = new Map<string, string>();
+    (usersRaw as any[]).forEach((u: any) => {
+      const full = [u.firstName, u.lastName].filter(Boolean).join(" ");
+      if (full) {
+        if (u.email) map.set(u.email.toLowerCase(), full);
+        if (u.username) map.set(u.username.toLowerCase(), full);
+      }
+    });
+
+    return (value: unknown): string | null => {
+      if (!value) return null;
+
+      if (typeof value === "string") {
+        const lower = value.toLowerCase();
+        if (map.has(lower)) return map.get(lower)!;
+        // Email fallback: extract and title-case the local part
+        if (value.includes("@")) return emailToDisplayName(value);
+        return value || null;
+      }
+
+      if (typeof value === "object") {
+        const u = value as Record<string, unknown>;
+        // 1. Embedded name fields from RequestActor
+        const first = typeof u.first_name === "string" ? u.first_name : "";
+        const last = typeof u.last_name === "string" ? u.last_name : "";
+        const fromParts = [first, last].filter(Boolean).join(" ");
+        const fullName =
+          (typeof u.full_name === "string" && u.full_name) || fromParts;
+        if (fullName) return fullName;
+        // 2. Look up in users list
+        const email = typeof u.email === "string" ? u.email : "";
+        const username = typeof u.username === "string" ? u.username : "";
+        const key = email || username;
+        if (key) {
+          const fromMap = map.get(key.toLowerCase());
+          if (fromMap) return fromMap;
+          // 3. Email fallback
+          if (email.includes("@")) return emailToDisplayName(email);
+          return key;
+        }
+      }
+
+      return String(value);
+    };
+  }, [usersRaw]);
+}
+
 // ─── AuditPopover ────────────────────────────────────────────────────────────
 
 export function AuditPopover({
@@ -67,6 +153,7 @@ export function AuditPopover({
   editHistory?: EditHistoryEntry[];
 }) {
   const [open, setOpen] = useState(false);
+  const resolveAuthor = useAuthorResolver();
 
   const hasHistory = Array.isArray(editHistory) && editHistory.length > 0;
   const sortedLog = hasHistory
@@ -104,7 +191,7 @@ export function AuditPopover({
                 Created by
               </p>
               <p className="mt-1 text-sm font-medium text-[--color-text-strong]">
-                {resolveDisplayName(createdBy) || "—"}
+                {resolveAuthor(createdBy) || "—"}
               </p>
             </div>
             <div className="rounded-lg border border-[--color-border] bg-[--color-bg-muted] p-3">
@@ -112,7 +199,7 @@ export function AuditPopover({
                 Last updated by
               </p>
               <p className="mt-1 text-sm font-medium text-[--color-text-strong]">
-                {resolveDisplayName(updatedBy) || "—"}
+                {resolveAuthor(updatedBy) || "—"}
               </p>
               {updatedAt && (
                 <p className="mt-0.5 text-xs text-[--color-text-muted]">
@@ -131,7 +218,7 @@ export function AuditPopover({
               <div className="max-h-80 space-y-2 overflow-y-auto pr-0.5">
                 {sortedLog.map((entry, i) => {
                   const by = entry.changed_by
-                    ? resolveDisplayName(entry.changed_by)
+                    ? resolveAuthor(entry.changed_by)
                     : null;
                   const prev =
                     entry.previous_value != null
@@ -312,6 +399,7 @@ export function EditHistoryPopover({
   fieldLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const resolveAuthor = useAuthorResolver();
 
   const hasHistory = Array.isArray(history) && history.length > 0;
   const sorted = hasHistory
@@ -321,7 +409,7 @@ export function EditHistoryPopover({
       )
     : [];
 
-  const hasFallback = !!(resolveDisplayName(updatedBy) || updatedAt);
+  const hasFallback = !!(resolveAuthor(updatedBy) || updatedAt);
   const isEmpty = !dirty && !hasHistory && !hasFallback;
 
   return (
@@ -383,7 +471,7 @@ export function EditHistoryPopover({
               {/* Persisted changelog entries */}
               {sorted.map((entry, i) => {
                 const by = entry.changed_by
-                  ? resolveDisplayName(entry.changed_by)
+                  ? resolveAuthor(entry.changed_by)
                   : null;
                 const prev =
                   entry.previous_value != null
@@ -422,9 +510,9 @@ export function EditHistoryPopover({
               {/* Fallback: no per-field history, but lead-level updated_by/at available */}
               {!hasHistory && hasFallback && (
                 <div className="rounded-lg border border-[--color-border] bg-[--color-bg-muted] p-3">
-                  {resolveDisplayName(updatedBy) && (
+                  {resolveAuthor(updatedBy) && (
                     <p className="text-xs text-[--color-text-muted]">
-                      Last updated by {resolveDisplayName(updatedBy)}
+                      Last updated by {resolveAuthor(updatedBy)}
                     </p>
                   )}
                   {updatedAt && (
