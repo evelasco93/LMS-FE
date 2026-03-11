@@ -4,6 +4,7 @@ import type {
   Affiliate,
   AffiliateStatus,
   ApiResponse,
+  AvailablePlugin,
   Campaign,
   CampaignParticipantStatus,
   CampaignStatus,
@@ -11,6 +12,7 @@ import type {
   CredentialRecord,
   CredentialSchemaRecord,
   PluginSettingRecord,
+  PluginView,
   Lead,
   PaginatedResponse,
 } from "./types";
@@ -29,7 +31,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
 
 function buildUrl(
   path: string,
-  params?: Record<string, string | number | undefined | null>,
+  params?: Record<string, string | number | boolean | undefined | null>,
 ) {
   const base = API_BASE_URL.startsWith("http")
     ? API_BASE_URL
@@ -437,22 +439,35 @@ export async function deleteCredentialSchema(id: string, permanent = false) {
   });
 }
 
-// ── Plugin Settings (/tenant-config/plugin-settings) ────────────────────────
+// ── Available Plugins registry (/tenant-config/plugins) ─────────────────────
 
-export async function listPluginSettings() {
-  const url = buildUrl("/tenant-config/plugin-settings");
-  return request<{
-    success: boolean;
-    data: { items: PluginSettingRecord[]; count: number };
-  }>(url);
+export async function listAvailablePlugins() {
+  const url = buildUrl("/tenant-config/plugins");
+  return request<{ success: boolean; data: AvailablePlugin[] }>(url);
 }
 
+// ── Plugin Settings (/tenant-config/plugin-settings) ────────────────────────
+
+/**
+ * Returns exactly one PluginView per canonical plugin (always fixed-size list).
+ * Each entry merges PluginSettingRecord state with AvailablePlugin registry metadata.
+ * Unconfigured plugins have id="", credentials_id=null, enabled=false.
+ */
+export async function listPluginSettings() {
+  const url = buildUrl("/tenant-config/plugin-settings");
+  return request<{ success: boolean; data: PluginView[] }>(url);
+}
+
+/**
+ * Upserts the global plugin setting for a canonical provider.
+ * @param provider - e.g. "trusted_form" | "ipqs"
+ */
 export async function setPluginSetting(
-  schemaId: string,
-  payload: { credentials_id: string; enabled?: boolean },
+  provider: string,
+  payload: { credentials_id?: string | null; enabled?: boolean },
 ) {
   const url = buildUrl(
-    `/tenant-config/plugin-settings/${encodeURIComponent(schemaId)}`,
+    `/tenant-config/plugin-settings/${encodeURIComponent(provider)}`,
   );
   return request<ApiResponse<PluginSettingRecord>>(url, {
     method: "PUT",
@@ -460,9 +475,9 @@ export async function setPluginSetting(
   });
 }
 
-export async function deletePluginSetting(schemaId: string, permanent = false) {
+export async function deletePluginSetting(provider: string, permanent = false) {
   const url = buildUrl(
-    `/tenant-config/plugin-settings/${encodeURIComponent(schemaId)}`,
+    `/tenant-config/plugin-settings/${encodeURIComponent(provider)}`,
     permanent ? { permanent: "true" } : undefined,
   );
   return request<{ success: boolean; message?: string }>(url, {

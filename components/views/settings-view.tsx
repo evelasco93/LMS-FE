@@ -33,7 +33,7 @@ import type {
   CognitoUser,
   CredentialRecord,
   CredentialSchemaRecord,
-  PluginSettingRecord,
+  PluginView,
 } from "@/lib/types";
 
 // ─── SettingsView ─────────────────────────────────────────────────────────────
@@ -74,8 +74,9 @@ export function SettingsView({ role }: SettingsViewProps) {
   const [addSchemaModal, setAddSchemaModal] = useState(false);
   const [viewSchemaTarget, setViewSchemaTarget] =
     useState<CredentialSchemaRecord | null>(null);
-  const [viewPluginTarget, setViewPluginTarget] =
-    useState<CredentialSchemaRecord | null>(null);
+  const [viewPluginTarget, setViewPluginTarget] = useState<PluginView | null>(
+    null,
+  );
 
   // ── Data fetching ────────────────────────────────────────────────────────────
 
@@ -134,17 +135,16 @@ export function SettingsView({ role }: SettingsViewProps) {
     data: pluginSettings = [],
     isLoading: pluginSettingsLoading,
     mutate: refreshPluginSettings,
-  } = useSWR<PluginSettingRecord[]>(
-    activeSection === "plugin-settings" || activeSection === "schemas"
-      ? "plugin-settings"
-      : null,
+  } = useSWR<PluginView[]>(
+    activeSection === "plugin-settings" ? "plugin-settings" : null,
     async () => {
       try {
         const res = await listPluginSettings();
-        return (res as any)?.data?.items || (res as any)?.data || [];
+        const raw = (res as any)?.data;
+        return Array.isArray(raw) ? raw : [];
       } catch (err) {
         console.warn("Plugin settings not available", err);
-        return [] as PluginSettingRecord[];
+        return [] as PluginView[];
       }
     },
   );
@@ -473,54 +473,55 @@ export function SettingsView({ role }: SettingsViewProps) {
                   integration system-wide and assign which saved credential it
                   should use.
                 </p>
-                {schemasLoading || pluginSettingsLoading ? (
+                {pluginSettingsLoading || credsLoading ? (
                   <p className="text-sm text-[--color-text-muted]">Loading…</p>
-                ) : schemas.length === 0 ? (
+                ) : pluginSettings.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-[--color-border] bg-[--color-panel] p-12 text-center text-[--color-text-muted]">
                     <p className="text-3xl mb-3">🔌</p>
                     <p className="font-medium text-[--color-text-strong]">
-                      No credential schemas yet
+                      No plugins available
                     </p>
                     <p className="mt-1 text-sm">
-                      Add a credential schema first before wiring credentials.
+                      Plugin registry could not be loaded.
                     </p>
                   </div>
                 ) : (
                   <div className="grid gap-3 md:grid-cols-2">
-                    {schemas.map((s) => {
-                      const setting = pluginSettings.find(
-                        (ps) => ps.schema_id === s.id,
-                      );
-                      const wiredCred = setting
+                    {pluginSettings.map((plugin) => {
+                      const wiredCred = plugin.credentials_id
                         ? credentials.find(
-                            (c) => c.id === setting.credentials_id,
+                            (c) => c.id === plugin.credentials_id,
                           )
                         : null;
                       return (
                         <div
-                          key={s.id}
+                          key={plugin.provider}
                           className="rounded-xl border border-[--color-border] bg-[--color-panel] p-4 space-y-3"
                         >
                           <div className="flex items-start justify-between gap-2">
                             <div>
                               <div className="flex items-center gap-1">
                                 <p className="font-semibold text-[--color-text-strong]">
-                                  {s.name}
+                                  {plugin.name}
                                 </p>
-                                {setting && (
-                                  <AuditPopover
-                                    updatedAt={setting.updated_at}
-                                    createdBy={setting.created_by}
-                                    updatedBy={setting.updated_by}
-                                    editHistory={setting.edit_history}
-                                  />
-                                )}
+                                {plugin.edit_history &&
+                                  plugin.edit_history.length > 0 && (
+                                    <AuditPopover
+                                      updatedAt={plugin.updated_at}
+                                      editHistory={plugin.edit_history}
+                                    />
+                                  )}
                               </div>
                               <p className="text-xs font-mono text-[--color-text-muted]">
-                                {s.provider}
+                                {plugin.provider}
                               </p>
+                              {plugin.description && (
+                                <p className="mt-0.5 text-xs text-[--color-text-muted]">
+                                  {plugin.description}
+                                </p>
+                              )}
                             </div>
-                            <Badge tone="info">{s.credential_type}</Badge>
+                            <Badge tone="info">{plugin.credential_type}</Badge>
                           </div>
                           <div className="flex items-center justify-between gap-2">
                             <div className="space-y-0.5">
@@ -531,10 +532,9 @@ export function SettingsView({ role }: SettingsViewProps) {
                                 <span className="inline-flex items-center gap-1.5 rounded-full border border-[--color-border] bg-[--color-bg-muted] px-2.5 py-1 text-xs text-[--color-text]">
                                   <span
                                     className={`h-1.5 w-1.5 rounded-full ${
-                                      setting?.enabled && wiredCred?.enabled
+                                      plugin.enabled && wiredCred.enabled
                                         ? "bg-green-500"
-                                        : setting?.enabled &&
-                                            !wiredCred?.enabled
+                                        : plugin.enabled && !wiredCred.enabled
                                           ? "bg-amber-400"
                                           : "bg-red-400"
                                     }`}
@@ -547,13 +547,27 @@ export function SettingsView({ role }: SettingsViewProps) {
                                 </span>
                               )}
                             </div>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => setViewPluginTarget(s)}
-                            >
-                              View
-                            </Button>
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                                  plugin.enabled
+                                    ? "bg-[--color-surface-raised] border border-[--color-border] text-[--color-text]"
+                                    : "bg-[--color-bg-muted] text-[--color-text-muted]"
+                                }`}
+                              >
+                                <span
+                                  className={`h-1.5 w-1.5 rounded-full ${plugin.enabled ? "bg-teal-500" : "bg-[--color-text-muted]"}`}
+                                />
+                                {plugin.enabled ? "Enabled" : "Disabled"}
+                              </span>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setViewPluginTarget(plugin)}
+                              >
+                                Configure
+                              </Button>
+                            </div>
                           </div>
                         </div>
                       );
@@ -705,6 +719,7 @@ export function SettingsView({ role }: SettingsViewProps) {
       <AddCredentialSchemaModal
         isOpen={addSchemaModal}
         onClose={() => setAddSchemaModal(false)}
+        existingSchemas={schemas}
         onSuccess={() => refreshSchemas()}
       />
       <CredentialSchemaDetailModal
@@ -716,7 +731,8 @@ export function SettingsView({ role }: SettingsViewProps) {
           (c) => c.provider === viewSchemaTarget?.provider,
         )}
         isWiredToPlugin={pluginSettings.some(
-          (ps) => ps.schema_id === viewSchemaTarget?.id,
+          (ps) =>
+            ps.provider === viewSchemaTarget?.provider && !!ps.credentials_id,
         )}
         onSuccess={() => {
           refreshSchemas();
@@ -724,15 +740,11 @@ export function SettingsView({ role }: SettingsViewProps) {
         }}
       />
       <PluginSettingDetailModal
-        key={viewPluginTarget?.id ?? "view-plugin"}
+        key={viewPluginTarget?.provider ?? "view-plugin"}
         isOpen={!!viewPluginTarget}
         onClose={() => setViewPluginTarget(null)}
-        schema={viewPluginTarget}
+        plugin={viewPluginTarget}
         credentials={credentials}
-        currentSetting={
-          pluginSettings.find((ps) => ps.schema_id === viewPluginTarget?.id) ??
-          null
-        }
         onSuccess={() => {
           refreshPluginSettings();
           refreshCreds();

@@ -362,7 +362,8 @@ export function CampaignDetailModal({
     isOpen ? "plugin-settings:all" : null,
     async () => {
       const res = await listPluginSettings();
-      return (res as any)?.data?.items ?? [];
+      const raw = (res as any)?.data;
+      return Array.isArray(raw) ? raw : [];
     },
   );
   const globalPluginSettings: PluginSettingRecord[] =
@@ -381,11 +382,7 @@ export function CampaignDetailModal({
   const criteriaFields: CriteriaField[] = (criteriaData as any)?.data ?? [];
 
   const getGlobalPluginDisabled = (provider: string): boolean => {
-    const schema = globalSchemas.find((s) => s.provider === provider);
-    if (!schema) return false;
-    const setting = globalPluginSettings.find(
-      (ps) => ps.schema_id === schema.id,
-    );
+    const setting = globalPluginSettings.find((ps) => ps.provider === provider);
     return setting ? setting.enabled === false : false;
   };
 
@@ -3428,256 +3425,297 @@ export function CampaignDetailModal({
                             <p className="text-sm text-[--color-text-muted]">
                               Loading…
                             </p>
-                          ) : criteriaView === "ui" ? (
-                            criteriaFields.length === 0 ? (
-                              <div className="rounded-xl border border-dashed border-[--color-border] py-12 text-center text-sm text-[--color-text-muted]">
-                                No criteria fields yet.{" "}
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setFieldDraft(emptyFieldDraft);
-                                    setEditFieldData(null);
-                                    setAddFieldOpen(true);
-                                  }}
-                                  className="text-[--color-primary] hover:underline"
-                                >
-                                  Add the first field
-                                </button>
-                              </div>
-                            ) : (
-                              <div className="overflow-hidden rounded-xl border border-[--color-border]">
-                                <table className="w-full text-sm">
-                                  <thead>
-                                    <tr className="border-b border-[--color-border] bg-[--color-bg-muted]">
-                                      <th className="w-10 px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
-                                        #
-                                      </th>
-                                      <th className="px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
-                                        Field Label
-                                      </th>
-                                      <th className="px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
-                                        Field Name
-                                      </th>
-                                      <th className="w-28 px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted] whitespace-nowrap">
-                                        Data Type
-                                      </th>
-                                      <th className="w-20 px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
-                                        Required
-                                      </th>
-                                      <th className="w-20 px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
-                                        Mappings
-                                      </th>
-                                      <th className="w-20 px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
-                                        Actions
-                                      </th>
-                                    </tr>
-                                  </thead>
-                                  <tbody className="divide-y divide-[--color-border]">
-                                    {criteriaFields.map((field, idx) => (
-                                      <tr
-                                        key={field.id}
-                                        className="bg-[--color-bg] transition-colors hover:bg-[--color-bg-muted]"
-                                      >
-                                        <td className="px-4 py-3 text-xs text-[--color-text-muted]">
-                                          {idx + 1}
-                                        </td>
-                                        <td className="px-4 py-3">
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              setFieldDraft({
-                                                field_label: field.field_label,
-                                                field_name: field.field_name,
-                                                data_type: field.data_type,
-                                                required: field.required,
-                                                description:
-                                                  field.description ?? "",
-                                                state_mapping:
-                                                  field.state_mapping ?? null,
-                                                options: field.options ?? [],
-                                              });
-                                              setEditFieldData(field);
-                                              setAddFieldOpen(true);
-                                            }}
-                                            className="text-left font-medium text-[--color-primary] hover:underline"
-                                          >
-                                            {field.field_label}
-                                          </button>
-                                        </td>
-                                        <td className="px-4 py-3 font-mono text-xs text-[--color-text-muted]">
-                                          {field.field_name}
-                                        </td>
-                                        <td className="px-4 py-3">
-                                          {field.data_type === "List" ? (
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                setFieldDraft({
-                                                  field_label:
-                                                    field.field_label,
-                                                  field_name: field.field_name,
-                                                  data_type: field.data_type,
-                                                  required: field.required,
-                                                  description:
-                                                    field.description ?? "",
-                                                  state_mapping:
-                                                    field.state_mapping ?? null,
-                                                  options: field.options ?? [],
-                                                });
-                                                setEditFieldData(field);
-                                                setAddFieldOpen(true);
-                                              }}
-                                              className="rounded-md border border-[--color-primary]/30 bg-[--color-primary]/10 px-2 py-0.5 text-xs font-medium text-[--color-primary] transition-colors hover:bg-[--color-primary]/20"
-                                            >
-                                              List
-                                            </button>
-                                          ) : (
-                                            <span className="rounded-md border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs text-[--color-text-muted] whitespace-nowrap">
-                                              {CRITERIA_TYPE_LABELS[
-                                                field.data_type
-                                              ] ?? field.data_type}
-                                            </span>
-                                          )}
-                                        </td>
-                                        <td className="px-4 py-3">
-                                          <span
-                                            className={`inline-block h-2.5 w-2.5 rounded-full ${
-                                              field.required
-                                                ? "bg-green-500"
-                                                : "bg-[--color-border]"
-                                            }`}
-                                          />
-                                        </td>
-                                        <td className="px-4 py-3">
-                                          <button
-                                            type="button"
-                                            title="Edit value mappings"
-                                            onClick={() => {
-                                              setValueMappingsField(field);
-                                              setValueMappingsStateDraft(
-                                                field.state_mapping ?? null,
-                                              );
-                                              setValueMappingsDraft(
-                                                (
-                                                  field.value_mappings ?? []
-                                                ).map((m) => ({
-                                                  fromText: m.from.join(", "),
-                                                  to: m.to,
-                                                })),
-                                              );
-                                            }}
-                                          >
-                                            <span
-                                              className={`inline-block h-2.5 w-2.5 rounded-full transition-colors ${
-                                                (field.value_mappings ?? [])
-                                                  .length > 0 ||
-                                                field.state_mapping
-                                                  ? "bg-green-500"
-                                                  : "bg-[--color-border] hover:bg-[--color-text-muted]"
-                                              }`}
-                                            />
-                                          </button>
-                                        </td>
-                                        <td className="px-4 py-3">
-                                          <div className="flex items-center gap-3">
-                                            <button
-                                              type="button"
-                                              title="Edit field"
-                                              onClick={() => {
-                                                setFieldDraft({
-                                                  field_label:
-                                                    field.field_label,
-                                                  field_name: field.field_name,
-                                                  data_type: field.data_type,
-                                                  required: field.required,
-                                                  description:
-                                                    field.description ?? "",
-                                                  state_mapping:
-                                                    field.state_mapping ?? null,
-                                                  options: field.options ?? [],
-                                                });
-                                                setEditFieldData(field);
-                                                setAddFieldOpen(true);
-                                              }}
-                                              className="text-[--color-text-muted] transition-colors hover:text-[--color-primary]"
-                                            >
-                                              <Pencil size={13} />
-                                            </button>
-                                            <button
-                                              type="button"
-                                              title="Delete field"
-                                              onClick={() =>
-                                                setDeleteFieldTarget(field)
-                                              }
-                                              className="text-[--color-text-muted] transition-colors hover:text-red-500"
-                                            >
-                                              <Trash2 size={13} />
-                                            </button>
-                                          </div>
-                                        </td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            )
                           ) : (
-                            /* JSON view */
-                            <div className="space-y-2">
-                              <div className="flex items-center justify-between">
-                                <p className="text-xs text-[--color-text-muted]">
-                                  Current criteria schema — matches the expected
-                                  lead payload field structure.
-                                </p>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    navigator.clipboard.writeText(
-                                      JSON.stringify(
-                                        criteriaFields.map((f) => ({
-                                          field_name: f.field_name,
-                                          field_label: f.field_label,
-                                          data_type: f.data_type,
-                                          required: f.required,
-                                          ...(f.value_mappings?.length
-                                            ? {
-                                                value_mappings:
-                                                  f.value_mappings,
-                                              }
-                                            : {}),
-                                        })),
-                                        null,
-                                        2,
-                                      ),
-                                    );
-                                    toast.success("Copied to clipboard");
-                                  }}
-                                  className="flex shrink-0 items-center gap-1.5 text-xs text-[--color-text-muted] transition-colors hover:text-[--color-primary]"
-                                >
-                                  <Copy className="h-3.5 w-3.5" />
-                                  Copy
-                                </button>
-                              </div>
-                              <div className="overflow-hidden rounded-xl border border-[--color-border]">
-                                <textarea
-                                  readOnly
-                                  value={JSON.stringify(
-                                    criteriaFields.map((f) => ({
-                                      field_name: f.field_name,
-                                      field_label: f.field_label,
-                                      data_type: f.data_type,
-                                      required: f.required,
-                                      ...(f.value_mappings?.length
-                                        ? { value_mappings: f.value_mappings }
-                                        : {}),
-                                    })),
-                                    null,
-                                    2,
-                                  )}
-                                  className="w-full min-h-[320px] resize-none bg-[--color-bg-muted] p-4 font-mono text-xs text-[--color-text] outline-none"
-                                />
-                              </div>
-                            </div>
+                            <AnimatePresence mode="wait">
+                              <motion.div
+                                key={criteriaView}
+                                initial={{ opacity: 0, y: 6 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -6 }}
+                                transition={{ duration: 0.15, ease: "easeOut" }}
+                              >
+                                {criteriaView === "ui" ? (
+                                  criteriaFields.length === 0 ? (
+                                    <div className="rounded-xl border border-dashed border-[--color-border] py-12 text-center text-sm text-[--color-text-muted]">
+                                      No criteria fields yet.{" "}
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setFieldDraft(emptyFieldDraft);
+                                          setEditFieldData(null);
+                                          setAddFieldOpen(true);
+                                        }}
+                                        className="text-[--color-primary] hover:underline"
+                                      >
+                                        Add the first field
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="overflow-hidden rounded-xl border border-[--color-border]">
+                                      <table className="w-full text-sm">
+                                        <thead>
+                                          <tr className="border-b border-[--color-border] bg-[--color-bg-muted]">
+                                            <th className="w-10 px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
+                                              #
+                                            </th>
+                                            <th className="px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
+                                              Field Label
+                                            </th>
+                                            <th className="px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
+                                              Field Name
+                                            </th>
+                                            <th className="w-28 px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted] whitespace-nowrap">
+                                              Data Type
+                                            </th>
+                                            <th className="w-20 px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
+                                              Required
+                                            </th>
+                                            <th className="w-20 px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
+                                              Mappings
+                                            </th>
+                                            <th className="w-20 px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
+                                              Actions
+                                            </th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-[--color-border]">
+                                          {criteriaFields.map((field, idx) => (
+                                            <tr
+                                              key={field.id}
+                                              className="bg-[--color-bg] transition-colors hover:bg-[--color-bg-muted]"
+                                            >
+                                              <td className="px-4 py-3 text-xs text-[--color-text-muted]">
+                                                {idx + 1}
+                                              </td>
+                                              <td className="px-4 py-3">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    setFieldDraft({
+                                                      field_label:
+                                                        field.field_label,
+                                                      field_name:
+                                                        field.field_name,
+                                                      data_type:
+                                                        field.data_type,
+                                                      required: field.required,
+                                                      description:
+                                                        field.description ?? "",
+                                                      state_mapping:
+                                                        field.state_mapping ??
+                                                        null,
+                                                      options:
+                                                        field.options ?? [],
+                                                    });
+                                                    setEditFieldData(field);
+                                                    setAddFieldOpen(true);
+                                                  }}
+                                                  className="text-left font-medium text-[--color-primary] hover:underline"
+                                                >
+                                                  {field.field_label}
+                                                </button>
+                                              </td>
+                                              <td className="px-4 py-3 font-mono text-xs text-[--color-text-muted]">
+                                                {field.field_name}
+                                              </td>
+                                              <td className="px-4 py-3">
+                                                {field.data_type === "List" ? (
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                      setFieldDraft({
+                                                        field_label:
+                                                          field.field_label,
+                                                        field_name:
+                                                          field.field_name,
+                                                        data_type:
+                                                          field.data_type,
+                                                        required:
+                                                          field.required,
+                                                        description:
+                                                          field.description ??
+                                                          "",
+                                                        state_mapping:
+                                                          field.state_mapping ??
+                                                          null,
+                                                        options:
+                                                          field.options ?? [],
+                                                      });
+                                                      setEditFieldData(field);
+                                                      setAddFieldOpen(true);
+                                                    }}
+                                                    className="rounded-md border border-[--color-primary]/30 bg-[--color-primary]/10 px-2 py-0.5 text-xs font-medium text-[--color-primary] transition-colors hover:bg-[--color-primary]/20"
+                                                  >
+                                                    List
+                                                  </button>
+                                                ) : (
+                                                  <span className="rounded-md border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs text-[--color-text-muted] whitespace-nowrap">
+                                                    {CRITERIA_TYPE_LABELS[
+                                                      field.data_type
+                                                    ] ?? field.data_type}
+                                                  </span>
+                                                )}
+                                              </td>
+                                              <td className="px-4 py-3">
+                                                <span
+                                                  className={`inline-block h-2.5 w-2.5 rounded-full ${
+                                                    field.required
+                                                      ? "bg-green-500"
+                                                      : "bg-[--color-border]"
+                                                  }`}
+                                                />
+                                              </td>
+                                              <td className="px-4 py-3">
+                                                <button
+                                                  type="button"
+                                                  title="Edit value mappings"
+                                                  onClick={() => {
+                                                    setValueMappingsField(
+                                                      field,
+                                                    );
+                                                    setValueMappingsStateDraft(
+                                                      field.state_mapping ??
+                                                        null,
+                                                    );
+                                                    setValueMappingsDraft(
+                                                      (
+                                                        field.value_mappings ??
+                                                        []
+                                                      ).map((m) => ({
+                                                        fromText:
+                                                          m.from.join(", "),
+                                                        to: m.to,
+                                                      })),
+                                                    );
+                                                  }}
+                                                >
+                                                  <span
+                                                    className={`inline-block h-2.5 w-2.5 rounded-full transition-colors ${
+                                                      (
+                                                        field.value_mappings ??
+                                                        []
+                                                      ).length > 0 ||
+                                                      field.state_mapping
+                                                        ? "bg-green-500"
+                                                        : "bg-[--color-border] hover:bg-[--color-text-muted]"
+                                                    }`}
+                                                  />
+                                                </button>
+                                              </td>
+                                              <td className="px-4 py-3">
+                                                <div className="flex items-center gap-3">
+                                                  <button
+                                                    type="button"
+                                                    title="Edit field"
+                                                    onClick={() => {
+                                                      setFieldDraft({
+                                                        field_label:
+                                                          field.field_label,
+                                                        field_name:
+                                                          field.field_name,
+                                                        data_type:
+                                                          field.data_type,
+                                                        required:
+                                                          field.required,
+                                                        description:
+                                                          field.description ??
+                                                          "",
+                                                        state_mapping:
+                                                          field.state_mapping ??
+                                                          null,
+                                                        options:
+                                                          field.options ?? [],
+                                                      });
+                                                      setEditFieldData(field);
+                                                      setAddFieldOpen(true);
+                                                    }}
+                                                    className="text-[--color-text-muted] transition-colors hover:text-[--color-primary]"
+                                                  >
+                                                    <Pencil size={13} />
+                                                  </button>
+                                                  <button
+                                                    type="button"
+                                                    title="Delete field"
+                                                    onClick={() =>
+                                                      setDeleteFieldTarget(
+                                                        field,
+                                                      )
+                                                    }
+                                                    className="text-[--color-text-muted] transition-colors hover:text-red-500"
+                                                  >
+                                                    <Trash2 size={13} />
+                                                  </button>
+                                                </div>
+                                              </td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  )
+                                ) : (
+                                  /* JSON view */
+                                  <div className="space-y-2">
+                                    <div className="flex items-center justify-between">
+                                      <p className="text-xs text-[--color-text-muted]">
+                                        Current criteria schema — matches the
+                                        expected lead payload field structure.
+                                      </p>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          navigator.clipboard.writeText(
+                                            JSON.stringify(
+                                              criteriaFields.map((f) => ({
+                                                field_name: f.field_name,
+                                                field_label: f.field_label,
+                                                data_type: f.data_type,
+                                                required: f.required,
+                                                ...(f.value_mappings?.length
+                                                  ? {
+                                                      value_mappings:
+                                                        f.value_mappings,
+                                                    }
+                                                  : {}),
+                                              })),
+                                              null,
+                                              2,
+                                            ),
+                                          );
+                                          toast.success("Copied to clipboard");
+                                        }}
+                                        className="flex shrink-0 items-center gap-1.5 text-xs text-[--color-text-muted] transition-colors hover:text-[--color-primary]"
+                                      >
+                                        <Copy className="h-3.5 w-3.5" />
+                                        Copy
+                                      </button>
+                                    </div>
+                                    <div className="overflow-hidden rounded-xl border border-[--color-border]">
+                                      <textarea
+                                        readOnly
+                                        value={JSON.stringify(
+                                          criteriaFields.map((f) => ({
+                                            field_name: f.field_name,
+                                            field_label: f.field_label,
+                                            data_type: f.data_type,
+                                            required: f.required,
+                                            ...(f.value_mappings?.length
+                                              ? {
+                                                  value_mappings:
+                                                    f.value_mappings,
+                                                }
+                                              : {}),
+                                          })),
+                                          null,
+                                          2,
+                                        )}
+                                        className="w-full min-h-[320px] resize-none bg-[--color-bg-muted] p-4 font-mono text-xs text-[--color-text] outline-none"
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+                              </motion.div>
+                            </AnimatePresence>
                           )}
                         </div>
                       )}
@@ -3691,16 +3729,16 @@ export function CampaignDetailModal({
       </Modal>
 
       {/* ── Add / Edit Criteria Field modal ────────────────────────────── */}
-      {addFieldOpen && (
-        <Modal
-          title={editFieldData ? "Edit Field" : "Add Field"}
-          isOpen={addFieldOpen}
-          onClose={() => {
-            setAddFieldOpen(false);
-            setEditFieldData(null);
-          }}
-          width={440}
-        >
+      <Modal
+        title={editFieldData ? "Edit Field" : "Add Field"}
+        isOpen={addFieldOpen}
+        onClose={() => {
+          setAddFieldOpen(false);
+          setEditFieldData(null);
+        }}
+        width={440}
+      >
+        {addFieldOpen && (
           <div className="space-y-4 text-sm">
             <div className="space-y-1">
               <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
@@ -3875,134 +3913,150 @@ export function CampaignDetailModal({
                     </button>
                   </div>
                 </div>
-                {optionsTab === "manual" ? (
-                  <>
-                    {/* column headers */}
-                    {fieldDraft.options.length > 0 && (
-                      <div className="grid grid-cols-[1fr_1fr_auto] gap-x-2 px-0.5">
-                        <p className="text-[10px] uppercase tracking-wide text-[--color-text-muted]">
-                          Value (internal)
-                        </p>
-                        <p className="text-[10px] uppercase tracking-wide text-[--color-text-muted]">
-                          Label (display)
-                        </p>
-                        <span />
-                      </div>
-                    )}
-                    {fieldDraft.options.map((opt, i) => (
-                      <div
-                        key={i}
-                        className="grid grid-cols-[1fr_1fr_auto] items-center gap-2"
-                      >
-                        {/* value — left */}
-                        <input
-                          className={inputClass}
-                          placeholder="uber"
-                          value={opt.value}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setFieldDraft((p) => ({
-                              ...p,
-                              options: p.options.map((o, oi) =>
-                                oi === i
-                                  ? {
-                                      value: val,
-                                      // autofill label only when it was empty or matched old value
-                                      label:
-                                        o.label === "" || o.label === o.value
-                                          ? val
-                                          : o.label,
-                                    }
-                                  : o,
-                              ),
-                            }));
-                          }}
-                        />
-                        {/* label — right */}
-                        <input
-                          className={inputClass}
-                          placeholder="Uber"
-                          value={opt.label}
-                          onChange={(e) =>
-                            setFieldDraft((p) => ({
-                              ...p,
-                              options: p.options.map((o, oi) =>
-                                oi === i ? { ...o, label: e.target.value } : o,
-                              ),
-                            }))
-                          }
-                        />
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={optionsTab}
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -4 }}
+                    transition={{ duration: 0.13, ease: "easeOut" }}
+                  >
+                    {optionsTab === "manual" ? (
+                      <>
+                        {/* column headers */}
+                        {fieldDraft.options.length > 0 && (
+                          <div className="grid grid-cols-[1fr_1fr_auto] gap-x-2 px-0.5">
+                            <p className="text-[10px] uppercase tracking-wide text-[--color-text-muted]">
+                              Value (internal)
+                            </p>
+                            <p className="text-[10px] uppercase tracking-wide text-[--color-text-muted]">
+                              Label (display)
+                            </p>
+                            <span />
+                          </div>
+                        )}
+                        {fieldDraft.options.map((opt, i) => (
+                          <div
+                            key={i}
+                            className="grid grid-cols-[1fr_1fr_auto] items-center gap-2"
+                          >
+                            {/* value — left */}
+                            <input
+                              className={inputClass}
+                              placeholder="uber"
+                              value={opt.value}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setFieldDraft((p) => ({
+                                  ...p,
+                                  options: p.options.map((o, oi) =>
+                                    oi === i
+                                      ? {
+                                          value: val,
+                                          // autofill label only when it was empty or matched old value
+                                          label:
+                                            o.label === "" ||
+                                            o.label === o.value
+                                              ? val
+                                              : o.label,
+                                        }
+                                      : o,
+                                  ),
+                                }));
+                              }}
+                            />
+                            {/* label — right */}
+                            <input
+                              className={inputClass}
+                              placeholder="Uber"
+                              value={opt.label}
+                              onChange={(e) =>
+                                setFieldDraft((p) => ({
+                                  ...p,
+                                  options: p.options.map((o, oi) =>
+                                    oi === i
+                                      ? { ...o, label: e.target.value }
+                                      : o,
+                                  ),
+                                }))
+                              }
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setFieldDraft((p) => ({
+                                  ...p,
+                                  options: p.options.filter(
+                                    (_, oi) => oi !== i,
+                                  ),
+                                }))
+                              }
+                              className="shrink-0 text-[--color-text-muted] hover:text-red-500 transition-colors"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        ))}
                         <button
                           type="button"
                           onClick={() =>
                             setFieldDraft((p) => ({
                               ...p,
-                              options: p.options.filter((_, oi) => oi !== i),
+                              options: [...p.options, { value: "", label: "" }],
                             }))
                           }
-                          className="shrink-0 text-[--color-text-muted] hover:text-red-500 transition-colors"
+                          className="w-full rounded-lg border border-dashed border-[--color-border] py-2 text-xs text-[--color-text-muted] hover:border-[--color-primary] hover:text-[--color-primary] transition-colors"
                         >
-                          <X size={14} />
+                          + Add Option
+                        </button>
+                      </>
+                    ) : (
+                      /* ── Bulk import tab ── */
+                      <div className="space-y-2">
+                        <p className="text-[11px] text-[--color-text-muted]">
+                          Enter values separated by commas. Labels will be
+                          title-cased automatically.
+                        </p>
+                        <textarea
+                          className={`${inputClass} min-h-[80px] resize-y font-mono`}
+                          placeholder="uber,lyft,doordash,instacart"
+                          value={optionsBulkText}
+                          onChange={(e) => setOptionsBulkText(e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newOpts = optionsBulkText
+                              .split(",")
+                              .map((s) => s.trim())
+                              .filter(Boolean)
+                              .map((v) => ({
+                                value: v,
+                                label: v
+                                  .replace(/_/g, " ")
+                                  .replace(/\b\w/g, (c) => c.toUpperCase()),
+                              }));
+                            setFieldDraft((p) => ({
+                              ...p,
+                              options: [
+                                ...p.options.filter(
+                                  (o) =>
+                                    !newOpts.some((n) => n.value === o.value),
+                                ),
+                                ...newOpts,
+                              ],
+                            }));
+                            setOptionsBulkText("");
+                            setOptionsTab("manual");
+                          }}
+                          className="w-full rounded-lg bg-[--color-primary] py-2 text-xs font-medium text-white transition-opacity hover:opacity-90"
+                        >
+                          Add to list
                         </button>
                       </div>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setFieldDraft((p) => ({
-                          ...p,
-                          options: [...p.options, { value: "", label: "" }],
-                        }))
-                      }
-                      className="w-full rounded-lg border border-dashed border-[--color-border] py-2 text-xs text-[--color-text-muted] hover:border-[--color-primary] hover:text-[--color-primary] transition-colors"
-                    >
-                      + Add Option
-                    </button>
-                  </>
-                ) : (
-                  /* ── Bulk import tab ── */
-                  <div className="space-y-2">
-                    <p className="text-[11px] text-[--color-text-muted]">
-                      Enter values separated by commas. Labels will be
-                      title-cased automatically.
-                    </p>
-                    <textarea
-                      className={`${inputClass} min-h-[80px] resize-y font-mono`}
-                      placeholder="uber,lyft,doordash,instacart"
-                      value={optionsBulkText}
-                      onChange={(e) => setOptionsBulkText(e.target.value)}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const newOpts = optionsBulkText
-                          .split(",")
-                          .map((s) => s.trim())
-                          .filter(Boolean)
-                          .map((v) => ({
-                            value: v,
-                            label: v
-                              .replace(/_/g, " ")
-                              .replace(/\b\w/g, (c) => c.toUpperCase()),
-                          }));
-                        setFieldDraft((p) => ({
-                          ...p,
-                          options: [
-                            ...p.options.filter(
-                              (o) => !newOpts.some((n) => n.value === o.value),
-                            ),
-                            ...newOpts,
-                          ],
-                        }));
-                        setOptionsBulkText("");
-                        setOptionsTab("manual");
-                      }}
-                      className="w-full rounded-lg bg-[--color-primary] py-2 text-xs font-medium text-white transition-opacity hover:opacity-90"
-                    >
-                      Add to list
-                    </button>
-                  </div>
-                )}
+                    )}
+                  </motion.div>
+                </AnimatePresence>
               </div>
             )}
             <div className="flex justify-end gap-2 pt-2">
@@ -4075,17 +4129,21 @@ export function CampaignDetailModal({
               </Button>
             </div>
           </div>
-        </Modal>
-      )}
+        )}
+      </Modal>
 
       {/* ── Value Mappings modal ────────────────────────────────────────── */}
-      {valueMappingsField && (
-        <Modal
-          title={`Value Mappings: ${valueMappingsField.field_label}`}
-          isOpen={!!valueMappingsField}
-          onClose={() => setValueMappingsField(null)}
-          width={560}
-        >
+      <Modal
+        title={
+          valueMappingsField
+            ? `Value Mappings: ${valueMappingsField.field_label}`
+            : "Value Mappings"
+        }
+        isOpen={!!valueMappingsField}
+        onClose={() => setValueMappingsField(null)}
+        width={560}
+      >
+        {valueMappingsField && (
           <div className="space-y-4 text-sm">
             {/* State mapping preset — only for US State fields */}
             {valueMappingsField.data_type === "US State" && (
@@ -4260,17 +4318,17 @@ export function CampaignDetailModal({
               </Button>
             </div>
           </div>
-        </Modal>
-      )}
+        )}
+      </Modal>
 
       {/* ── Delete Criteria Field confirm modal ────────────────────────── */}
-      {deleteFieldTarget && (
-        <Modal
-          title="Delete Field"
-          isOpen={!!deleteFieldTarget}
-          onClose={() => setDeleteFieldTarget(null)}
-          width={420}
-        >
+      <Modal
+        title="Delete Field"
+        isOpen={!!deleteFieldTarget}
+        onClose={() => setDeleteFieldTarget(null)}
+        width={420}
+      >
+        {deleteFieldTarget && (
           <div className="space-y-4 text-sm">
             <p className="text-[--color-text]">
               Delete field{" "}
@@ -4312,8 +4370,8 @@ export function CampaignDetailModal({
               </Button>
             </div>
           </div>
-        </Modal>
-      )}
+        )}
+      </Modal>
 
       {participantAction &&
         (() => {

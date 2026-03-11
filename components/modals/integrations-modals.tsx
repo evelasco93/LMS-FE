@@ -23,7 +23,7 @@ import { inputClass } from "@/lib/utils";
 import type {
   CredentialRecord,
   CredentialSchemaRecord,
-  PluginSettingRecord,
+  PluginView,
   PluginSchemaField,
   PluginSchemaFieldType,
   CredentialType,
@@ -907,10 +907,13 @@ export function CredentialDetailModal({
 export function AddCredentialSchemaModal({
   isOpen,
   onClose,
+  existingSchemas = [],
   onSuccess,
 }: {
   isOpen: boolean;
   onClose: () => void;
+  /** Used to prevent creating a duplicate schema for an already-configured provider. */
+  existingSchemas?: CredentialSchemaRecord[];
   onSuccess: () => void;
 }) {
   const [provider, setProvider] = useState("");
@@ -939,6 +942,12 @@ export function AddCredentialSchemaModal({
     const invalid = fields.filter((f) => !f.name.trim() || !f.label.trim());
     if (invalid.length)
       return toast.error("All fields must have a name and label");
+    // Prevent duplicate schemas for the same provider
+    if (existingSchemas.some((s) => s.provider === provider.trim())) {
+      return toast.error(
+        `A schema for provider "${provider.trim()}" already exists. Only one schema per provider is allowed.`,
+      );
+    }
     setSaving(true);
     try {
       const builtFields = fields.map((f) => ({
@@ -993,6 +1002,13 @@ export function AddCredentialSchemaModal({
               value={provider}
               onChange={(e) => setProvider(e.target.value)}
             />
+            {provider.trim() &&
+              existingSchemas.some((s) => s.provider === provider.trim()) && (
+                <p className="text-xs text-[--color-danger]">
+                  A schema for &ldquo;{provider.trim()}&rdquo; already exists.
+                  Only one schema per provider is allowed.
+                </p>
+              )}
           </div>
           <div className="space-y-1">
             <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
@@ -1439,20 +1455,19 @@ export function CredentialSchemaDetailModal({
 export function PluginSettingDetailModal({
   isOpen,
   onClose,
-  schema,
+  plugin,
   credentials,
-  currentSetting,
   onSuccess,
 }: {
   isOpen: boolean;
   onClose: () => void;
-  schema: CredentialSchemaRecord | null;
+  /** The enriched PluginView (PluginSettingRecord + registry metadata). */
+  plugin: PluginView | null;
   credentials: CredentialRecord[];
-  currentSetting: PluginSettingRecord | null;
   onSuccess: () => void;
 }) {
   const [credentialsId, setCredentialsId] = useState(
-    currentSetting?.credentials_id ?? "",
+    plugin?.credentials_id ?? "",
   );
   const [saving, setSaving] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -1462,27 +1477,22 @@ export function PluginSettingDetailModal({
 
   useEffect(() => {
     if (isOpen) {
-      setCredentialsId(currentSetting?.credentials_id ?? "");
+      setCredentialsId(plugin?.credentials_id ?? "");
       setPendingEnabled(null);
     }
-  }, [isOpen, currentSetting]);
+  }, [isOpen, plugin]);
 
-  // Only show enabled, non-deleted credentials of the required type
-  const matchingCredentials = schema
-    ? credentials.filter(
-        (c) =>
-          c.credential_type === schema.credential_type &&
-          c.enabled &&
-          !c.is_deleted,
-      )
-    : credentials.filter((c) => c.enabled && !c.is_deleted);
+  // Credentials for this plugin — match by provider
+  const matchingCredentials = plugin
+    ? credentials.filter((c) => c.provider === plugin.provider && !c.is_deleted)
+    : credentials.filter((c) => !c.is_deleted);
 
   const handleSaveWiring = async () => {
-    if (!schema) return;
+    if (!plugin) return;
     if (!credentialsId) return toast.error("Please select a credential");
     setSaving(true);
     try {
-      const res = await setPluginSetting(schema.id, {
+      const res = await setPluginSetting(plugin.provider, {
         credentials_id: credentialsId,
       });
       if (!(res as any)?.success)
@@ -1498,10 +1508,10 @@ export function PluginSettingDetailModal({
   };
 
   const handleRemoveWiring = async () => {
-    if (!schema) return;
+    if (!plugin) return;
     setRemoving(true);
     try {
-      const res = await deletePluginSetting(schema.id);
+      const res = await deletePluginSetting(plugin.provider);
       if (!(res as any)?.success)
         throw new Error((res as any)?.message || "Failed");
       toast.success("Plugin wiring removed");
@@ -1515,11 +1525,11 @@ export function PluginSettingDetailModal({
   };
 
   const handleToggleConfirm = async () => {
-    if (!schema || !currentSetting || pendingEnabled === null) return;
+    if (!plugin || pendingEnabled === null) return;
     setToggling(true);
     try {
-      const res = await setPluginSetting(schema.id, {
-        credentials_id: currentSetting.credentials_id,
+      const res = await setPluginSetting(plugin.provider, {
+        credentials_id: plugin.credentials_id,
         enabled: pendingEnabled,
       });
       if (!(res as any)?.success)
@@ -1534,24 +1544,33 @@ export function PluginSettingDetailModal({
     }
   };
 
-  if (!schema) return null;
+  if (!plugin) return null;
 
-  const isEnabled = currentSetting?.enabled ?? false;
-  const isConfigured = !!currentSetting;
+  const isEnabled = plugin.enabled ?? false;
+  // Plugin is "configured" when it has a real record (id is non-empty) or credentials_id set
+  const isConfigured = !!(plugin.id || plugin.credentials_id);
 
   return (
-    <Modal title={schema.name} isOpen={isOpen} onClose={onClose} width={480}>
+    <Modal title={plugin.name} isOpen={isOpen} onClose={onClose} width={480}>
       <div
         className="flex flex-col gap-5 text-sm overflow-y-auto"
         style={{ minHeight: 300, maxHeight: 520 }}
       >
-        {/* Schema info bar */}
+        {/* Plugin info bar */}
         <div className="flex items-center gap-3 rounded-lg border border-[--color-border] bg-[--color-bg-muted] px-3 py-2">
           <span className="text-xs font-mono text-[--color-text-muted]">
-            {schema.provider}
+            {plugin.provider}
           </span>
           <span className="text-[--color-border]">·</span>
-          <Badge tone="info">{schema.credential_type}</Badge>
+          <Badge tone="info">{plugin.credential_type}</Badge>
+          {plugin.description && (
+            <>
+              <span className="text-[--color-border]">·</span>
+              <span className="text-xs text-[--color-text-muted] truncate">
+                {plugin.description}
+              </span>
+            </>
+          )}
         </div>
 
         {/* Credential selector */}
@@ -1561,8 +1580,8 @@ export function PluginSettingDetailModal({
           </p>
           {matchingCredentials.length === 0 ? (
             <p className="text-xs italic text-[--color-text-muted]">
-              No enabled credentials of type &quot;{schema.credential_type}
-              &quot; found. Add or enable one in the Credentials tab first.
+              No credentials found for provider &quot;{plugin.provider}
+              &quot;. Add one in the Credentials tab first.
             </p>
           ) : (
             <select

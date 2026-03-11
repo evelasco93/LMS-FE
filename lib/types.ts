@@ -262,6 +262,14 @@ export interface ApiResponse<T> {
 
 export type CredentialType = "api_key" | "basic_auth" | "bearer_token";
 
+/** One entry from the AVAILABLE_PLUGINS registry — static metadata, no DB. */
+export interface AvailablePlugin {
+  provider: string;
+  name: string;
+  credential_type: CredentialType;
+  description?: string;
+}
+
 export interface CredentialFields {
   apiKey?: string; // api_key
   username?: string; // basic_auth
@@ -323,18 +331,32 @@ export interface CredentialSchemaRecord {
 /** @deprecated Use CredentialSchemaRecord */
 export type PluginSchemaRecord = CredentialSchemaRecord;
 
-/** Global plugin setting: wires a credential to a schema for automatic credential resolution. */
+/** Global plugin setting: exactly one record per canonical plugin in AVAILABLE_PLUGINS. */
 export interface PluginSettingRecord {
-  schema_id: string;
-  credentials_id: string;
+  /** PG-prefixed ID — empty string "" for plugins not yet configured. */
+  id: string;
+  /** Canonical plugin identifier, e.g. "trusted_form" | "ipqs". */
+  provider: string;
+  /** FK to CredentialRecord — null when the plugin has not been configured yet. */
+  credentials_id: string | null;
   enabled: boolean;
   is_deleted?: boolean;
   active?: boolean;
   created_at?: string;
   updated_at?: string;
-  created_by?: string;
-  updated_by?: string | null;
+  deleted_by?: string | null;
+  deleted_at?: string | null;
   edit_history?: EditHistoryEntry[];
+}
+
+/**
+ * PluginView = PluginSettingRecord enriched with AvailablePlugin registry metadata.
+ * Returned by GET /tenant-config/plugin-settings — always one entry per canonical plugin.
+ */
+export interface PluginView extends PluginSettingRecord {
+  name: string;
+  credential_type: CredentialType;
+  description?: string;
 }
 
 export type UserRole = "admin" | "staff";

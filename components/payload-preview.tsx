@@ -825,11 +825,68 @@ export function PayloadPreview({
                                     const current =
                                       localPayload[key] ?? original;
                                     const isDirty = current !== original;
+
+                                    // Field-level edit/remap detection from persisted history
+                                    const fieldHistory =
+                                      currentLead.edit_history?.filter(
+                                        (e) => e.field === `payload.${key}`,
+                                      ) ?? [];
+                                    // A field is "edited" if any history entry has a real user actor
+                                    const isEdited =
+                                      !isDirty &&
+                                      fieldHistory.some(
+                                        (e) =>
+                                          !!(
+                                            e.changed_by?.email ||
+                                            e.changed_by?.username
+                                          ),
+                                      );
+                                    // A field is "remapped" if it has only system entries (no user actor)
+                                    const isRemapped =
+                                      !isDirty &&
+                                      !isEdited &&
+                                      fieldHistory.length > 0 &&
+                                      fieldHistory.every(
+                                        (e) =>
+                                          !e.changed_by?.email &&
+                                          !e.changed_by?.username,
+                                      );
+
+                                    const wrapperBorder = isDirty
+                                      ? "border-l-2 border-[--color-warning]"
+                                      : isEdited
+                                        ? "border-l-2 border-amber-500"
+                                        : isRemapped
+                                          ? "border-l-2 border-violet-500"
+                                          : "border-l-2 border-transparent";
+                                    const wrapperBg = isDirty
+                                      ? "bg-[--color-warning]/5"
+                                      : isEdited
+                                        ? "bg-amber-50/40 dark:bg-amber-900/10"
+                                        : isRemapped
+                                          ? "bg-violet-50/40 dark:bg-violet-900/10"
+                                          : "";
+
                                     return (
-                                      <div key={key} className="space-y-1">
-                                        <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
-                                          {normalizeFieldLabel(key)}
-                                        </p>
+                                      <div
+                                        key={key}
+                                        className={`space-y-1 rounded-r-lg pl-2 -ml-2 pr-1 py-1.5 ${wrapperBorder} ${wrapperBg}`}
+                                      >
+                                        <div className="flex items-center gap-1.5">
+                                          <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+                                            {normalizeFieldLabel(key)}
+                                          </p>
+                                          {isEdited && (
+                                            <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                                              Edited
+                                            </span>
+                                          )}
+                                          {isRemapped && (
+                                            <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
+                                              Mapped
+                                            </span>
+                                          )}
+                                        </div>
                                         <div className="flex items-center gap-1.5">
                                           <input
                                             className={inputClass}
