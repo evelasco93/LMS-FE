@@ -1,14 +1,26 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, ExternalLink, X } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowRight,
+  Check,
+  ChevronDown,
+  Copy,
+  ExternalLink,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import { AnimatePresence, motion } from "framer-motion";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Modal } from "@/components/modal";
 import { Badge } from "@/components/badge";
 import { Button } from "@/components/button";
-import { EditHistoryPopover, InfoItem } from "@/components/shared-ui";
+import {
+  EditHistoryPopover,
+  HoverTooltip,
+  InfoItem,
+} from "@/components/shared-ui";
 import { updateLead } from "@/lib/api";
 import {
   resolveDisplayName,
@@ -57,6 +69,57 @@ function formatLocalDateTimeWithZone(value?: string) {
 }
 
 // ─── Payload label normalizer → moved to lib/utils.ts (normalizeFieldLabel) ──
+
+// ─── CopyButton ──────────────────────────────────────────────────────────────
+
+function CopyButton({ value }: { value: string | null | undefined }) {
+  const [copied, setCopied] = useState(false);
+  if (!value) return null;
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(value).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      className="ml-1.5 inline-flex shrink-0 items-center rounded p-0.5 text-[--color-text-muted] transition hover:text-[--color-primary] focus:outline-none"
+      title="Copy"
+    >
+      {copied ? (
+        <Check size={12} className="text-[--color-success]" />
+      ) : (
+        <Copy size={12} />
+      )}
+    </button>
+  );
+}
+
+function CopyableValue({ value }: { value: string | null | undefined }) {
+  return (
+    <span className="inline-flex items-center gap-0">
+      <span className="truncate">{value || "—"}</span>
+      <CopyButton value={value ?? undefined} />
+    </span>
+  );
+}
+
+// ─── Rejection reason parser ──────────────────────────────────────────────────
+
+/** Extracts { fieldName -> error sentence } from a rejection_reason string. */
+function parseRejectedFields(reason: string): Record<string, string> {
+  const map: Record<string, string> = {};
+  const pattern =
+    /'([\w_]+)'\s+((?:must|should|is required|cannot|does\s+not|failed|is\s+(?:required|empty|not))[^.;(]*)(?:\([^)]*\))?/gi;
+  let m;
+  while ((m = pattern.exec(reason)) !== null) {
+    map[m[1]] = m[0].trim().replace(/\.$/, "");
+  }
+  return map;
+}
 
 // ─── TrustedForm result card ───────────────────────────────────────────────────
 
@@ -608,58 +671,58 @@ export function PayloadPreview({
         title="Lead Details"
         isOpen={isOpen}
         onClose={closePayload}
-        width={720}
+        width={920}
       >
         <div className="space-y-3 text-sm">
-          {/* Primary tabs */}
-          <div
-            role="tablist"
-            aria-label="Lead detail sections"
-            className="flex items-center gap-4 border-b border-[--color-border]"
-          >
-            {tabBtn(
-              "Summary",
-              () => {
-                setActiveTab("summary");
-                setLeadQueryParams({
-                  lead: currentLead.id,
-                  leadTab: "summary",
-                  leadQc: undefined,
-                  leadPt: undefined,
-                });
-              },
-              activeTab === "summary",
-            )}
-            {tabBtn(
-              "Payload",
-              () => {
-                setActiveTab("payload");
-                setLeadQueryParams({
-                  lead: currentLead.id,
-                  leadTab: "payload",
-                  leadQc: undefined,
-                  leadPt: payloadTab,
-                });
-              },
-              activeTab === "payload",
-            )}
-            {tabBtn(
-              "Quality Control",
-              () => {
-                setActiveTab("quality-control");
-                setLeadQueryParams({
-                  lead: currentLead.id,
-                  leadTab: "quality-control",
-                  leadQc: qualityTab,
-                  leadPt: undefined,
-                });
-              },
-              activeTab === "quality-control",
-            )}
-          </div>
-
-          {/* Fixed-height content area prevents modal resize between tabs */}
-          <div className="h-[460px] overflow-y-auto">
+          {
+            /* Primary tabs */
+            <div
+              role="tablist"
+              aria-label="Lead detail sections"
+              className="flex items-center gap-4 border-b border-[--color-border]"
+            >
+              {tabBtn(
+                "Summary",
+                () => {
+                  setActiveTab("summary");
+                  setLeadQueryParams({
+                    lead: currentLead.id,
+                    leadTab: "summary",
+                    leadQc: undefined,
+                    leadPt: undefined,
+                  });
+                },
+                activeTab === "summary",
+              )}
+              {tabBtn(
+                "Payload",
+                () => {
+                  setActiveTab("payload");
+                  setLeadQueryParams({
+                    lead: currentLead.id,
+                    leadTab: "payload",
+                    leadQc: undefined,
+                    leadPt: payloadTab,
+                  });
+                },
+                activeTab === "payload",
+              )}
+              {tabBtn(
+                "Quality Control",
+                () => {
+                  setActiveTab("quality-control");
+                  setLeadQueryParams({
+                    lead: currentLead.id,
+                    leadTab: "quality-control",
+                    leadQc: qualityTab,
+                    leadPt: undefined,
+                  });
+                },
+                activeTab === "quality-control",
+              )}
+            </div>
+          }
+          <div className="h-[540px] overflow-y-auto">
             <AnimatePresence mode="wait" initial={false}>
               {/* ── Summary ── */}
               {activeTab === "summary" && (
@@ -671,18 +734,21 @@ export function PayloadPreview({
                   transition={{ duration: 0.15, ease: "easeOut" }}
                 >
                   <div className="grid gap-3 md:grid-cols-2">
-                    <InfoItem label="Lead ID" value={currentLead.id} />
+                    <InfoItem
+                      label="Lead ID"
+                      value={<CopyableValue value={currentLead.id} />}
+                    />
                     <InfoItem
                       label="Mode"
                       value={currentLead.test ? "Test" : "Live"}
                     />
                     <InfoItem
                       label="Campaign"
-                      value={currentLead.campaign_id}
+                      value={<CopyableValue value={currentLead.campaign_id} />}
                     />
                     <InfoItem
                       label="Campaign Key"
-                      value={currentLead.campaign_key}
+                      value={<CopyableValue value={currentLead.campaign_key} />}
                     />
                     <InfoItem
                       label="Affiliate Status at Intake"
@@ -709,15 +775,33 @@ export function PayloadPreview({
                     <InfoItem
                       label="Duplicate"
                       value={
-                        <span
-                          className={`font-medium ${
-                            duplicateFailed
-                              ? "text-[--color-danger]"
-                              : "text-[--color-success]"
-                          }`}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setQualityTab("duplicate-check");
+                            setActiveTab("quality-control");
+                            setLeadQueryParams({
+                              lead: currentLead.id,
+                              leadTab: "quality-control",
+                              leadQc: "duplicate-check",
+                            });
+                          }}
+                          className="group inline-flex items-center gap-1 transition hover:opacity-80"
                         >
-                          {duplicateFailed ? "Yes" : "No"}
-                        </span>
+                          <span
+                            className={`font-medium ${
+                              duplicateFailed
+                                ? "text-[--color-danger]"
+                                : "text-[--color-success]"
+                            }`}
+                          >
+                            {duplicateFailed ? "Yes" : "No"}
+                          </span>
+                          <ArrowRight
+                            size={12}
+                            className="text-[--color-text-muted] transition group-hover:translate-x-0.5"
+                          />
+                        </button>
                       }
                     />
                     <InfoItem
@@ -726,15 +810,33 @@ export function PayloadPreview({
                         trustedFormResult == null ? (
                           "—"
                         ) : (
-                          <span
-                            className={`font-medium ${
-                              trustedFormResult.success
-                                ? "text-[--color-success]"
-                                : "text-[--color-danger]"
-                            }`}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setQualityTab("trusted-form");
+                              setActiveTab("quality-control");
+                              setLeadQueryParams({
+                                lead: currentLead.id,
+                                leadTab: "quality-control",
+                                leadQc: "trusted-form",
+                              });
+                            }}
+                            className="group inline-flex items-center gap-1 transition hover:opacity-80"
                           >
-                            {trustedFormResult.success ? "Passed" : "Failed"}
-                          </span>
+                            <span
+                              className={`font-medium ${
+                                trustedFormResult.success
+                                  ? "text-[--color-success]"
+                                  : "text-[--color-danger]"
+                              }`}
+                            >
+                              {trustedFormResult.success ? "Passed" : "Failed"}
+                            </span>
+                            <ArrowRight
+                              size={12}
+                              className="text-[--color-text-muted] transition group-hover:translate-x-0.5"
+                            />
+                          </button>
                         )
                       }
                     />
@@ -744,15 +846,33 @@ export function PayloadPreview({
                         ipqsResult == null ? (
                           "—"
                         ) : (
-                          <span
-                            className={`font-medium ${
-                              ipqsResult.success
-                                ? "text-[--color-success]"
-                                : "text-[--color-danger]"
-                            }`}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setQualityTab("ipqs");
+                              setActiveTab("quality-control");
+                              setLeadQueryParams({
+                                lead: currentLead.id,
+                                leadTab: "quality-control",
+                                leadQc: "ipqs",
+                              });
+                            }}
+                            className="group inline-flex items-center gap-1 transition hover:opacity-80"
                           >
-                            {ipqsResult.success ? "Passed" : "Failed"}
-                          </span>
+                            <span
+                              className={`font-medium ${
+                                ipqsResult.success
+                                  ? "text-[--color-success]"
+                                  : "text-[--color-danger]"
+                              }`}
+                            >
+                              {ipqsResult.success ? "Passed" : "Failed"}
+                            </span>
+                            <ArrowRight
+                              size={12}
+                              className="text-[--color-text-muted] transition group-hover:translate-x-0.5"
+                            />
+                          </button>
                         )
                       }
                     />
@@ -767,11 +887,12 @@ export function PayloadPreview({
                       )}
                     />
                     <InfoItem
+                      label="Submitted By"
+                      value={resolveDisplayName(currentLead.created_by) || "—"}
+                    />
+                    <InfoItem
                       label="Last Updated By"
-                      value={
-                        resolveDisplayName(currentLead.updated_by as unknown) ||
-                        "—"
-                      }
+                      value={resolveDisplayName(currentLead.updated_by) || "—"}
                     />
                   </div>
                 </motion.div>
@@ -837,94 +958,128 @@ export function PayloadPreview({
                             ) : (
                               <>
                                 <div className="space-y-2">
-                                  {entries.map(([key]) => {
-                                    const original =
-                                      originalPayloadRef.current[key] ?? "";
-                                    const current =
-                                      localPayload[key] ?? original;
-                                    const isDirty = current !== original;
+                                  {(() => {
+                                    const rejectedFieldMap =
+                                      currentLead.rejected &&
+                                      currentLead.rejection_reason
+                                        ? parseRejectedFields(
+                                            currentLead.rejection_reason,
+                                          )
+                                        : {};
+                                    return entries.map(([key]) => {
+                                      const original =
+                                        originalPayloadRef.current[key] ?? "";
+                                      const current =
+                                        localPayload[key] ?? original;
+                                      const isDirty = current !== original;
 
-                                    // Field-level edit/remap detection from persisted history
-                                    const fieldHistory =
-                                      currentLead.edit_history?.filter(
-                                        (e) => e.field === `payload.${key}`,
-                                      ) ?? [];
-                                    // A field is "edited" if any history entry has a real user actor
-                                    const isEdited =
-                                      !isDirty &&
-                                      fieldHistory.some(
-                                        (e) =>
-                                          !!(
-                                            e.changed_by?.email ||
-                                            e.changed_by?.username
-                                          ),
-                                      );
-                                    // A field is "remapped" if it has only system entries (no user actor)
-                                    const isRemapped =
-                                      !isDirty &&
-                                      !isEdited &&
-                                      fieldHistory.length > 0 &&
-                                      fieldHistory.every(
-                                        (e) =>
-                                          !e.changed_by?.email &&
-                                          !e.changed_by?.username,
-                                      );
+                                      // Field-level edit/remap detection from persisted history
+                                      const fieldHistory =
+                                        currentLead.edit_history?.filter(
+                                          (e) => e.field === `payload.${key}`,
+                                        ) ?? [];
+                                      const isEdited =
+                                        !isDirty &&
+                                        fieldHistory.some(
+                                          (e) =>
+                                            !!(
+                                              e.changed_by?.email ||
+                                              e.changed_by?.username
+                                            ),
+                                        );
+                                      const isRemapped =
+                                        !isDirty &&
+                                        !isEdited &&
+                                        fieldHistory.length > 0 &&
+                                        fieldHistory.every(
+                                          (e) =>
+                                            !e.changed_by?.email &&
+                                            !e.changed_by?.username,
+                                        );
 
-                                    // Input ring style for edited/remapped/dirty
-                                    const inputRing = isDirty
-                                      ? "border-[--color-warning] shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-warning)_20%,transparent)]"
-                                      : isEdited
-                                        ? "border-amber-400 shadow-[0_0_0_3px_color-mix(in_srgb,#f59e0b_18%,transparent)]"
-                                        : isRemapped
-                                          ? "border-violet-400 shadow-[0_0_0_3px_color-mix(in_srgb,#8b5cf6_18%,transparent)]"
-                                          : "";
-                                    const showHistory =
-                                      isDirty || isEdited || isRemapped;
+                                      // A rejected field gets a red ring (highest priority)
+                                      const rejectionMsg =
+                                        rejectedFieldMap[key];
+                                      const isRejected =
+                                        !isDirty && !!rejectionMsg;
 
-                                    return (
-                                      <div key={key} className="space-y-1">
-                                        <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
-                                          {normalizeFieldLabel(key)}
-                                        </p>
-                                        <div className="relative flex items-center">
-                                          <input
-                                            className={`${inputClass} ${inputRing}`}
-                                            value={current}
-                                            onChange={(e) =>
-                                              setLocalPayload((prev) => ({
-                                                ...prev,
-                                                [key]: e.target.value,
-                                              }))
-                                            }
-                                          />
-                                          {showHistory && (
-                                            <span className="absolute right-2">
-                                              <EditHistoryPopover
-                                                originalValue={
-                                                  isDirty ? original : undefined
-                                                }
-                                                updatedBy={
-                                                  currentLead.updated_by
-                                                }
-                                                updatedAt={
-                                                  currentLead.updated_at
-                                                }
-                                                dirty={isDirty}
-                                                fieldLabel={normalizeFieldLabel(
-                                                  key,
-                                                )}
-                                                history={currentLead.edit_history?.filter(
-                                                  (e) =>
-                                                    e.field ===
-                                                    `payload.${key}`,
-                                                )}
-                                              />
-                                            </span>
-                                          )}
+                                      const inputRing = isDirty
+                                        ? "border-[--color-warning] shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-warning)_20%,transparent)]"
+                                        : isRejected
+                                          ? "border-red-400 shadow-[0_0_0_3px_color-mix(in_srgb,#f87171_20%,transparent)]"
+                                          : isEdited
+                                            ? "border-amber-400 shadow-[0_0_0_3px_color-mix(in_srgb,#f59e0b_18%,transparent)]"
+                                            : isRemapped
+                                              ? "border-violet-400 shadow-[0_0_0_3px_color-mix(in_srgb,#8b5cf6_18%,transparent)]"
+                                              : "";
+                                      const showHistory =
+                                        isDirty || isEdited || isRemapped;
+
+                                      return (
+                                        <div key={key} className="space-y-1">
+                                          <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+                                            {normalizeFieldLabel(key)}
+                                          </p>
+                                          <div className="relative flex items-center">
+                                            <input
+                                              className={`${inputClass} ${inputRing}`}
+                                              value={current}
+                                              onChange={(e) =>
+                                                setLocalPayload((prev) => ({
+                                                  ...prev,
+                                                  [key]: e.target.value,
+                                                }))
+                                              }
+                                            />
+                                            {isRejected && (
+                                              <span
+                                                className={`absolute ${
+                                                  showHistory
+                                                    ? "right-7"
+                                                    : "right-2"
+                                                }`}
+                                              >
+                                                <HoverTooltip
+                                                  message={rejectionMsg}
+                                                >
+                                                  <AlertCircle
+                                                    size={14}
+                                                    className="text-red-400"
+                                                  />
+                                                </HoverTooltip>
+                                              </span>
+                                            )}
+                                            {showHistory && (
+                                              <span className="absolute right-2">
+                                                <EditHistoryPopover
+                                                  originalValue={
+                                                    isDirty
+                                                      ? original
+                                                      : undefined
+                                                  }
+                                                  updatedBy={
+                                                    currentLead.updated_by
+                                                  }
+                                                  updatedAt={
+                                                    currentLead.updated_at
+                                                  }
+                                                  dirty={isDirty}
+                                                  fieldLabel={normalizeFieldLabel(
+                                                    key,
+                                                  )}
+                                                  history={currentLead.edit_history?.filter(
+                                                    (e) =>
+                                                      e.field ===
+                                                      `payload.${key}`,
+                                                  )}
+                                                />
+                                              </span>
+                                            )}
+                                          </div>
                                         </div>
-                                      </div>
-                                    );
-                                  })}
+                                      );
+                                    });
+                                  })()}
                                 </div>
                                 {hasDirtyPayload && (
                                   <div className="sticky bottom-0 flex items-center gap-2 rounded-lg border border-[--color-border] bg-[--color-bg-muted] px-3 py-2">

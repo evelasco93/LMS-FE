@@ -328,8 +328,18 @@ export function SettingsView({ role }: SettingsViewProps) {
                     {
                       key: "updated_at",
                       label: "Last Updated",
-                      render: (c) =>
-                        c.updated_at ? formatDate(c.updated_at) : "—",
+                      render: (c) => (
+                        <div className="flex items-center">
+                          <span>
+                            {c.updated_at ? formatDate(c.updated_at) : "—"}
+                          </span>
+                          <AuditPopover
+                            createdBy={c.created_by}
+                            updatedBy={c.updated_by}
+                            updatedAt={c.updated_at}
+                          />
+                        </div>
+                      ),
                     },
                     {
                       key: "actions",
@@ -436,13 +446,20 @@ export function SettingsView({ role }: SettingsViewProps) {
                           </div>
                         )}
                         <div className="flex items-center justify-between">
-                          {s.updated_at ? (
-                            <p className="text-xs text-[--color-text-muted]">
-                              Updated {formatDate(s.updated_at)}
-                            </p>
-                          ) : (
-                            <span />
-                          )}
+                          <div className="flex items-center">
+                            {s.updated_at ? (
+                              <p className="text-xs text-[--color-text-muted]">
+                                Updated {formatDate(s.updated_at)}
+                              </p>
+                            ) : (
+                              <span />
+                            )}
+                            <AuditPopover
+                              createdBy={s.created_by}
+                              updatedBy={s.updated_by}
+                              updatedAt={s.updated_at}
+                            />
+                          </div>
                           <Button
                             size="sm"
                             variant="outline"
@@ -504,13 +521,12 @@ export function SettingsView({ role }: SettingsViewProps) {
                                 <p className="font-semibold text-[--color-text-strong]">
                                   {plugin.name}
                                 </p>
-                                {plugin.edit_history &&
-                                  plugin.edit_history.length > 0 && (
-                                    <AuditPopover
-                                      updatedAt={plugin.updated_at}
-                                      editHistory={plugin.edit_history}
-                                    />
-                                  )}
+                                <AuditPopover
+                                  createdBy={plugin.created_by}
+                                  updatedBy={plugin.updated_by}
+                                  updatedAt={plugin.updated_at}
+                                  editHistory={plugin.edit_history}
+                                />
                               </div>
                               <p className="text-xs font-mono text-[--color-text-muted]">
                                 {plugin.provider}

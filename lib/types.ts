@@ -36,7 +36,7 @@ export interface ParticipantHistoryEntry {
   from?: string | null;
   to: string;
   changed_at: string;
-  changed_by?: { username?: string; email?: string } | null;
+  changed_by?: RequestActor | null;
 }
 
 export interface Client {
@@ -48,9 +48,9 @@ export interface Client {
   status: ClientStatus;
   created_at?: string;
   updated_at?: string;
-  created_by?: string;
-  updated_by?: string | null;
-  deleted_by?: string | null;
+  created_by?: RequestActor | null;
+  updated_by?: RequestActor | null;
+  deleted_by?: RequestActor | null;
   deleted_at?: string | null;
   is_deleted?: boolean;
   active?: boolean;
@@ -67,9 +67,9 @@ export interface Affiliate {
   status: AffiliateStatus;
   created_at?: string;
   updated_at?: string;
-  created_by?: string;
-  updated_by?: string | null;
-  deleted_by?: string | null;
+  created_by?: RequestActor | null;
+  updated_by?: RequestActor | null;
+  deleted_by?: RequestActor | null;
   deleted_at?: string | null;
   is_deleted?: boolean;
   active?: boolean;
@@ -169,16 +169,16 @@ export interface Campaign {
     from: CampaignStatus;
     to: CampaignStatus;
     changed_at: string;
-    changed_by?: string;
+    changed_by?: RequestActor | null;
   }>;
   edit_history?: EditHistoryEntry[];
   ever_linked_participants?: boolean;
   has_received_leads?: boolean;
   created_at?: string;
   updated_at?: string;
-  created_by?: string;
-  updated_by?: string | null;
-  deleted_by?: string | null;
+  created_by?: RequestActor | null;
+  updated_by?: RequestActor | null;
+  deleted_by?: RequestActor | null;
   deleted_at?: string | null;
   is_deleted?: boolean;
   active?: boolean;
@@ -234,9 +234,9 @@ export interface Lead {
   halt_reason?: string;
   created_at?: string;
   updated_at?: string;
-  created_by?: string;
-  updated_by?: string | null;
-  deleted_by?: string | null;
+  created_by?: RequestActor | null;
+  updated_by?: RequestActor | null;
+  deleted_by?: RequestActor | null;
   deleted_at?: string | null;
   is_deleted?: boolean;
   active?: boolean;
@@ -297,9 +297,11 @@ export interface CredentialRecord {
   is_deleted?: boolean;
   active?: boolean;
   deleted_at?: string | null;
-  deleted_by?: string | null;
+  deleted_by?: RequestActor | null;
   created_at?: string;
   updated_at?: string;
+  created_by?: RequestActor | null;
+  updated_by?: RequestActor | null;
 }
 
 export type PluginSchemaFieldType = "text" | "password" | "select";
@@ -323,9 +325,11 @@ export interface CredentialSchemaRecord {
   is_deleted?: boolean;
   active?: boolean;
   deleted_at?: string | null;
-  deleted_by?: string | null;
+  deleted_by?: RequestActor | null;
   created_at?: string;
   updated_at?: string;
+  created_by?: RequestActor | null;
+  updated_by?: RequestActor | null;
 }
 
 /** @deprecated Use CredentialSchemaRecord */
@@ -343,7 +347,9 @@ export interface PluginSettingRecord {
   is_deleted?: boolean;
   active?: boolean;
   deleted_at?: string | null;
-  deleted_by?: unknown;
+  deleted_by?: RequestActor | null;
+  created_by?: RequestActor | null;
+  updated_by?: RequestActor | null;
   edit_history?: EditHistoryEntry[];
   created_at?: string;
   updated_at?: string;
