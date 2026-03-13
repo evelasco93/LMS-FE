@@ -59,6 +59,31 @@ const toDraft = (f: PluginSchemaField): DraftField => ({
   options: (f.options ?? []).join(", "),
 });
 
+function builtFieldsEqual(
+  built: Array<{
+    name: string;
+    label: string;
+    type: string;
+    required: boolean;
+    placeholder?: string;
+    options?: string[];
+  }>,
+  original: PluginSchemaField[],
+): boolean {
+  if (built.length !== original.length) return false;
+  return built.every((bf, i) => {
+    const of_ = original[i];
+    return (
+      bf.name === of_.name &&
+      bf.label === of_.label &&
+      bf.type === of_.type &&
+      bf.required === of_.required &&
+      (bf.placeholder ?? "") === (of_.placeholder ?? "") &&
+      JSON.stringify(bf.options ?? []) === JSON.stringify(of_.options ?? [])
+    );
+  });
+}
+
 function FieldEditor({
   fields,
   onChange,
@@ -1126,10 +1151,11 @@ export function CredentialSchemaDetailModal({
             }
           : {}),
       }));
+      const fieldsChanged = !builtFieldsEqual(builtFields, schema.fields);
       const res = await updateCredentialSchema(schema.id, {
         name: name.trim(),
         credential_type: credentialType,
-        fields: builtFields,
+        ...(fieldsChanged ? { fields: builtFields } : {}),
       });
       if (!(res as any)?.success)
         throw new Error((res as any)?.message || "Failed");

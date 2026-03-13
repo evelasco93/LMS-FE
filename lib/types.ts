@@ -452,3 +452,66 @@ export interface LogicRule {
   created_by?: string;
   updated_by?: string;
 }
+
+// ─── Audit Log ────────────────────────────────────────────────────────────────
+
+export interface AuditChange {
+  field: string;
+  from: unknown;
+  to: unknown;
+}
+
+export interface AuditActor {
+  sub?: string;
+  username?: string;
+  email?: string;
+  first_name?: string;
+  last_name?: string;
+  full_name?: string;
+}
+
+export type AuditAction =
+  | "created"
+  | "updated"
+  | "deleted"
+  | "soft_deleted"
+  | "restored"
+  | "status_changed"
+  | "key_rotated"
+  | "participant_linked"
+  | "participant_updated"
+  | "participant_removed"
+  | "criteria_field_added"
+  | "criteria_field_updated"
+  | "criteria_field_deleted"
+  | "logic_rule_added"
+  | "logic_rule_updated"
+  | "logic_rule_deleted"
+  | "mappings_updated"
+  | "plugins_updated"
+  | "credential_disabled"
+  | "credential_enabled"
+  | "plugin_setting_disabled"
+  | "plugin_setting_enabled"
+  | "password_reset"
+  | (string & {});
+
+export interface AuditLogItem {
+  log_id: string;
+  entity_id: string;
+  entity_type: string;
+  action: AuditAction;
+  changes: AuditChange[];
+  actor?: AuditActor | null;
+  changed_at: string;
+  date?: string;
+  actor_sub?: string;
+}
+
+export interface AuditQueryResponse {
+  success: boolean;
+  data: {
+    items: AuditLogItem[];
+    nextCursor?: string | null;
+  };
+}

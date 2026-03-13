@@ -4,6 +4,7 @@ import type {
   Affiliate,
   AffiliateStatus,
   ApiResponse,
+  AuditQueryResponse,
   AvailablePlugin,
   Campaign,
   CampaignParticipantStatus,
@@ -652,12 +653,14 @@ export async function updateCriteriaValueMappings(
 }
 
 // ─── QA Tools ─────────────────────────────────────────────────────────────────
-  export async function seedBaseFields(campaignId: string) {
-    const url = buildUrl(`/campaigns/${encodeURIComponent(campaignId)}/criteria/base-fields`);
-    return request<{ success: boolean; message?: string }>(url, {
-      method: "POST",
-    });
-  }
+export async function seedBaseFields(campaignId: string) {
+  const url = buildUrl(
+    `/campaigns/${encodeURIComponent(campaignId)}/criteria/base-fields`,
+  );
+  return request<{ success: boolean; message?: string }>(url, {
+    method: "POST",
+  });
+}
 
 export async function qaCheckTrustedForm(
   certId: string,
@@ -768,4 +771,34 @@ export async function deleteLogicRule(campaignId: string, ruleId: string) {
   return request<{ result: boolean; data: LogicRule }>(url, {
     method: "DELETE",
   });
+}
+
+// ─── Audit Log ────────────────────────────────────────────────────────────────
+
+export async function getFullAuditLog(params?: {
+  limit?: number;
+  cursor?: string;
+}) {
+  const url = buildUrl("/audit", params);
+  return request<AuditQueryResponse>(url);
+}
+
+export async function getEntityAudit(
+  entityId: string,
+  params?: { limit?: number; cursor?: string },
+) {
+  const url = buildUrl(`/audit/${encodeURIComponent(entityId)}`, params);
+  return request<AuditQueryResponse>(url);
+}
+
+export async function getAuditActivity(params: {
+  entity_type?: string;
+  actor_sub?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+  cursor?: string;
+}) {
+  const url = buildUrl("/audit/activity", params);
+  return request<AuditQueryResponse>(url);
 }

@@ -4,13 +4,13 @@ import type React from "react";
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  BarChart3,
   Building2,
   ChevronRight,
-  FileSpreadsheet,
   Home,
-  Users2,
+  Megaphone,
   Settings2,
+  Target,
+  Users,
   Wrench,
 } from "lucide-react";
 import clsx from "clsx";
@@ -27,10 +27,10 @@ export type NavKey =
 
 const items: Array<{ key: NavKey; label: string; icon: React.ReactNode }> = [
   { key: "home", label: "Home", icon: <Home size={18} /> },
-  { key: "leads", label: "Leads", icon: <FileSpreadsheet size={18} /> },
-  { key: "clients", label: "Clients", icon: <Users2 size={18} /> },
-  { key: "affiliates", label: "Affiliates", icon: <Building2 size={18} /> },
-  { key: "campaigns", label: "Campaigns", icon: <BarChart3 size={18} /> },
+  { key: "leads", label: "Leads", icon: <Target size={18} /> },
+  { key: "clients", label: "Clients", icon: <Building2 size={18} /> },
+  { key: "affiliates", label: "Affiliates", icon: <Users size={18} /> },
+  { key: "campaigns", label: "Campaigns", icon: <Megaphone size={18} /> },
   { key: "tools", label: "Tools", icon: <Wrench size={18} /> },
   { key: "settings", label: "Settings", icon: <Settings2 size={18} /> },
 ];

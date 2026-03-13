@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { Check, X } from "lucide-react";
+import { Check, MinusCircle, X } from "lucide-react";
 import { motion } from "framer-motion";
 import { Table } from "@/components/table";
 import { Badge } from "@/components/badge";
@@ -226,9 +226,19 @@ export function LeadsView({
             render: (lead) => {
               const tf = lead.trusted_form_result;
               if (tf == null) {
+                const campaign = campaignIdMap.get(lead.campaign_id);
+                const disabled =
+                  campaign?.plugins?.trusted_form?.enabled === false;
                 return (
                   <div className="mx-auto flex w-fit items-center justify-center">
-                    <span className="text-[--color-text-muted]">—</span>
+                    {disabled ? (
+                      <span className="flex items-center gap-1 text-xs text-[--color-text-muted]">
+                        <MinusCircle size={13} />
+                        Disabled
+                      </span>
+                    ) : (
+                      <span className="text-[--color-text-muted]">—</span>
+                    )}
                   </div>
                 );
               }
@@ -250,9 +260,18 @@ export function LeadsView({
             render: (lead) => {
               const iq = lead.ipqs_result;
               if (iq == null) {
+                const campaign = campaignIdMap.get(lead.campaign_id);
+                const disabled = campaign?.plugins?.ipqs?.enabled === false;
                 return (
                   <div className="mx-auto flex w-fit items-center justify-center">
-                    <span className="text-[--color-text-muted]">—</span>
+                    {disabled ? (
+                      <span className="flex items-center gap-1 text-xs text-[--color-text-muted]">
+                        <MinusCircle size={13} />
+                        Disabled
+                      </span>
+                    ) : (
+                      <span className="text-[--color-text-muted]">—</span>
+                    )}
                   </div>
                 );
               }

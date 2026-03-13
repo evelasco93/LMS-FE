@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
@@ -36,7 +37,22 @@ export function ClientsView({
   onDataChanged,
   campaigns,
 }: ClientsViewProps) {
-  const [showInactive, setShowInactive] = useState(false);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+
+  const showInactive = searchParams?.get("clients_inactive") === "true";
+
+  const setClientsParam = (key: string, value: string | undefined) => {
+    const params = new URLSearchParams(searchParams?.toString() || "");
+    if (value === undefined) {
+      params.delete(key);
+    } else {
+      params.set(key, value);
+    }
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
 
   // When showing deactivated, fetch all records (including deleted) directly.
   // The parent's `clients` prop only contains active (non-deleted) records.
@@ -162,7 +178,12 @@ export function ClientsView({
             type="checkbox"
             className="h-4 w-4 accent-[--color-primary]"
             checked={showInactive}
-            onChange={(e) => setShowInactive(e.target.checked)}
+            onChange={(e) =>
+              setClientsParam(
+                "clients_inactive",
+                e.target.checked ? "true" : undefined,
+              )
+            }
           />
           Show deactivated
         </label>
@@ -223,7 +244,8 @@ export function ClientsView({
                   createdBy={client.created_by}
                   updatedBy={client.updated_by}
                   updatedAt={client.updated_at}
-                  editHistory={client.edit_history}
+                  createdAt={client.created_at}
+                  entityId={client.id}
                 />
               </div>
             ),

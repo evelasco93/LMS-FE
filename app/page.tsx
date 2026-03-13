@@ -227,6 +227,9 @@ function DashboardContent({
   );
   const [campaignDetailTab, setCampaignDetailTab] =
     useState<CampaignDetailTab>("overview");
+  const [campaignDetailSubTab, setCampaignDetailSubTab] = useState<
+    "base-criteria" | "logic" | undefined
+  >(undefined);
   const [focusedAffiliateId, setFocusedAffiliateId] = useState<string | null>(
     null,
   );
@@ -419,6 +422,14 @@ function DashboardContent({
             ? (sectionParam as CampaignDetailTab)
             : "overview";
         setCampaignDetailTab(nextTab);
+        const subsectionParam = searchParams?.get("subsection");
+        setCampaignDetailSubTab(
+          subsectionParam === "logic"
+            ? "logic"
+            : subsectionParam === "criteria"
+              ? "base-criteria"
+              : undefined,
+        );
         setFocusedAffiliateId(searchParams?.get("affiliate") || null);
       }
     }
@@ -470,11 +481,22 @@ function DashboardContent({
     setCampaignDetailOpen(false);
     setFocusedAffiliateId(null);
     setCampaignDetailTab("overview");
+    setCampaignDetailSubTab(undefined);
     setQueryParams({
       view: next,
       campaign: undefined,
       section: undefined,
+      subsection: undefined,
       affiliate: undefined,
+      leadTab: undefined,
+      leadQc: undefined,
+      leadPt: undefined,
+      settings_section: undefined,
+      logs_entity: undefined,
+      logs_actor: undefined,
+      logs_sort: undefined,
+      clients_inactive: undefined,
+      affiliates_inactive: undefined,
     });
   };
 
@@ -490,6 +512,7 @@ function DashboardContent({
     campaignId: string,
     section: CampaignDetailTab = "overview",
     affiliateId?: string,
+    subSection?: "base-criteria" | "logic",
   ) => {
     const campaign = campaigns.find((c) => c.id === campaignId);
     if (!campaign) {
@@ -498,6 +521,13 @@ function DashboardContent({
     }
     setSelectedCampaign(campaign);
     setCampaignDetailTab(section);
+    setCampaignDetailSubTab(
+      subSection === "logic"
+        ? "logic"
+        : subSection === "base-criteria"
+          ? "base-criteria"
+          : undefined,
+    );
     setFocusedAffiliateId(
       section === "affiliates" ? affiliateId || null : null,
     );
@@ -507,6 +537,12 @@ function DashboardContent({
       view: "campaigns",
       campaign: campaignId,
       section,
+      subsection:
+        subSection === "logic"
+          ? "logic"
+          : subSection === "base-criteria"
+            ? "criteria"
+            : undefined,
       affiliate: section === "affiliates" ? affiliateId : undefined,
     });
   };
@@ -887,9 +923,11 @@ function DashboardContent({
           setSelectedCampaign(null);
           setFocusedAffiliateId(null);
           setCampaignDetailTab("overview");
+          setCampaignDetailSubTab(undefined);
           setQueryParams({
             campaign: undefined,
             section: undefined,
+            subsection: undefined,
             affiliate: undefined,
             view: active !== "leads" ? active : undefined,
           });
@@ -909,10 +947,18 @@ function DashboardContent({
             view: "campaigns",
             campaign: selectedCampaign?.id,
             section: tab,
+            subsection: undefined,
             affiliate:
               tab === "affiliates"
                 ? focusedAffiliateId || undefined
                 : undefined,
+          });
+        }}
+        subTab={campaignDetailSubTab}
+        onSubTabChange={(sub) => {
+          setCampaignDetailSubTab(sub);
+          setQueryParams({
+            subsection: sub === "logic" ? "logic" : "criteria",
           });
         }}
         focusAffiliateId={focusedAffiliateId}

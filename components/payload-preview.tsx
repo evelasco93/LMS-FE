@@ -13,6 +13,7 @@ import {
 import { toast } from "sonner";
 import { AnimatePresence, motion } from "framer-motion";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import useSWR from "swr";
 import { Modal } from "@/components/modal";
 import { Badge } from "@/components/badge";
 import { Button } from "@/components/button";
@@ -21,7 +22,7 @@ import {
   HoverTooltip,
   InfoItem,
 } from "@/components/shared-ui";
-import { updateLead } from "@/lib/api";
+import { updateLead, getEntityAudit } from "@/lib/api";
 import {
   resolveDisplayName,
   inputClass,
@@ -29,11 +30,69 @@ import {
 } from "@/lib/utils";
 import type {
   Campaign,
+  EditHistoryEntry,
   Lead,
   TrustedFormResult,
   IpqsResult,
   IpqsCheckResult,
+  AuditLogItem,
+  AuditActor,
 } from "@/lib/types";
+
+// ─── Audit helpers ───────────────────────────────────────────────────────────
+
+function resolveAuditActor(actor?: AuditActor | null): string {
+  if (!actor) return "System";
+  return actor.full_name || actor.email || actor.username || "Unknown";
+}
+
+function auditActionLabel(action: string): string {
+  return action
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+function auditActionTone(
+  action: string,
+): "success" | "danger" | "info" | "warning" | "neutral" {
+  if (
+    action === "created" ||
+    action === "restored" ||
+    action === "credential_enabled" ||
+    action === "plugin_setting_enabled"
+  )
+    return "success";
+  if (
+    action === "deleted" ||
+    action === "soft_deleted" ||
+    action === "credential_disabled" ||
+    action === "plugin_setting_disabled"
+  )
+    return "danger";
+  if (
+    action === "status_changed" ||
+    action === "key_rotated" ||
+    action === "password_reset"
+  )
+    return "warning";
+  if (
+    action === "updated" ||
+    action.endsWith("_added") ||
+    action.endsWith("_updated") ||
+    action === "mappings_updated" ||
+    action === "plugins_updated"
+  )
+    return "info";
+  return "neutral";
+}
+
+function formatAuditValue(val: unknown): string {
+  if (val === null || val === undefined) return "—";
+  if (typeof val === "boolean") return val ? "true" : "false";
+  if (typeof val === "object") return JSON.stringify(val);
+  return String(val);
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -144,7 +203,7 @@ function TrustedFormCard({
           {noResult ? (
             <span className="text-sm text-[--color-text-muted]">
               {pluginEnabled === false
-                ? "TrustedForm is disabled for this campaign"
+                ? "Disabled for this campaign"
                 : "Not evaluated"}
             </span>
           ) : passed ? (
@@ -453,7 +512,7 @@ function IpqsResultCard({
           {noResult ? (
             <span className="text-sm text-[--color-text-muted]">
               {pluginEnabled === false
-                ? "IPQS is disabled for this campaign"
+                ? "Disabled for this campaign"
                 : "Not evaluated"}
             </span>
           ) : overallPassed ? (
@@ -505,7 +564,7 @@ export function PayloadPreview({
   const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    "summary" | "payload" | "quality-control"
+    "summary" | "payload" | "quality-control" | "history"
   >("summary");
   const [payloadTab, setPayloadTab] = useState<"normalized" | "raw">(
     "normalized",
@@ -539,6 +598,23 @@ export function PayloadPreview({
   const trustedFormResult = currentLead.trusted_form_result ?? null;
   const ipqsResult = currentLead.ipqs_result ?? null;
 
+  const {
+    data: auditItems = [],
+    isLoading: auditLoading,
+    mutate: refreshAudit,
+  } = useSWR<AuditLogItem[]>(
+    isOpen ? ["entity-audit", currentLead.id] : null,
+    async () => {
+      try {
+        const res = await getEntityAudit(currentLead.id, { limit: 100 });
+        return res?.data?.items ?? [];
+      } catch {
+        return [];
+      }
+    },
+    { revalidateOnFocus: true, refreshInterval: 30_000 },
+  );
+
   useEffect(() => {
     const leadId = searchParams?.get("lead");
     if (!leadId) return;
@@ -559,7 +635,8 @@ export function PayloadPreview({
     if (
       tabParam === "summary" ||
       tabParam === "payload" ||
-      tabParam === "quality-control"
+      tabParam === "quality-control" ||
+      tabParam === "history"
     ) {
       setActiveTab(tabParam);
     }
@@ -719,6 +796,19 @@ export function PayloadPreview({
                   });
                 },
                 activeTab === "quality-control",
+              )}
+              {tabBtn(
+                "History",
+                () => {
+                  setActiveTab("history");
+                  setLeadQueryParams({
+                    lead: currentLead.id,
+                    leadTab: "history",
+                    leadQc: undefined,
+                    leadPt: undefined,
+                  });
+                },
+                activeTab === "history",
               )}
             </div>
           }
@@ -973,11 +1063,25 @@ export function PayloadPreview({
                                         localPayload[key] ?? original;
                                       const isDirty = current !== original;
 
-                                      // Field-level edit/remap detection from persisted history
-                                      const fieldHistory =
-                                        currentLead.edit_history?.filter(
-                                          (e) => e.field === `payload.${key}`,
-                                        ) ?? [];
+                                      // Field-level edit/remap detection from audit log
+                                      const fieldHistory: EditHistoryEntry[] =
+                                        auditItems.flatMap((item) =>
+                                          item.changes
+                                            .filter(
+                                              (c) =>
+                                                c.field === `payload.${key}` ||
+                                                c.field === key,
+                                            )
+                                            .map(
+                                              (c): EditHistoryEntry => ({
+                                                field: c.field,
+                                                previous_value: c.from,
+                                                new_value: c.to,
+                                                changed_at: item.changed_at,
+                                                changed_by: item.actor ?? null,
+                                              }),
+                                            ),
+                                        );
                                       const isEdited =
                                         !isDirty &&
                                         fieldHistory.some(
@@ -1067,11 +1171,7 @@ export function PayloadPreview({
                                                   fieldLabel={normalizeFieldLabel(
                                                     key,
                                                   )}
-                                                  history={currentLead.edit_history?.filter(
-                                                    (e) =>
-                                                      e.field ===
-                                                      `payload.${key}`,
-                                                  )}
+                                                  history={fieldHistory}
                                                 />
                                               </span>
                                             )}
@@ -1307,6 +1407,98 @@ export function PayloadPreview({
                   </div>
                 </motion.div>
               )}
+
+              {/* ── History ── */}
+              {activeTab === "history" && (
+                <motion.div
+                  key="history"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.15, ease: "easeOut" }}
+                >
+                  {auditLoading ? (
+                    <p className="py-8 text-center text-sm text-[--color-text-muted]">
+                      Loading history…
+                    </p>
+                  ) : auditItems.length === 0 ? (
+                    <div className="py-12 text-center">
+                      <p className="text-sm text-[--color-text-muted]">
+                        No history available for this lead.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {auditItems.map((item) => (
+                        <div
+                          key={item.log_id}
+                          className="rounded-lg border border-[--color-border] bg-[--color-panel] p-3"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <Badge tone={auditActionTone(item.action)}>
+                                {auditActionLabel(item.action)}
+                              </Badge>
+                              <span className="text-xs text-[--color-text-muted]">
+                                by{" "}
+                                <span className="font-medium text-[--color-text]">
+                                  {resolveAuditActor(item.actor)}
+                                </span>
+                              </span>
+                            </div>
+                            <span className="text-xs text-[--color-text-muted]">
+                              {item.changed_at
+                                ? new Intl.DateTimeFormat(undefined, {
+                                    year: "numeric",
+                                    month: "short",
+                                    day: "2-digit",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                    second: "2-digit",
+                                    timeZoneName: "short",
+                                  }).format(new Date(item.changed_at))
+                                : "—"}
+                            </span>
+                          </div>
+                          {item.changes.length > 0 && (
+                            <div className="mt-2 space-y-1.5">
+                              {item.changes.map((change, i) => (
+                                <div
+                                  key={`${item.log_id}-${i}`}
+                                  className="flex flex-col gap-0.5 rounded bg-[--color-bg-muted] px-2 py-1.5 text-xs"
+                                >
+                                  <span className="font-semibold text-[--color-text-strong]">
+                                    {normalizeFieldLabel(
+                                      change.field.replace(/^payload\./, ""),
+                                    )}
+                                  </span>
+                                  <span className="flex items-center gap-1 text-[--color-text-muted]">
+                                    <span className="line-through">
+                                      {formatAuditValue(change.from)}
+                                    </span>
+                                    <ArrowRight
+                                      size={10}
+                                      className="shrink-0"
+                                    />
+                                    <span className="font-medium text-[--color-text]">
+                                      {formatAuditValue(change.to)}
+                                    </span>
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {item.changes.length === 0 && (
+                            <p className="mt-1 text-xs text-[--color-text-muted]">
+                              No field-level changes recorded.
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </motion.div>
+              )}
             </AnimatePresence>
           </div>
         </div>
@@ -1359,6 +1551,9 @@ export function PayloadPreview({
                   originalPayloadRef.current = { ...strPayload };
                   setConfirmSave(false);
                   toast.success("Lead payload updated");
+                  // Re-fetch audit trail so the History tab and field highlights
+                  // immediately reflect the new change.
+                  refreshAudit();
                 } catch (err: any) {
                   toast.error(err?.message || "Unable to update lead payload");
                 } finally {

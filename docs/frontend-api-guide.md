@@ -39,7 +39,6 @@ Every entity now carries the following audit and soft-delete fields:
 | `deleted_at` | ISO timestamp \| null | When the soft-delete occurred; `null` when not deleted |
 | `is_deleted` | boolean | `true` when soft-deleted |
 | `active` | boolean | Convenience inverse of `is_deleted` (`false` when deleted) |
-| `edit_history` | array (Client/Affiliate/Lead/Campaign) | Ordered log of field-level changes; see below. |
 
 Use `active` / `is_deleted` in the UI to show/hide deleted records without re-fetching.
 
@@ -86,7 +85,7 @@ Response returns the client with `id` and timestamps.
 
 **Update client** `PUT /clients/{id}`
 
-All fields optional — only supplied fields are updated. Every changed field is automatically appended to `edit_history`.
+All fields optional — only supplied fields are updated. Every change is recorded in the audit log automatically.
 
 ```json
 { "name": "New Name", "phone": "+15550001111", "status": "INACTIVE" }
@@ -94,43 +93,25 @@ All fields optional — only supplied fields are updated. Every changed field is
 
 **Update affiliate** `PUT /affiliates/{id}`
 
-Same pattern — all fields optional. Changed fields recorded in `edit_history`.
+Same pattern — all fields optional. Every change is recorded in the audit log automatically.
 
 ```json
 { "name": "Updated Partner", "company": "New Co", "status": "INACTIVE" }
 ```
 
-**Edit history (clients, affiliates, leads, campaigns)**
+**Change history (clients, affiliates, leads, campaigns)**
 
-Every `PUT` to a client, affiliate, lead, or campaign records a history entry per changed field. The `edit_history` array on each object grows with each update and is never truncated.
+All mutations — create, update, delete — are recorded in the centralized audit log. There is no `edit_history` field on entity objects; query the audit API instead.
 
-```json
-"edit_history": [
-  {
-    "field": "name",
-    "previous_value": "Old Name",
-    "new_value": "New Name",
-    "changed_at": "2026-03-04T18:00:00.000Z",
-    "changed_by": {
-      "sub": "a1b2c3d4-...",
-      "username": "edgar@summitedgelegal.com",
-      "email": "edgar@summitedgelegal.com",
-      "first_name": "Edgar",
-      "last_name": "Velasco",
-      "full_name": "Edgar Velasco"
-    }
+See the [Audit Logs](#audit-logs) section for the full API reference and usage examples. Quick reference:
 
-> **Display rule:** always render `changed_by.full_name`. Fall back to `changed_by.email` only when `full_name` is absent.
-  }
-]
-```
+- `GET /audit/{entityId}` — full change history for one entity (e.g. `GET /audit/CLA0G9L9RF`)
+- `GET /audit/activity?entity_type=client` — recent changes across all clients
+- `GET /audit/activity?entity_type=campaign` — recent changes across all campaigns
+- `GET /audit/activity?actor_sub=<cognito-sub>` — everything a specific user has done
+- Add `&from=<ISO>&to=<ISO>` to either activity query to filter by date range
 
-- Client tracks: `name`, `email`, `phone`, `client_code`, `status`
-- Affiliate tracks: `name`, `email`, `phone`, `company`, `affiliate_code`, `status`
-- Lead tracks: every key inside `payload` (e.g. `payload.name`, `payload.email`)
-- Campaign tracks: `name`
-
-Note: `edit_history` is **read-only** from the frontend perspective — never send it in a PUT request body.
+Each record includes `action` (`created` | `updated` | `deleted` | `soft_deleted` | ...) and a `changes[]` array of `{ field, from, to }` diffs. For create and delete events, `changes` is an empty array — the action itself is the record.
 
 **Create campaign** `POST /campaigns`
 
@@ -719,6 +700,96 @@ Send `{ "value_mappings": [] }` to clear all mappings.
 
 The preset covers all 50 US states. It runs in addition to any custom `value_mappings` defined on the field (custom mappings are applied first). To disable, update the field with `"state_mapping": null`.
 
+### Criteria audit trail
+
+All criteria mutations are recorded in the centralized audit log with `entity_type: "campaign"` and the campaign's `id` as `entity_id`. Use `GET /audit/{campaignId}` to see the full change history for a campaign, including all criteria and logic rule events.
+
+| Action                      | Trigger                                          | `changes[]` content                                                                                                       |
+| --------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `criteria_field_added`      | `POST /criteria` or `POST /criteria/base-fields` | `field_id`, `field_name`, `field_label`, `data_type` (from `null`)                                                        |
+| `criteria_field_updated`    | `PUT /criteria/{fieldId}`                        | One entry per changed property: `{fieldId}.{property}` with `from`/`to` values                                            |
+| `criteria_field_deleted`    | `DELETE /criteria/{fieldId}`                     | `field_id`, `field_name`, `field_label` (to `null`)                                                                       |
+| `criteria_fields_reordered` | `PUT /criteria/reorder`                          | `order`: previous and new field ID arrays                                                                                 |
+| `logic_rule_added`          | `POST /logic-rules`                              | `rule_id`, `name`, `action` (from `null`)                                                                                 |
+| `logic_rule_updated`        | `PUT /logic-rules/{ruleId}`                      | One entry per changed scalar (`name`, `action`, `enabled`) + condition-level diffs for `groups` changes — see table below |
+| `logic_rule_deleted`        | `DELETE /logic-rules/{ruleId}`                   | `rule_id`, `name`, `action` (to `null`)                                                                                   |
+| `plugins_updated`           | `PUT /campaigns/{id}/plugins`                    | One entry per mutated plugin field — see table below                                                                      |
+
+### Logic rule update audit trail
+
+`logic_rule_updated` records are written whenever `PUT /logic-rules/{ruleId}` changes anything. Scalar fields produce one entry each; `groups` changes produce per-condition entries:
+
+| `changes[].field`           | When emitted                                                      | `from` / `to` format                                |
+| --------------------------- | ----------------------------------------------------------------- | --------------------------------------------------- |
+| `name`                      | Rule name changed                                                 | Previous / new string                               |
+| `action`                    | Rule action changed (`pass` ↔ `fail`)                             | `"pass"` or `"fail"`                                |
+| `enabled`                   | Rule enabled toggled                                              | `true` or `false`                                   |
+| `condition.{LC-id}.added`   | A new condition was added to a group                              | `null` → `"field_name operator [value]"`            |
+| `condition.{LC-id}.removed` | An existing condition was deleted                                 | `"field_name operator [value]"` → `null`            |
+| `condition.{LC-id}.updated` | A condition's field, operator, or value changed                   | Previous → new `"field_name operator value"` string |
+| `groups.structure`          | Only the grouping/ordering changed (no condition content changed) | `[[conditionIds…], …]` before → after               |
+
+The condition summary string format is `"{field_name} {operator} {value}"` — e.g. `"state is_not California"`. For multi-value `is`/`is_not` operators the values are joined with `, `.
+
+Example `changes[]` for a rule update that renamed the rule, removed one condition, and added another:
+
+```json
+[
+  { "field": "name", "from": "Old name", "to": "New name" },
+  {
+    "field": "condition.LC000001.removed",
+    "from": "state is_not California",
+    "to": null
+  },
+  {
+    "field": "condition.LC000004.added",
+    "from": null,
+    "to": "state is Texas, Florida"
+  }
+]
+```
+
+### Plugin configuration audit trail
+
+All changes made via `PUT /campaigns/{id}/plugins` are recorded with `entity_type: "campaign"` and `action: "plugins_updated"`. Each mutated field produces one entry in `changes[]`. Nothing is written if no fields actually changed.
+
+| `changes[].field`                 | What it represents                                   |
+| --------------------------------- | ---------------------------------------------------- |
+| `duplicate_check.enabled`         | Duplicate check master toggle                        |
+| `duplicate_check.criteria`        | Phone/email duplicate criteria array                 |
+| `trusted_form.enabled`            | TrustedForm master toggle                            |
+| `trusted_form.stage`              | TrustedForm pipeline stage number                    |
+| `trusted_form.gate`               | Gate — when true a failure halts the pipeline        |
+| `trusted_form.claim`              | Whether to retain (claim) the certificate on success |
+| `trusted_form.vendor`             | Vendor name forwarded to the TrustedForm API         |
+| `ipqs.enabled`                    | IPQS master toggle                                   |
+| `ipqs.stage`                      | IPQS pipeline stage number                           |
+| `ipqs.gate`                       | Gate — when true a failure halts the pipeline        |
+| `ipqs.phone.enabled`              | Phone sub-check toggle                               |
+| `ipqs.phone.criteria.valid`       | Phone validity criterion config object               |
+| `ipqs.phone.criteria.fraud_score` | Phone fraud score threshold config object            |
+| `ipqs.phone.criteria.country`     | Phone country filter config object                   |
+| `ipqs.email.enabled`              | Email sub-check toggle                               |
+| `ipqs.email.criteria.valid`       | Email validity criterion config object               |
+| `ipqs.email.criteria.fraud_score` | Email fraud score threshold config object            |
+| `ipqs.ip.enabled`                 | IP sub-check toggle                                  |
+| `ipqs.ip.criteria.fraud_score`    | IP fraud score threshold config object               |
+| `ipqs.ip.criteria.country_code`   | IP country filter config object                      |
+| `ipqs.ip.criteria.proxy`          | IP proxy check config object                         |
+| `ipqs.ip.criteria.vpn`            | IP VPN check config object                           |
+
+Example `changes[]` for a single IPQS phone fraud-score threshold change:
+
+```json
+[
+  {
+    "field": "ipqs.phone.criteria.fraud_score",
+    "from": { "enabled": true, "operator": "lte", "value": 85 },
+    "to": { "enabled": true, "operator": "lte", "value": 75 }
+  }
+]
+```
+
 ### Criteria-validation rejection messages
 
 When a lead is rejected by criteria validation the response includes:
@@ -747,7 +818,7 @@ Criteria validation **fails open** — if the criteria-validation lambda itself 
 - When sending leads, display backend message and `rejected` flag to make DISABLED affiliate behavior clear.
 - Display duplicate metadata: `duplicate=true` means lead matched existing campaign leads; use `duplicate_matches.lead_ids` to show linked duplicates.
 - Only enable “Activate campaign” when the rules above are satisfied (LIVE participants present, none left in TEST).
-- **Edit history**: display `edit_history` in a collapsible timeline on client, affiliate, lead, and campaign detail views. Each entry shows `field`, `previous_value → new_value`, `changed_at`, and `changed_by.full_name`. Fall back to `changed_by.email` only when `full_name` is absent. **Do not display `changed_by.username` or `changed_by.email` as the primary label** — these are internal identifiers, not display names.
+- **Change history**: display entity change history on client, affiliate, lead, and campaign detail views by querying `GET /audit/{entityId}`. Each entry shows `action`, field-level diffs (`changes[].field`, `changes[].from → changes[].to`), `changed_at`, and `actor.full_name`. Fall back to `actor.email` only when `full_name` is absent. See the [Audit Logs](#audit-logs) section for full query patterns.
 - **Soft-delete UI**: use `active` (boolean) to control visibility. Show a "deleted" badge or hide the row when `active=false`. Offer a restore action that calls `PUT /users/{id}/enable` (users) or a future restore endpoint for other entities.
 - **Audit trail**: display `created_by` and `updated_by` in detail views / tooltips. Show `deleted_by` + `deleted_at` in soft-deleted record summaries.
 - **All responses are HTTP 200** — check `success` (boolean) in the body, not the HTTP status, to determine if an operation succeeded. On `success: false`, display the `error` field to the user.
@@ -974,7 +1045,6 @@ Credentials are stored in the `tenant-settings` DynamoDB table with sensitive fi
   "active": true,
   "deleted_at": null,
   "deleted_by": null,
-  "edit_history": [],
   "created_at": "2024-01-01T00:00:00.000Z",
   "updated_at": "2024-01-01T00:00:00.000Z"
 }
@@ -1016,28 +1086,24 @@ All three record types (credentials, credential schemas, plugin settings) suppor
 - **Hard-delete** (`?permanent=true`): Permanently removes the record. Blocked with a `400` if the record is still referenced — a credential cannot be hard-deleted while plugin settings point to it, and a schema cannot be hard-deleted while credentials reference it.
 - **Restore**: `PUT /{id}/restore` to undo a soft-delete.
 
-### Edit history (audit trail)
+### Change history (audit trail)
 
-Every PUT update writes an `IEditHistoryEntry` to the record's `edit_history` array:
+All mutations to credentials, credential schemas, and plugin settings are recorded in the centralized audit log. Use the audit API to surface change history in admin views:
 
-```json
-{
-  "field": "name",
-  "previous_value": "TrustedForm Staging",
-  "new_value": "TrustedForm Prod",
-  "changed_at": "2024-06-01T12:00:00.000Z",
-  "changed_by": {
-    "sub": "a1b2c3d4-...",
-    "username": "admin@example.com",
-    "email": "admin@example.com",
-    "first_name": "Edgar",
-    "last_name": "Velasco",
-    "full_name": "Edgar Velasco"
-  }
-}
-```
+- `GET /audit/{id}` — full history for a single credential, schema, or plugin setting record
+- `GET /audit/activity?entity_type=credential` — recent changes across all credentials
+- `GET /audit/activity?entity_type=credential_schema` — recent changes across all credential schemas
+- `GET /audit/activity?entity_type=plugin_setting` — recent changes across all plugin settings
 
-Use `edit_history` to surface change logs in admin audit views.
+Tracked actions per entity type:
+
+| Entity type         | Tracked actions                                                                                                       |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `credential`        | `created`, `updated`, `soft_deleted`, `hard_deleted`, `restored`, `credential_disabled`, `credential_enabled`         |
+| `credential_schema` | `created`, `updated`, `soft_deleted`, `hard_deleted`, `restored`                                                      |
+| `plugin_setting`    | `created`, `updated`, `soft_deleted`, `hard_deleted`, `restored`, `plugin_setting_disabled`, `plugin_setting_enabled` |
+
+See the [Audit Logs](#audit-logs) section for the full API reference.
 
 ### Disable / enable a credential
 
@@ -1297,13 +1363,12 @@ Credential schemas describe the credential fields that each plugin integration r
   "active": true,
   "deleted_at": null,
   "deleted_by": null,
-  "edit_history": [],
   "created_at": "2024-01-01T00:00:00.000Z",
   "updated_at": "2024-01-01T00:00:00.000Z"
 }
 ```
 
-> IDs are now **CS-prefixed** (was PS). Schemas now carry full audit fields: `is_deleted`, `active`, `deleted_at`, `deleted_by`, `edit_history`.
+> IDs are now **CS-prefixed** (was PS). Schemas now carry full audit fields: `is_deleted`, `active`, `deleted_at`, `deleted_by`.
 
 ### Field types
 
@@ -1415,7 +1480,6 @@ Returns the static `AVAILABLE_PLUGINS` list with no database call. Use this to k
   "active": true,
   "deleted_at": null,
   "deleted_by": null,
-  "edit_history": [],
   "created_at": "2024-01-01T00:00:00.000Z",
   "updated_at": "2024-01-01T00:00:00.000Z",
   "name": "TrustedForm",
@@ -1456,7 +1520,6 @@ PUT /v2/tenant-config/plugin-settings/trusted_form
     "active": true,
     "deleted_at": null,
     "deleted_by": null,
-    "edit_history": [],
     "created_at": "2024-01-01T00:00:00.000Z",
     "updated_at": "2024-06-01T12:00:00.000Z"
   }
@@ -1546,11 +1609,13 @@ interface AuditLogItem {
     | "criteria_field_added"
     | "criteria_field_updated"
     | "criteria_field_deleted"
+    | "criteria_fields_reordered"
     | "logic_rule_added"
     | "logic_rule_updated"
     | "logic_rule_deleted"
     | "mappings_updated"
     | "plugins_updated"
+    | "hard_deleted"
     | "credential_disabled"
     | "credential_enabled"
     | "plugin_setting_disabled"
@@ -1595,11 +1660,21 @@ Pass `nextCursor` as the `cursor` query parameter in the next request. When `nex
 
 | Method | Path                | Description                                                         |
 | ------ | ------------------- | ------------------------------------------------------------------- |
+| `GET`  | `/audit`            | Full table scan — all records, paginated, no filter required        |
 | `GET`  | `/audit/activity`   | Cross-entity activity feed — filter by `entity_type` or `actor_sub` |
 | `GET`  | `/audit/{entityId}` | Full history for a single entity                                    |
 | `POST` | `/audit/export`     | Manually trigger an S3 NDJSON export for a given date               |
 
 All require `Authorization: Bearer <id_token>` (admin role).
+
+**GET `/audit`** — Full table scan with cursor-based pagination. No filters required.
+
+| Parameter | Required        | Description                              |
+| --------- | --------------- | ---------------------------------------- |
+| `limit`   | No (default 50) | Max records to return (1–500)            |
+| `cursor`  | No              | Pagination cursor from previous response |
+
+Results are in DynamoDB scan order (not sorted by date). Iterate using `nextCursor` until it is absent to retrieve all records.
 
 **GET `/audit/activity`** — Query parameters:
 

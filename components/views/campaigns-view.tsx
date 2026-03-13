@@ -143,6 +143,8 @@ export function CampaignsView({
                   createdBy={c.created_by}
                   updatedBy={c.updated_by}
                   updatedAt={c.updated_at}
+                  createdAt={c.created_at}
+                  entityId={c.id}
                 />
               </div>
             ),

@@ -1474,7 +1474,7 @@
     "/campaigns/{id}/plugins": {
       "put": {
         "summary": "Update campaign plugins configuration",
-        "description": "Updates QA plugin settings for a campaign. Currently supports duplicate_check plugin with configurable enabled flag and criteria fields.",
+        "description": "Updates QA plugin settings for a campaign. Supports duplicate_check, trusted_form, and ipqs plugins. Supply only the plugin blocks you want to change — omitted blocks are left untouched. All changes are recorded in the audit log with action: plugins_updated (one changes[] entry per mutated field). Nothing is written if no fields changed.",
         "tags": ["campaigns"],
         "parameters": [
           {
@@ -1490,6 +1490,7 @@
               },
               "examples": {
                 "disableDuplicate": {
+                  "summary": "Disable duplicate check",
                   "value": {
                     "duplicate_check": {
                       "enabled": false
@@ -1497,10 +1498,57 @@
                   }
                 },
                 "emailOnly": {
+                  "summary": "Duplicate check on email only",
                   "value": {
                     "duplicate_check": {
                       "enabled": true,
                       "criteria": ["email"]
+                    }
+                  }
+                },
+                "enableTrustedForm": {
+                  "summary": "Enable TrustedForm with certificate claiming",
+                  "value": {
+                    "trusted_form": {
+                      "enabled": true,
+                      "stage": 2,
+                      "gate": true,
+                      "claim": true,
+                      "vendor": "MyVendor"
+                    }
+                  }
+                },
+                "enableIpqs": {
+                  "summary": "Enable IPQS with phone and IP sub-checks",
+                  "value": {
+                    "ipqs": {
+                      "enabled": true,
+                      "stage": 2,
+                      "gate": true,
+                      "phone": {
+                        "enabled": true,
+                        "criteria": {
+                          "valid": { "enabled": true, "required": true },
+                          "fraud_score": {
+                            "enabled": true,
+                            "operator": "lte",
+                            "value": 75
+                          },
+                          "country": { "enabled": true, "allowed": ["US"] }
+                        }
+                      },
+                      "ip": {
+                        "enabled": true,
+                        "criteria": {
+                          "fraud_score": {
+                            "enabled": true,
+                            "operator": "lte",
+                            "value": 75
+                          },
+                          "proxy": { "enabled": true, "allowed": false },
+                          "vpn": { "enabled": true, "allowed": false }
+                        }
+                      }
                     }
                   }
                 }
@@ -1961,7 +2009,7 @@
       },
       "put": {
         "summary": "Update a logic rule",
-        "description": "Partially updates a logic rule. Supply only the fields you want to change.",
+        "description": "Partially updates a logic rule. Supply only the fields you want to change. All changes are recorded in the audit log with action: logic_rule_updated. Scalar changes (name, action, enabled) produce one entry each. Groups changes produce per-condition entries: condition.{LC-id}.added, condition.{LC-id}.removed, or condition.{LC-id}.updated. If only grouping/ordering changed (no condition content changed), a groups.structure entry is recorded instead.",
         "tags": ["campaigns"],
         "security": [{ "BearerAuth": [] }],
         "parameters": [
@@ -3094,6 +3142,45 @@
       }
     }
   },
+  "/audit": {
+    "get": {
+      "summary": "Full audit log scan",
+      "description": "Returns all audit log entries with cursor-based pagination. No filter required — use this to page through the entire audit table. Results are in DynamoDB scan order (not sorted). Admin only.",
+      "tags": ["audit"],
+      "security": [{ "BearerAuth": [] }],
+      "parameters": [
+        {
+          "name": "limit",
+          "in": "query",
+          "description": "Maximum number of records to return per page (default 50)",
+          "schema": {
+            "type": "integer",
+            "default": 50,
+            "minimum": 1,
+            "maximum": 500
+          }
+        },
+        {
+          "name": "cursor",
+          "in": "query",
+          "description": "Opaque pagination cursor returned as nextCursor from a previous response",
+          "schema": { "type": "string" }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Audit records retrieved",
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AuditQueryResponse" }
+            }
+          }
+        },
+        "401": { "description": "Unauthorized — valid Bearer token required" },
+        "403": { "description": "Forbidden — admin role required" }
+      }
+    }
+  },
   "/audit/activity": {
     "get": {
       "summary": "Activity feed — cross-entity audit log query",
@@ -3181,7 +3268,7 @@
           "name": "entityId",
           "in": "path",
           "required": true,
-          "description": "The entity ID to fetch history for (e.g. a lead ID, client ID, or user email)",
+          "description": "The entity ID to fetch audit history for (e.g. CLA... for a client, CM... for a campaign, LD... for a lead). For user entities, use the user's email address (URL-encoded).",
           "schema": { "type": "string" }
         },
         {
@@ -3401,33 +3488,6 @@
           "active": {
             "type": "boolean",
             "description": "Convenience inverse of is_deleted: false when soft-deleted, true otherwise"
-          },
-          "edit_history": {
-            "type": "array",
-            "description": "Ordered log of all field-level changes made via PUT /clients/{id}. Each entry records the field name, before/after values, timestamp, and actor.",
-            "items": {
-              "type": "object",
-              "properties": {
-                "field": {
-                  "type": "string",
-                  "description": "Name of the field that changed (e.g. name, email, status, phone, client_code)",
-                  "example": "name"
-                },
-                "previous_value": {
-                  "description": "Value before the change (null if the field was newly added)"
-                },
-                "new_value": {
-                  "description": "Value after the change"
-                },
-                "changed_at": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "changed_by": {
-                  "$ref": "#/components/schemas/RequestActor"
-                }
-              }
-            }
           }
         }
       },
@@ -3490,33 +3550,6 @@
           "active": {
             "type": "boolean",
             "description": "Convenience inverse of is_deleted: false when soft-deleted, true otherwise"
-          },
-          "edit_history": {
-            "type": "array",
-            "description": "Ordered log of all field-level changes made via PUT /affiliates/{id}. Each entry records the field name, before/after values, timestamp, and actor.",
-            "items": {
-              "type": "object",
-              "properties": {
-                "field": {
-                  "type": "string",
-                  "description": "Name of the field that changed (e.g. name, email, status, phone, company, affiliate_code)",
-                  "example": "name"
-                },
-                "previous_value": {
-                  "description": "Value before the change (null if the field was newly added)"
-                },
-                "new_value": {
-                  "description": "Value after the change"
-                },
-                "changed_at": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "changed_by": {
-                  "$ref": "#/components/schemas/RequestActor"
-                }
-              }
-            }
           }
         }
       },
@@ -3747,33 +3780,6 @@
             "type": "boolean",
             "description": "Convenience inverse of is_deleted"
           },
-          "edit_history": {
-            "type": "array",
-            "description": "Ordered log of campaign-level field changes (currently tracks name). Appended automatically on PUT /campaigns/{id}.",
-            "items": {
-              "type": "object",
-              "properties": {
-                "field": {
-                  "type": "string",
-                  "description": "Name of the field that changed (e.g. name)",
-                  "example": "name"
-                },
-                "previous_value": {
-                  "description": "Value before the change"
-                },
-                "new_value": {
-                  "description": "Value after the change"
-                },
-                "changed_at": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "changed_by": {
-                  "$ref": "#/components/schemas/RequestActor"
-                }
-              }
-            }
-          },
           "submit_url": {
             "type": "string",
             "description": "Live lead submission endpoint for this campaign. Affiliates POST lead payloads to this URL using their campaign_key.",
@@ -3837,33 +3843,6 @@
           },
           "rejection_reason": {
             "type": "string"
-          },
-          "edit_history": {
-            "type": "array",
-            "description": "Ordered log of all field changes. Each entry records what changed, the before/after values, when it happened, and who made the change.",
-            "items": {
-              "type": "object",
-              "properties": {
-                "field": {
-                  "type": "string",
-                  "description": "Dot-notation path of the changed field, e.g. payload.name or payload.email",
-                  "example": "payload.name"
-                },
-                "previous_value": {
-                  "description": "Value before the change (null if the field was newly added)"
-                },
-                "new_value": {
-                  "description": "Value after the change (null if the field was removed)"
-                },
-                "changed_at": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "changed_by": {
-                  "$ref": "#/components/schemas/RequestActor"
-                }
-              }
-            }
           },
           "created_by": {
             "type": "string",
@@ -4164,7 +4143,7 @@
       },
       "UpdateClientRequest": {
         "type": "object",
-        "description": "All fields are optional. Only supplied fields are updated; every changed field is appended to edit_history automatically.",
+        "description": "All fields are optional. Only supplied fields are updated; every change is recorded in the audit log automatically.",
         "properties": {
           "name": {
             "type": "string"
@@ -4205,7 +4184,7 @@
       },
       "UpdateAffiliateRequest": {
         "type": "object",
-        "description": "All fields are optional. Only supplied fields are updated; every changed field is appended to edit_history automatically.",
+        "description": "All fields are optional. Only supplied fields are updated; every change is recorded in the audit log automatically.",
         "properties": {
           "name": {
             "type": "string"
@@ -4898,11 +4877,6 @@
             "$ref": "#/components/schemas/RequestActor",
             "nullable": true
           },
-          "edit_history": {
-            "type": "array",
-            "description": "Ordered log of all field-level changes",
-            "items": { "$ref": "#/components/schemas/EditHistoryEntry" }
-          },
           "created_at": { "type": "string", "format": "date-time" },
           "updated_at": { "type": "string", "format": "date-time" }
         }
@@ -5010,11 +4984,6 @@
             "$ref": "#/components/schemas/RequestActor",
             "nullable": true
           },
-          "edit_history": {
-            "type": "array",
-            "description": "Ordered log of all field-level changes",
-            "items": { "$ref": "#/components/schemas/EditHistoryEntry" }
-          },
           "created_at": { "type": "string", "format": "date-time" },
           "updated_at": { "type": "string", "format": "date-time" }
         }
@@ -5090,30 +5059,6 @@
           }
         }
       },
-      "EditHistoryEntry": {
-        "type": "object",
-        "description": "Single field-level change record stored in the edit_history audit trail",
-        "properties": {
-          "field": {
-            "type": "string",
-            "description": "Name of the field that changed",
-            "example": "name"
-          },
-          "previous_value": {
-            "description": "Value before the change (null if the field was newly added)"
-          },
-          "new_value": {
-            "description": "Value after the change"
-          },
-          "changed_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "changed_by": {
-            "$ref": "#/components/schemas/RequestActor"
-          }
-        }
-      },
       "CredentialRecord": {
         "type": "object",
         "properties": {
@@ -5170,11 +5115,6 @@
             "$ref": "#/components/schemas/RequestActor",
             "nullable": true,
             "description": "Set when soft-deleted; null otherwise"
-          },
-          "edit_history": {
-            "type": "array",
-            "description": "Ordered log of all field-level changes",
-            "items": { "$ref": "#/components/schemas/EditHistoryEntry" }
           },
           "created_at": {
             "type": "string",
@@ -5668,11 +5608,13 @@
               "criteria_field_added",
               "criteria_field_updated",
               "criteria_field_deleted",
+              "criteria_fields_reordered",
               "logic_rule_added",
               "logic_rule_updated",
               "logic_rule_deleted",
               "mappings_updated",
               "plugins_updated",
+              "hard_deleted",
               "credential_disabled",
               "credential_enabled",
               "plugin_setting_disabled",

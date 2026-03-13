@@ -11,9 +11,10 @@ import {
   formatDate,
   formatDateTime,
   inputClass,
+  normalizeFieldLabel,
 } from "@/lib/utils";
-import { listUsers } from "@/lib/api";
-import type { EditHistoryEntry } from "@/lib/types";
+import { listUsers, getEntityAudit } from "@/lib/api";
+import type { AuditLogItem } from "@/lib/types";
 import { Modal } from "@/components/modal";
 
 // ─── SectionLabel ────────────────────────────────────────────────────────────
@@ -145,23 +146,27 @@ export function AuditPopover({
   createdBy,
   updatedBy,
   updatedAt,
-  editHistory,
+  createdAt,
+  entityId,
 }: {
   createdBy?: unknown;
   updatedBy?: unknown;
   updatedAt?: string | null;
-  editHistory?: EditHistoryEntry[];
+  createdAt?: string | null;
+  entityId?: string;
 }) {
   const [open, setOpen] = useState(false);
   const resolveAuthor = useAuthorResolver();
 
-  const hasHistory = Array.isArray(editHistory) && editHistory.length > 0;
-  const sortedLog = hasHistory
-    ? [...editHistory].sort(
-        (a, b) =>
-          new Date(a.changed_at).getTime() - new Date(b.changed_at).getTime(),
-      )
-    : [];
+  const { data: auditData, isLoading: auditLoading } = useSWR(
+    open && entityId ? `audit-popover-${entityId}` : null,
+    () => getEntityAudit(entityId!, { limit: 100 }),
+    { revalidateOnFocus: false },
+  );
+
+  const changeItems: AuditLogItem[] = (auditData?.data?.items ?? []).filter(
+    (item: AuditLogItem) => item.changes && item.changes.length > 0,
+  );
 
   return (
     <>
@@ -193,6 +198,11 @@ export function AuditPopover({
               <p className="mt-1 text-sm font-medium text-[--color-text-strong]">
                 {resolveAuthor(createdBy) || "—"}
               </p>
+              {createdAt && (
+                <p className="mt-0.5 text-xs text-[--color-text-muted]">
+                  {formatDateTime(createdAt)}
+                </p>
+              )}
             </div>
             <div className="rounded-lg border border-[--color-border] bg-[--color-bg-muted] p-3">
               <p className="text-[10px] uppercase tracking-wide text-[--color-text-muted]">
@@ -212,54 +222,68 @@ export function AuditPopover({
           {/* Change list */}
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
-              Changes ({sortedLog.length})
+              Changes ({auditLoading ? "…" : changeItems.length})
             </p>
-            {hasHistory ? (
+            {auditLoading ? (
+              <p className="text-sm italic text-[--color-text-muted]">
+                Loading…
+              </p>
+            ) : changeItems.length > 0 ? (
               <div className="max-h-80 space-y-2 overflow-y-auto pr-0.5">
-                {sortedLog.map((entry, i) => {
-                  const by = entry.changed_by
-                    ? resolveAuthor(entry.changed_by)
-                    : null;
-                  const prev =
-                    entry.previous_value != null
-                      ? String(entry.previous_value)
-                      : null;
-                  const next =
-                    entry.new_value != null ? String(entry.new_value) : null;
-                  return (
-                    <div
-                      key={i}
-                      className="rounded-lg border border-[--color-border] bg-[--color-bg-muted] p-3"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="font-mono text-xs font-semibold text-[--color-primary]">
-                          {entry.field}
-                        </span>
-                        <span className="shrink-0 text-right text-xs text-[--color-text-muted]">
-                          {formatDateTime(entry.changed_at)}
-                        </span>
+                {changeItems.map((item) =>
+                  item.changes.map((change, i) => {
+                    const by = resolveAuthor(item.actor);
+                    const isComplex =
+                      change.from !== null &&
+                      change.from !== undefined &&
+                      typeof change.from === "object";
+                    const fmtVal = (v: unknown) =>
+                      v === null || v === undefined
+                        ? "—"
+                        : typeof v === "object"
+                          ? "..."
+                          : String(v);
+                    return (
+                      <div
+                        key={`${item.log_id}-${i}`}
+                        className="rounded-lg border border-[--color-border] bg-[--color-bg-muted] p-3"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-mono text-xs font-semibold text-[--color-primary]">
+                            {normalizeFieldLabel(
+                              change.field.replace(/^payload\./, ""),
+                            )}
+                          </span>
+                          <span className="shrink-0 text-right text-xs text-[--color-text-muted]">
+                            {formatDateTime(item.changed_at)}
+                          </span>
+                        </div>
+                        {!isComplex && (
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <span className="rounded bg-[--color-bg] px-2 py-0.5 text-sm text-[--color-text-muted] line-through">
+                              {fmtVal(change.from)}
+                            </span>
+                            <span className="text-[--color-text-muted]">→</span>
+                            <span className="rounded bg-[--color-bg] px-2 py-0.5 text-sm font-medium text-[--color-text-strong]">
+                              {fmtVal(change.to)}
+                            </span>
+                          </div>
+                        )}
+                        {by && (
+                          <p className="mt-1.5 text-xs text-[--color-text-muted]">
+                            by {by}
+                          </p>
+                        )}
                       </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <span className="rounded bg-[--color-bg] px-2 py-0.5 text-sm text-[--color-text-muted] line-through">
-                          {prev ?? "—"}
-                        </span>
-                        <span className="text-[--color-text-muted]">→</span>
-                        <span className="rounded bg-[--color-bg] px-2 py-0.5 text-sm font-medium text-[--color-text-strong]">
-                          {next ?? "—"}
-                        </span>
-                      </div>
-                      {by && (
-                        <p className="mt-1.5 text-xs text-[--color-text-muted]">
-                          by {by}
-                        </p>
-                      )}
-                    </div>
-                  );
-                })}
+                    );
+                  }),
+                )}
               </div>
             ) : (
               <p className="text-sm italic text-[--color-text-muted]">
-                No change history recorded.
+                {entityId
+                  ? "No change history recorded."
+                  : "Change history not available."}
               </p>
             )}
           </div>
@@ -479,11 +503,20 @@ export function EditHistoryPopover({
                     : null;
                 const next =
                   entry.new_value != null ? String(entry.new_value) : null;
+                const displayField =
+                  fieldLabel ||
+                  entry.field
+                    .replace(/^payload\./, "")
+                    .replace(/_/g, " ")
+                    .replace(/\b\w/g, (c) => c.toUpperCase());
                 return (
                   <div
                     key={i}
-                    className="rounded-lg border border-[--color-border] bg-[--color-bg-muted] p-3"
+                    className="rounded-lg border border-[--color-border] bg-[--color-bg-muted] p-3 space-y-1.5"
                   >
+                    <p className="text-xs font-semibold text-[--color-text-strong]">
+                      {displayField}
+                    </p>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="rounded bg-[--color-bg] px-2 py-0.5 text-sm text-[--color-text-muted] line-through">
                         {prev ?? "—"}
@@ -493,7 +526,7 @@ export function EditHistoryPopover({
                         {next ?? "—"}
                       </span>
                     </div>
-                    <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs text-[--color-text-muted]">
+                    <div className="flex flex-wrap items-center gap-3 text-xs text-[--color-text-muted]">
                       <span>{formatDateTime(entry.changed_at)}</span>
                       {by ? (
                         <span>by {by}</span>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
@@ -36,7 +37,22 @@ export function AffiliatesView({
   onDataChanged,
   campaigns,
 }: AffiliatesViewProps) {
-  const [showInactive, setShowInactive] = useState(false);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+
+  const showInactive = searchParams?.get("affiliates_inactive") === "true";
+
+  const setAffiliatesParam = (key: string, value: string | undefined) => {
+    const params = new URLSearchParams(searchParams?.toString() || "");
+    if (value === undefined) {
+      params.delete(key);
+    } else {
+      params.set(key, value);
+    }
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
 
   // When showing deactivated, fetch all records (including deleted) directly.
   // The parent's `affiliates` prop only contains active (non-deleted) records.
@@ -168,7 +184,12 @@ export function AffiliatesView({
             type="checkbox"
             className="h-4 w-4 accent-[--color-primary]"
             checked={showInactive}
-            onChange={(e) => setShowInactive(e.target.checked)}
+            onChange={(e) =>
+              setAffiliatesParam(
+                "affiliates_inactive",
+                e.target.checked ? "true" : undefined,
+              )
+            }
           />
           Show deactivated
         </label>
@@ -229,7 +250,8 @@ export function AffiliatesView({
                   createdBy={a.created_by}
                   updatedBy={a.updated_by}
                   updatedAt={a.updated_at}
-                  editHistory={a.edit_history}
+                  createdAt={a.created_at}
+                  entityId={a.id}
                 />
               </div>
             ),
