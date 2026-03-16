@@ -13,11 +13,15 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { SignInScreen } from "@/components/sign-in-screen";
 
 import { HomeView } from "@/components/views/home-view";
-import { LeadsView } from "@/components/views/leads-view";
+import {
+  LeadsView,
+  type LeadSortKey,
+  type LeadViewFilters,
+} from "@/components/views/leads-view";
 import { ClientsView } from "@/components/views/clients-view";
 import { AffiliatesView } from "@/components/views/affiliates-view";
 import { CampaignsView } from "@/components/views/campaigns-view";
-import { SettingsView } from "@/components/views/settings-view";
+import { AdminView } from "@/components/views/admin-view";
 import { ToolsView } from "@/components/views/tools-view";
 import { PayloadPreview } from "@/components/payload-preview";
 import { CampaignDetailModal } from "@/components/campaign-detail-modal";
@@ -218,7 +222,7 @@ function DashboardContent({
       affiliates: "Affiliates",
       campaigns: "Campaigns",
       tools: "Tools",
-      settings: "Settings",
+      admin: "Admin",
     };
     document.title = `LMS | ${labels[active] ?? active}`;
   }, [active]);
@@ -235,6 +239,17 @@ function DashboardContent({
   );
 
   const [campaignDetailOpen, setCampaignDetailOpen] = useState(false);
+  const closeCampaignResetTimeoutRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (closeCampaignResetTimeoutRef.current) {
+        clearTimeout(closeCampaignResetTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -292,13 +307,76 @@ function DashboardContent({
     }
     const newLeads = leads.filter((l) => !knownLeadIdsRef.current!.has(l.id));
     if (newLeads.length > 0) {
-      toast.success(
-        `${newLeads.length} new lead${newLeads.length > 1 ? "s" : ""} received`,
-        { id: "new-leads" },
-      );
+      if (newLeads.length === 1) {
+        const leadId = newLeads[0].id;
+        const openSingleLead = () => {
+          setCampaignDetailOpen(false);
+          setSelectedCampaign(null);
+          setFocusedAffiliateId(null);
+          setCampaignDetailTab("overview");
+          setCampaignDetailSubTab(undefined);
+          const nextParams = {
+            view: "leads",
+            lead: leadId,
+            leadTab: "summary",
+            leadQc: undefined,
+            leadPt: undefined,
+            campaign: undefined,
+            section: undefined,
+            subsection: undefined,
+            affiliate: undefined,
+          };
+          if (active !== "leads") {
+            setActive("leads");
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => setQueryParams(nextParams));
+            });
+          } else {
+            setQueryParams(nextParams);
+          }
+        };
+
+        toast.success(`1 new lead received: ${leadId}`, {
+          id: `new-lead-${leadId}`,
+          onClick: openSingleLead,
+          action: {
+            label: "Open",
+            onClick: openSingleLead,
+          },
+        });
+      } else {
+        const openLeadsList = () => {
+          setCampaignDetailOpen(false);
+          setSelectedCampaign(null);
+          setFocusedAffiliateId(null);
+          setCampaignDetailTab("overview");
+          setCampaignDetailSubTab(undefined);
+          setActive("leads");
+          setQueryParams({
+            view: "leads",
+            lead: undefined,
+            leadTab: undefined,
+            leadQc: undefined,
+            leadPt: undefined,
+            campaign: undefined,
+            section: undefined,
+            subsection: undefined,
+            affiliate: undefined,
+          });
+        };
+
+        toast.success(`${newLeads.length} new leads received`, {
+          id: "new-leads",
+          onClick: openLeadsList,
+          action: {
+            label: "View",
+            onClick: openLeadsList,
+          },
+        });
+      }
     }
     knownLeadIdsRef.current = currentIds;
-  }, [leads, leadsLoading]);
+  }, [leads, leadsLoading, active]);
 
   const {
     data: clients = [],
@@ -354,7 +432,7 @@ function DashboardContent({
     return [...leads].sort((a, b) => {
       const left = a.created_at ? new Date(a.created_at).getTime() : 0;
       const right = b.created_at ? new Date(b.created_at).getTime() : 0;
-      return left - right;
+      return right - left;
     });
   }, [leads]);
 
@@ -384,56 +462,109 @@ function DashboardContent({
 
   const role = currentUser?.role;
 
+  const leadFiltersFromQuery = useMemo<LeadViewFilters>(() => {
+    const sort = (searchParams?.get("lead_sort") ??
+      "created_at") as LeadSortKey;
+    const validSort: LeadSortKey[] = [
+      "created_at",
+      "campaign",
+      "affiliate",
+      "mode",
+      "status",
+      "duplicate",
+      "trusted_form",
+      "ipqs",
+      "id",
+    ];
+    const sortsRaw = searchParams?.get("lead_sorts") ?? "";
+    const parsedSorts = sortsRaw
+      .split(",")
+      .map((segment) => {
+        const [key, dir] = segment.split(":");
+        if (!validSort.includes(key as LeadSortKey)) return null;
+        if (dir !== "asc" && dir !== "desc") return null;
+        return { key: key as LeadSortKey, dir: dir as "asc" | "desc" };
+      })
+      .filter((v): v is { key: LeadSortKey; dir: "asc" | "desc" } => !!v);
+
+    const fallbackPrimary = {
+      key: validSort.includes(sort) ? sort : "created_at",
+      dir: searchParams?.get("lead_dir") === "asc" ? "asc" : ("desc" as const),
+    };
+
+    return {
+      search: searchParams?.get("lead_search") ?? "",
+      campaignId: searchParams?.get("lead_campaign") ?? "all",
+      affiliateId: searchParams?.get("lead_affiliate") ?? "all",
+      mode:
+        (searchParams?.get("lead_mode") as LeadViewFilters["mode"]) || "all",
+      status:
+        (searchParams?.get("lead_status") as LeadViewFilters["status"]) ||
+        "all",
+      sortBy: fallbackPrimary.key,
+      sortDir: fallbackPrimary.dir,
+      sorts: parsedSorts.length > 0 ? parsedSorts : [fallbackPrimary],
+    };
+  }, [searchParams]);
+
+  // Effect 1: Sync active view from URL (does NOT depend on campaigns so that
+  // SWR refreshes of campaign data don't re-trigger navigation logic).
   useEffect(() => {
     const viewParam = searchParams?.get("view");
+    // Support legacy "settings" URL param — redirect to admin
+    const resolvedView = viewParam === "settings" ? "admin" : viewParam;
     if (
-      viewParam &&
+      resolvedView &&
       [
         "home",
         "leads",
         "clients",
         "affiliates",
         "campaigns",
-        "settings",
-      ].includes(viewParam)
+        "admin",
+        "tools",
+      ].includes(resolvedView)
     ) {
-      // Non-admins trying to deep-link to settings get bounced to home
-      if (viewParam === "settings" && role !== "admin") {
+      // Non-admins trying to deep-link to admin get bounced to home
+      if (resolvedView === "admin" && role !== "admin") {
         setActive("home");
         setQueryParams({ view: "home" });
-        toast.error("Page not found.", { id: "settings-blocked" });
+        toast.error("Page not found.", { id: "admin-blocked" });
       } else {
-        setActive(viewParam as NavKey);
+        setActive(resolvedView as NavKey);
       }
     }
+  }, [searchParams, role]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Effect 2: Open campaign detail modal from URL params. Depends on campaigns
+  // so the modal opens once campaign data is available after a deep-link load.
+  useEffect(() => {
     const campaignParam = searchParams?.get("campaign");
-    if (campaignParam && campaigns.length > 0) {
-      const found = campaigns.find((c) => c.id === campaignParam);
-      if (found) {
-        setSelectedCampaign(found);
-        setCampaignDetailOpen(true);
-        const sectionParam = searchParams?.get("section");
-        const nextTab: CampaignDetailTab =
-          sectionParam === "clients" ||
-          sectionParam === "affiliates" ||
-          sectionParam === "integrations" ||
-          sectionParam === "settings"
-            ? (sectionParam as CampaignDetailTab)
-            : "overview";
-        setCampaignDetailTab(nextTab);
-        const subsectionParam = searchParams?.get("subsection");
-        setCampaignDetailSubTab(
-          subsectionParam === "logic"
-            ? "logic"
-            : subsectionParam === "criteria"
-              ? "base-criteria"
-              : undefined,
-        );
-        setFocusedAffiliateId(searchParams?.get("affiliate") || null);
-      }
+    if (!campaignParam || campaigns.length === 0) return;
+    const found = campaigns.find((c) => c.id === campaignParam);
+    if (found) {
+      setSelectedCampaign(found);
+      setCampaignDetailOpen(true);
+      const sectionParam = searchParams?.get("section");
+      const nextTab: CampaignDetailTab =
+        sectionParam === "clients" ||
+        sectionParam === "affiliates" ||
+        sectionParam === "integrations" ||
+        sectionParam === "settings"
+          ? (sectionParam as CampaignDetailTab)
+          : "overview";
+      setCampaignDetailTab(nextTab);
+      const subsectionParam = searchParams?.get("subsection");
+      setCampaignDetailSubTab(
+        subsectionParam === "logic"
+          ? "logic"
+          : subsectionParam === "criteria"
+            ? "base-criteria"
+            : undefined,
+      );
+      setFocusedAffiliateId(searchParams?.get("affiliate") || null);
     }
-  }, [campaigns, searchParams, role]);
+  }, [campaigns, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refreshCampaignsAndSelect = async (campaignId?: string) => {
     const data = await refreshCampaigns();
@@ -451,7 +582,7 @@ function DashboardContent({
       affiliates: "Affiliates",
       campaigns: "Campaigns",
       tools: "Tools",
-      settings: "Settings",
+      admin: "Admin",
     };
     return map[active] ?? active;
   }, [active]);
@@ -466,8 +597,8 @@ function DashboardContent({
         return "Manage affiliates, their details, and status";
       case "campaigns":
         return "Create, configure, link clients/affiliates, and manage campaign settings";
-      case "settings":
-        return "View and manage tenant credential entries";
+      case "admin":
+        return "View and manage system settings, credentials, users, and logs";
       case "tools":
         return "Access various tools and utilities";
       default:
@@ -491,7 +622,17 @@ function DashboardContent({
       leadTab: undefined,
       leadQc: undefined,
       leadPt: undefined,
+      lead_search: undefined,
+      lead_campaign: undefined,
+      lead_affiliate: undefined,
+      lead_mode: undefined,
+      lead_status: undefined,
+      lead_sort: undefined,
+      lead_dir: undefined,
+      lead_sorts: undefined,
       settings_section: undefined,
+      admin_tab: undefined,
+      logs_section: undefined,
       logs_entity: undefined,
       logs_actor: undefined,
       logs_sort: undefined,
@@ -514,6 +655,11 @@ function DashboardContent({
     affiliateId?: string,
     subSection?: "base-criteria" | "logic",
   ) => {
+    if (closeCampaignResetTimeoutRef.current) {
+      clearTimeout(closeCampaignResetTimeoutRef.current);
+      closeCampaignResetTimeoutRef.current = null;
+    }
+
     const campaign = campaigns.find((c) => c.id === campaignId);
     if (!campaign) {
       toast.error("Campaign not found");
@@ -531,9 +677,7 @@ function DashboardContent({
     setFocusedAffiliateId(
       section === "affiliates" ? affiliateId || null : null,
     );
-    setCampaignDetailOpen(true);
-    setActive("campaigns");
-    setQueryParams({
+    const nextParams = {
       view: "campaigns",
       campaign: campaignId,
       section,
@@ -544,6 +688,129 @@ function DashboardContent({
             ? "criteria"
             : undefined,
       affiliate: section === "affiliates" ? affiliateId : undefined,
+    };
+
+    const openAfterTransition = () => {
+      setCampaignDetailOpen(true);
+      setQueryParams(nextParams);
+    };
+
+    if (active !== "campaigns") {
+      setActive("campaigns");
+      requestAnimationFrame(() => {
+        requestAnimationFrame(openAfterTransition);
+      });
+    } else {
+      openAfterTransition();
+    }
+  };
+
+  const openLead = (leadId: string) => {
+    setCampaignDetailOpen(false);
+    setSelectedCampaign(null);
+    setFocusedAffiliateId(null);
+    setCampaignDetailTab("overview");
+    setCampaignDetailSubTab(undefined);
+    const nextParams = {
+      view: "leads",
+      lead: leadId,
+      leadTab: "summary",
+      leadQc: undefined,
+      leadPt: undefined,
+      campaign: undefined,
+      section: undefined,
+      subsection: undefined,
+      affiliate: undefined,
+    };
+
+    if (active !== "leads") {
+      setActive("leads");
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => setQueryParams(nextParams));
+      });
+    } else {
+      setQueryParams(nextParams);
+    }
+  };
+
+  const onLeadFiltersChange = (filters: LeadViewFilters) => {
+    const primarySort = filters.sorts?.[0] ?? {
+      key: filters.sortBy,
+      dir: filters.sortDir,
+    };
+    const normalizedSorts =
+      filters.sorts && filters.sorts.length > 0 ? filters.sorts : [primarySort];
+
+    setQueryParams({
+      lead_search: filters.search || undefined,
+      lead_campaign:
+        filters.campaignId !== "all" ? filters.campaignId : undefined,
+      lead_affiliate:
+        filters.affiliateId !== "all" ? filters.affiliateId : undefined,
+      lead_mode: filters.mode !== "all" ? filters.mode : undefined,
+      lead_status: filters.status !== "all" ? filters.status : undefined,
+      lead_sort: primarySort.key !== "created_at" ? primarySort.key : undefined,
+      lead_dir: primarySort.dir !== "desc" ? primarySort.dir : undefined,
+      lead_sorts:
+        normalizedSorts.length > 1 ||
+        normalizedSorts[0].key !== "created_at" ||
+        normalizedSorts[0].dir !== "desc"
+          ? normalizedSorts.map((s) => `${s.key}:${s.dir}`).join(",")
+          : undefined,
+    });
+  };
+
+  const openLeadsForCampaign = (
+    campaignId: string,
+    options?: { affiliateId?: string; mode?: "all" | "test" | "live" },
+  ) => {
+    setCampaignDetailOpen(false);
+    setSelectedCampaign(null);
+    setFocusedAffiliateId(null);
+    setCampaignDetailTab("overview");
+    setCampaignDetailSubTab(undefined);
+    setActive("leads");
+    setQueryParams({
+      view: "leads",
+      lead_campaign: campaignId,
+      lead_search: undefined,
+      lead_affiliate:
+        options?.affiliateId && options.affiliateId !== "all"
+          ? options.affiliateId
+          : undefined,
+      lead_mode:
+        options?.mode && options.mode !== "all" ? options.mode : undefined,
+      lead_status: undefined,
+      lead_sort: undefined,
+      lead_dir: undefined,
+      lead_sorts: undefined,
+      campaign: undefined,
+      section: undefined,
+      subsection: undefined,
+      affiliate: undefined,
+    });
+  };
+
+  const closeCampaignDetail = () => {
+    setCampaignDetailOpen(false);
+
+    if (closeCampaignResetTimeoutRef.current) {
+      clearTimeout(closeCampaignResetTimeoutRef.current);
+    }
+    closeCampaignResetTimeoutRef.current = setTimeout(() => {
+      setSelectedCampaign(null);
+      closeCampaignResetTimeoutRef.current = null;
+    }, 220);
+
+    setFocusedAffiliateId(null);
+    setCampaignDetailTab("overview");
+    setCampaignDetailSubTab(undefined);
+    setQueryParams({
+      campaign: undefined,
+      section: undefined,
+      subsection: undefined,
+      affiliate: undefined,
+      view: active !== "leads" ? active : undefined,
     });
   };
 
@@ -776,10 +1043,10 @@ function DashboardContent({
             <motion.section
               key="home"
               className="flex flex-col items-center justify-center h-full min-h-[60vh] gap-6 text-center"
-              initial={{ opacity: 0, y: 14 }}
+              initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.18, ease: "easeOut" }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.14, ease: "easeOut" }}
             >
               <HomeView />
             </motion.section>
@@ -788,10 +1055,10 @@ function DashboardContent({
             <motion.section
               key="leads"
               className="space-y-4"
-              initial={{ opacity: 0, y: 14 }}
+              initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.18, ease: "easeOut" }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.14, ease: "easeOut" }}
             >
               <LeadsView
                 leads={sortedLeads}
@@ -799,6 +1066,8 @@ function DashboardContent({
                 affiliates={affiliates}
                 isLoading={leadsLoading}
                 onOpenCampaign={openCampaign}
+                initialFilters={leadFiltersFromQuery}
+                onFiltersChange={onLeadFiltersChange}
                 renderPayloadPreview={(lead, allLeads) => (
                   <PayloadPreview
                     lead={lead}
@@ -816,10 +1085,10 @@ function DashboardContent({
             <motion.section
               key="clients"
               className="space-y-4"
-              initial={{ opacity: 0, y: 14 }}
+              initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.18, ease: "easeOut" }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.14, ease: "easeOut" }}
             >
               <ClientsView
                 clients={clients}
@@ -834,10 +1103,10 @@ function DashboardContent({
             <motion.section
               key="affiliates"
               className="space-y-4"
-              initial={{ opacity: 0, y: 14 }}
+              initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.18, ease: "easeOut" }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.14, ease: "easeOut" }}
             >
               <AffiliatesView
                 affiliates={affiliates}
@@ -852,10 +1121,10 @@ function DashboardContent({
             <motion.section
               key="campaigns"
               className="space-y-6"
-              initial={{ opacity: 0, y: 14 }}
+              initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.18, ease: "easeOut" }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.14, ease: "easeOut" }}
             >
               <CampaignsView
                 campaigns={campaigns}
@@ -869,14 +1138,14 @@ function DashboardContent({
 
           {active === "tools" && <ToolsView />}
 
-          {active === "settings" && role !== "admin" ? (
+          {active === "admin" && role !== "admin" ? (
             <motion.section
               key="not-found"
               className="flex flex-col items-center justify-center py-32 gap-4"
-              initial={{ opacity: 0, y: 14 }}
+              initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.18, ease: "easeOut" }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.14, ease: "easeOut" }}
             >
               <p className="text-5xl font-bold text-[--color-text-muted] select-none">
                 404
@@ -896,16 +1165,20 @@ function DashboardContent({
               </button>
             </motion.section>
           ) : (
-            active === "settings" && (
+            active === "admin" && (
               <motion.section
-                key="settings"
+                key="admin"
                 className="space-y-5"
-                initial={{ opacity: 0, y: 14 }}
+                initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.18, ease: "easeOut" }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.14, ease: "easeOut" }}
               >
-                <SettingsView role={role} />
+                <AdminView
+                  role={role}
+                  onOpenCampaign={openCampaign}
+                  onOpenLead={openLead}
+                />
               </motion.section>
             )
           )}
@@ -918,20 +1191,7 @@ function DashboardContent({
         affiliates={affiliates}
         leads={leads}
         isOpen={campaignDetailOpen}
-        onClose={() => {
-          setCampaignDetailOpen(false);
-          setSelectedCampaign(null);
-          setFocusedAffiliateId(null);
-          setCampaignDetailTab("overview");
-          setCampaignDetailSubTab(undefined);
-          setQueryParams({
-            campaign: undefined,
-            section: undefined,
-            subsection: undefined,
-            affiliate: undefined,
-            view: active !== "leads" ? active : undefined,
-          });
-        }}
+        onClose={closeCampaignDetail}
         onStatusChange={onUpdateCampaignStatus}
         onLinkClient={onLinkClientToCampaign}
         onLinkAffiliate={onLinkAffiliateToCampaign}
@@ -961,6 +1221,7 @@ function DashboardContent({
             subsection: sub === "logic" ? "logic" : "criteria",
           });
         }}
+        onOpenLeadsForCampaign={openLeadsForCampaign}
         focusAffiliateId={focusedAffiliateId}
         tab={campaignDetailTab}
         onUpdateName={onEditCampaignName}

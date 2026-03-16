@@ -999,40 +999,8 @@ export function PayloadPreview({
                 >
                   <div className="space-y-3">
                     <AnimatePresence mode="wait" initial={false}>
-                      {/* Payload sub-tabs */}
-                      <div
-                        role="tablist"
-                        aria-label="Payload view"
-                        className="flex items-center gap-2"
-                      >
-                        {subTabBtn(
-                          "Normalized",
-                          () => {
-                            setPayloadTab("normalized");
-                            setLeadQueryParams({
-                              lead: currentLead.id,
-                              leadTab: "payload",
-                              leadPt: "normalized",
-                            });
-                          },
-                          payloadTab === "normalized",
-                        )}
-                        {subTabBtn(
-                          "Raw",
-                          () => {
-                            setPayloadTab("raw");
-                            setLeadQueryParams({
-                              lead: currentLead.id,
-                              leadTab: "payload",
-                              leadPt: "raw",
-                            });
-                          },
-                          payloadTab === "raw",
-                        )}
-                      </div>
-
                       {/* Normalized – editable form with human-readable labels */}
-                      {payloadTab === "normalized" && (
+                      {
                         <motion.div
                           key="normalized"
                           initial={{ opacity: 0, y: 6 }}
@@ -1091,15 +1059,32 @@ export function PayloadPreview({
                                               e.changed_by?.username
                                             ),
                                         );
-                                      const isRemapped =
-                                        !isDirty &&
-                                        !isEdited &&
-                                        fieldHistory.length > 0 &&
-                                        fieldHistory.every(
-                                          (e) =>
-                                            !e.changed_by?.email &&
-                                            !e.changed_by?.username,
-                                        );
+
+                                      // Check lead-level mapped_fields for value-mapping highlight
+                                      const mappedEntry = (
+                                        currentLead.mapped_fields ?? []
+                                      ).find((mf) => mf.field === key);
+                                      const isMappedField = !!mappedEntry;
+                                      // Synthesise a history entry so the popover shows the mapping
+                                      const mappedFieldHistory: EditHistoryEntry[] =
+                                        mappedEntry
+                                          ? [
+                                              {
+                                                field: key,
+                                                previous_value:
+                                                  mappedEntry.original_value,
+                                                new_value:
+                                                  mappedEntry.mapped_value,
+                                                changed_at:
+                                                  mappedEntry.mapped_at,
+                                                changed_by: null,
+                                              },
+                                            ]
+                                          : [];
+                                      const combinedHistory = [
+                                        ...fieldHistory,
+                                        ...mappedFieldHistory,
+                                      ];
 
                                       // A rejected field gets a red ring (highest priority)
                                       const rejectionMsg =
@@ -1113,16 +1098,19 @@ export function PayloadPreview({
                                           ? "border-red-400 shadow-[0_0_0_3px_color-mix(in_srgb,#f87171_20%,transparent)]"
                                           : isEdited
                                             ? "border-amber-400 shadow-[0_0_0_3px_color-mix(in_srgb,#f59e0b_18%,transparent)]"
-                                            : isRemapped
+                                            : isMappedField
                                               ? "border-violet-400 shadow-[0_0_0_3px_color-mix(in_srgb,#8b5cf6_18%,transparent)]"
                                               : "";
                                       const showHistory =
-                                        isDirty || isEdited || isRemapped;
+                                        isDirty || isEdited || isMappedField;
 
                                       return (
                                         <div key={key} className="space-y-1">
                                           <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
-                                            {normalizeFieldLabel(key)}
+                                            {normalizeFieldLabel(key)}{" "}
+                                            <span className="normal-case tracking-normal opacity-60">
+                                              ({key})
+                                            </span>
                                           </p>
                                           <div className="relative flex items-center">
                                             <input
@@ -1171,7 +1159,7 @@ export function PayloadPreview({
                                                   fieldLabel={normalizeFieldLabel(
                                                     key,
                                                   )}
-                                                  history={fieldHistory}
+                                                  history={combinedHistory}
                                                 />
                                               </span>
                                             )}
@@ -1209,22 +1197,7 @@ export function PayloadPreview({
                             )}
                           </div>
                         </motion.div>
-                      )}
-
-                      {/* Raw – read-only JSON */}
-                      {payloadTab === "raw" && (
-                        <motion.div
-                          key="raw"
-                          initial={{ opacity: 0, y: 6 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -3 }}
-                          transition={{ duration: 0.12, ease: "easeOut" }}
-                        >
-                          <pre className="whitespace-pre-wrap break-all rounded-lg border border-[--color-border] bg-[--color-bg-muted] p-3 text-xs font-mono text-[--color-text]">
-                            {JSON.stringify(currentLead.payload, null, 2)}
-                          </pre>
-                        </motion.div>
-                      )}
+                      }
                     </AnimatePresence>
                   </div>
                 </motion.div>
@@ -1421,7 +1394,8 @@ export function PayloadPreview({
                     <p className="py-8 text-center text-sm text-[--color-text-muted]">
                       Loading history…
                     </p>
-                  ) : auditItems.length === 0 ? (
+                  ) : auditItems.length === 0 &&
+                    !currentLead.mapped_fields?.length ? (
                     <div className="py-12 text-center">
                       <p className="text-sm text-[--color-text-muted]">
                         No history available for this lead.
@@ -1429,72 +1403,191 @@ export function PayloadPreview({
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {auditItems.map((item) => (
-                        <div
-                          key={item.log_id}
-                          className="rounded-lg border border-[--color-border] bg-[--color-panel] p-3"
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="flex items-center gap-2">
-                              <Badge tone={auditActionTone(item.action)}>
-                                {auditActionLabel(item.action)}
-                              </Badge>
-                              <span className="text-xs text-[--color-text-muted]">
-                                by{" "}
-                                <span className="font-medium text-[--color-text]">
-                                  {resolveAuditActor(item.actor)}
+                      {/* Value mappings applied at intake by logic rules */}
+                      {(currentLead.mapped_fields?.length ?? 0) > 0 && (
+                        <div className="rounded-lg border border-violet-200 bg-violet-50 p-3 dark:border-violet-800 dark:bg-violet-900/20">
+                          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-violet-700 dark:text-violet-300">
+                            Value Mappings
+                          </p>
+                          <div className="space-y-1.5">
+                            {currentLead.mapped_fields!.map((mf, i) => (
+                              <div
+                                key={i}
+                                className="flex flex-col gap-0.5 rounded bg-[--color-bg-muted] px-2 py-1.5 text-xs"
+                              >
+                                <span className="font-semibold text-[--color-text-strong]">
+                                  {normalizeFieldLabel(mf.field)}{" "}
+                                  <span className="font-mono font-normal text-[--color-text-muted]">
+                                    ({mf.field})
+                                  </span>
                                 </span>
+                                <span className="flex items-center gap-1 text-[--color-text-muted]">
+                                  <span className="line-through">
+                                    {mf.original_value}
+                                  </span>
+                                  <ArrowRight size={10} className="shrink-0" />
+                                  <span className="font-medium text-[--color-text]">
+                                    {mf.mapped_value}
+                                  </span>
+                                </span>
+                                <span className="text-[10px] text-[--color-text-muted] opacity-70">
+                                  {mf.mapped_at
+                                    ? new Intl.DateTimeFormat(undefined, {
+                                        year: "numeric",
+                                        month: "short",
+                                        day: "2-digit",
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                        second: "2-digit",
+                                        timeZoneName: "short",
+                                      }).format(new Date(mf.mapped_at))
+                                    : "—"}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {auditItems
+                        .filter((item) => {
+                          const mappedFields = currentLead.mapped_fields ?? [];
+                          if (mappedFields.length === 0) return true;
+
+                          // Mapping events are already represented in the VALUE MAPPINGS
+                          // block. Drop equivalent audit entries to avoid duplicate cards.
+                          const mappingActions = new Set([
+                            "mappings_updated",
+                            "value_mapped",
+                            "mapped_fields_updated",
+                          ]);
+
+                          if (mappingActions.has(item.action)) return false;
+
+                          if (item.changes.length > 0) {
+                            const mappedTuples = new Set(
+                              mappedFields.map(
+                                (mf) =>
+                                  `${mf.field}|${String(mf.original_value)}|${String(mf.mapped_value)}`,
+                              ),
+                            );
+
+                            const allChangesAreMapped = item.changes.every(
+                              (c) =>
+                                mappedTuples.has(
+                                  `${c.field.replace(/^payload\./, "")}|${String(c.from)}|${String(c.to)}`,
+                                ),
+                            );
+
+                            if (allChangesAreMapped) return false;
+                          }
+
+                          return true;
+                        })
+                        .map((item) => (
+                          <div
+                            key={item.log_id}
+                            className="rounded-lg border border-[--color-border] bg-[--color-panel] p-3"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <Badge tone={auditActionTone(item.action)}>
+                                  {auditActionLabel(item.action)}
+                                </Badge>
+                                <span className="text-xs text-[--color-text-muted]">
+                                  by{" "}
+                                  <span className="font-medium text-[--color-text]">
+                                    {resolveAuditActor(item.actor)}
+                                  </span>
+                                </span>
+                              </div>
+                              <span className="text-xs text-[--color-text-muted]">
+                                {item.changed_at
+                                  ? new Intl.DateTimeFormat(undefined, {
+                                      year: "numeric",
+                                      month: "short",
+                                      day: "2-digit",
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                      second: "2-digit",
+                                      timeZoneName: "short",
+                                    }).format(new Date(item.changed_at))
+                                  : "—"}
                               </span>
                             </div>
-                            <span className="text-xs text-[--color-text-muted]">
-                              {item.changed_at
-                                ? new Intl.DateTimeFormat(undefined, {
-                                    year: "numeric",
-                                    month: "short",
-                                    day: "2-digit",
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                    second: "2-digit",
-                                    timeZoneName: "short",
-                                  }).format(new Date(item.changed_at))
-                                : "—"}
-                            </span>
+                            {item.changes.length > 0 && (
+                              <div className="mt-2 space-y-1.5">
+                                {item.changes.map((change, i) => {
+                                  const isPluginsEvent =
+                                    item.action === "plugins_updated";
+                                  const pluginDisplayNames: Record<
+                                    string,
+                                    string
+                                  > = {
+                                    duplicate_check: "Duplicate Check",
+                                    trusted_form: "TrustedForm",
+                                    ipqs: "IPQS",
+                                  };
+                                  const rawField = change.field.replace(
+                                    /^payload\./,
+                                    "",
+                                  );
+                                  let fieldLabel: string;
+                                  if (
+                                    isPluginsEvent &&
+                                    rawField.includes(".")
+                                  ) {
+                                    const dotIdx = rawField.indexOf(".");
+                                    const pluginKey = rawField.slice(0, dotIdx);
+                                    const pluginPath = rawField
+                                      .slice(dotIdx + 1)
+                                      .split(".")
+                                      .map((segment) =>
+                                        normalizeFieldLabel(segment),
+                                      )
+                                      .join(" · ");
+                                    const pluginName =
+                                      pluginDisplayNames[pluginKey] ??
+                                      normalizeFieldLabel(pluginKey);
+                                    fieldLabel = `${pluginName} — ${pluginPath}`;
+                                  } else {
+                                    fieldLabel = normalizeFieldLabel(
+                                      rawField.includes(".")
+                                        ? rawField.split(".").pop()!
+                                        : rawField,
+                                    );
+                                  }
+                                  return (
+                                    <div
+                                      key={`${item.log_id}-${i}`}
+                                      className="flex flex-col gap-0.5 rounded bg-[--color-bg-muted] px-2 py-1.5 text-xs"
+                                    >
+                                      <span className="font-semibold text-[--color-text-strong]">
+                                        {fieldLabel}
+                                      </span>
+                                      <span className="flex items-center gap-1 text-[--color-text-muted]">
+                                        <span className="line-through">
+                                          {formatAuditValue(change.from)}
+                                        </span>
+                                        <ArrowRight
+                                          size={10}
+                                          className="shrink-0"
+                                        />
+                                        <span className="font-medium text-[--color-text]">
+                                          {formatAuditValue(change.to)}
+                                        </span>
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                            {item.changes.length === 0 && (
+                              <p className="mt-1 text-xs text-[--color-text-muted]">
+                                No field-level changes recorded.
+                              </p>
+                            )}
                           </div>
-                          {item.changes.length > 0 && (
-                            <div className="mt-2 space-y-1.5">
-                              {item.changes.map((change, i) => (
-                                <div
-                                  key={`${item.log_id}-${i}`}
-                                  className="flex flex-col gap-0.5 rounded bg-[--color-bg-muted] px-2 py-1.5 text-xs"
-                                >
-                                  <span className="font-semibold text-[--color-text-strong]">
-                                    {normalizeFieldLabel(
-                                      change.field.replace(/^payload\./, ""),
-                                    )}
-                                  </span>
-                                  <span className="flex items-center gap-1 text-[--color-text-muted]">
-                                    <span className="line-through">
-                                      {formatAuditValue(change.from)}
-                                    </span>
-                                    <ArrowRight
-                                      size={10}
-                                      className="shrink-0"
-                                    />
-                                    <span className="font-medium text-[--color-text]">
-                                      {formatAuditValue(change.to)}
-                                    </span>
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          {item.changes.length === 0 && (
-                            <p className="mt-1 text-xs text-[--color-text-muted]">
-                              No field-level changes recorded.
-                            </p>
-                          )}
-                        </div>
-                      ))}
+                        ))}
                     </div>
                   )}
                 </motion.div>

@@ -118,19 +118,34 @@ function MultiSelectDropdown({
   onChange: (v: string[]) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const ref = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node))
+      if (ref.current && !ref.current.contains(e.target as Node)) {
         setOpen(false);
+        setQuery("");
+      }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
+  useEffect(() => {
+    if (open) setTimeout(() => searchRef.current?.focus(), 30);
+    else setQuery("");
+  }, [open]);
+
   const toggle = (v: string) =>
     onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
+
+  const filtered = query.trim()
+    ? options.filter((o) =>
+        o.label.toLowerCase().includes(query.trim().toLowerCase()),
+      )
+    : options;
 
   const displayText =
     value.length === 0
@@ -153,21 +168,44 @@ function MultiSelectDropdown({
         />
       </button>
       {open && (
-        <div className="absolute z-[60] top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto rounded-lg border border-[--color-border] bg-[--color-bg] shadow-lg">
-          {options.map((opt) => (
-            <label
-              key={opt.value}
-              className="flex items-center gap-2.5 px-3 py-2 text-sm cursor-pointer hover:bg-[--color-bg-muted] text-[--color-text]"
-            >
-              <input
-                type="checkbox"
-                checked={value.includes(opt.value)}
-                onChange={() => toggle(opt.value)}
-                className="accent-[--color-primary]"
-              />
-              {opt.label}
-            </label>
-          ))}
+        <div
+          className="absolute z-[60] top-full left-0 right-0 mt-1 rounded-lg border border-[--color-border] bg-[--color-bg] shadow-lg flex flex-col"
+          style={{ minWidth: 200 }}
+        >
+          {/* Search */}
+          <div className="p-1.5 border-b border-[--color-border]">
+            <input
+              ref={searchRef}
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Filter…"
+              className="w-full rounded-md px-2.5 py-1.5 text-sm bg-[--color-bg-muted] border border-[--color-border] text-[--color-text] placeholder:text-[--color-text-muted] outline-none focus:border-[--color-primary]"
+            />
+          </div>
+          {/* Options */}
+          <div className="max-h-64 overflow-y-auto">
+            {filtered.length === 0 ? (
+              <p className="px-3 py-2 text-sm text-[--color-text-muted]">
+                No matches
+              </p>
+            ) : (
+              filtered.map((opt) => (
+                <label
+                  key={opt.value}
+                  className="flex items-center gap-2.5 px-3 py-2 text-sm cursor-pointer hover:bg-[--color-bg-muted] text-[--color-text]"
+                >
+                  <input
+                    type="checkbox"
+                    checked={value.includes(opt.value)}
+                    onChange={() => toggle(opt.value)}
+                    className="accent-[--color-primary]"
+                  />
+                  {opt.label}
+                </label>
+              ))
+            )}
+          </div>
         </div>
       )}
     </div>

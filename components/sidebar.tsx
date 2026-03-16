@@ -8,7 +8,7 @@ import {
   ChevronRight,
   Home,
   Megaphone,
-  Settings2,
+  ShieldCheck,
   Target,
   Users,
   Wrench,
@@ -23,7 +23,7 @@ export type NavKey =
   | "affiliates"
   | "campaigns"
   | "tools"
-  | "settings";
+  | "admin";
 
 const items: Array<{ key: NavKey; label: string; icon: React.ReactNode }> = [
   { key: "home", label: "Home", icon: <Home size={18} /> },
@@ -32,7 +32,7 @@ const items: Array<{ key: NavKey; label: string; icon: React.ReactNode }> = [
   { key: "affiliates", label: "Affiliates", icon: <Users size={18} /> },
   { key: "campaigns", label: "Campaigns", icon: <Megaphone size={18} /> },
   { key: "tools", label: "Tools", icon: <Wrench size={18} /> },
-  { key: "settings", label: "Settings", icon: <Settings2 size={18} /> },
+  { key: "admin", label: "Admin", icon: <ShieldCheck size={18} /> },
 ];
 
 interface SidebarProps {
@@ -90,7 +90,7 @@ function SlideText({
 export function Sidebar({ active, onChange, onLogoClick, role }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(true);
   const visibleItems = items.filter(
-    (item) => item.key !== "settings" || role === "admin",
+    (item) => item.key !== "admin" || role === "admin",
   );
 
   return (

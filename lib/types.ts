@@ -172,6 +172,8 @@ export interface Campaign {
     changed_by?: RequestActor | null;
   }>;
   edit_history?: EditHistoryEntry[];
+  submit_url?: string;
+  submit_url_test?: string;
   ever_linked_participants?: boolean;
   has_received_leads?: boolean;
   created_at?: string;
@@ -242,6 +244,13 @@ export interface Lead {
   active?: boolean;
   /** Ordered log of all payload field changes. Field uses dot-notation: "payload.email" etc. */
   edit_history?: EditHistoryEntry[];
+  /** Value mappings applied at intake by campaign logic rules. */
+  mapped_fields?: Array<{
+    field: string;
+    original_value: string;
+    mapped_value: string;
+    mapped_at: string;
+  }>;
 }
 
 export interface PaginatedResponse<T> {
@@ -514,4 +523,26 @@ export interface AuditQueryResponse {
     items: AuditLogItem[];
     nextCursor?: string | null;
   };
+}
+
+// ─── Intake Log ───────────────────────────────────────────────────────────────
+
+export interface IntakeLogItem {
+  id: string;
+  campaign_id?: string;
+  campaign_key?: string;
+  received_at: string;
+  status: "accepted" | "rejected" | "test";
+  is_test?: boolean;
+  first_name?: string;
+  last_name?: string;
+  email?: string;
+  phone?: string;
+  trusted_form_cert?: string;
+  rejection_reason?: string;
+  rejection_errors?: string[];
+  raw_body?: Record<string, unknown>;
+  raw_headers?: Record<string, unknown>;
+  response_status_code?: number;
+  response_body?: unknown;
 }

@@ -16,6 +16,7 @@ import type {
   PluginView,
   Lead,
   PaginatedResponse,
+  IntakeLogItem,
 } from "./types";
 
 interface RequestInitWithBody extends RequestInit {
@@ -801,4 +802,67 @@ export async function getAuditActivity(params: {
 }) {
   const url = buildUrl("/audit/activity", params);
   return request<AuditQueryResponse>(url);
+}
+
+// ─── Intake Logs ────────────────────────────────────────────────────────────
+
+export async function getIntakeLogs(params?: {
+  campaign_id?: string;
+  status?: "accepted" | "rejected" | "test";
+  from_date?: string;
+  to_date?: string;
+  limit?: number;
+  lastEvaluatedKey?: string;
+}) {
+  const url = buildUrl("/leads/intake-logs", params);
+  return request<{
+    success: boolean;
+    message?: string;
+    count?: number;
+    data: IntakeLogItem[];
+    lastEvaluatedKey?: string;
+  }>(url);
+}
+
+// Posting instructions
+export async function fetchPostingInstructionsPayload(
+  campaignId: string,
+  affiliateId: string,
+) {
+  const url = buildUrl(
+    `/campaigns/${encodeURIComponent(campaignId)}/posting-instructions/generate`,
+  );
+  return request<{
+    success: boolean;
+    message?: string;
+    data: {
+      campaign: {
+        id: string;
+        name: string;
+        status: string;
+        submit_url?: string;
+        submit_url_test?: string;
+      };
+      affiliate: {
+        id: string;
+        name: string;
+        campaign_key: string;
+        link_status: string;
+      };
+      criteria_fields: Array<{
+        field_name: string;
+        field_label: string;
+        data_type: string;
+        required: boolean;
+        description?: string;
+        options?: Array<{ label: string; value: string }>;
+        state_mapping?: "abbr_to_name" | "name_to_abbr";
+        order?: number;
+      }>;
+      generated_at: string;
+    };
+  }>(url, {
+    method: "POST",
+    body: JSON.stringify({ affiliate_id: affiliateId }),
+  });
 }

@@ -1116,7 +1116,7 @@ export function SettingsView({ role }: SettingsViewProps) {
                         className="text-[--color-primary]"
                       />
                       <span className="font-semibold text-[--color-text-strong]">
-                        Activity Log
+                        Activity
                       </span>
                     </div>
                     {!logsLoading && logsItems.length > 0 && (
@@ -1339,29 +1339,91 @@ export function SettingsView({ role }: SettingsViewProps) {
                               {isExpanded && hasChanges && (
                                 <div className="border-t border-[--color-border] bg-[--color-bg-muted] px-4 py-3">
                                   <div className="space-y-2 pl-2">
-                                    {item.changes
-                                      .filter(
-                                        (change) => change.field !== "field_id",
-                                      )
-                                      .filter((change) => {
-                                        // Skip rows where both sides are non-null plain objects — no readable diff
-                                        const fromObj =
-                                          change.from !== null &&
-                                          change.from !== undefined &&
-                                          typeof change.from === "object" &&
-                                          !Array.isArray(change.from);
-                                        const toObj =
-                                          change.to !== null &&
-                                          change.to !== undefined &&
-                                          typeof change.to === "object" &&
-                                          !Array.isArray(change.to);
-                                        return !(fromObj && toObj);
-                                      })
-                                      .map((change, i) => {
+                                    {(() => {
+                                      const isLogicRuleEvent =
+                                        item.action.startsWith("logic_rule");
+                                      const isMappingsEvent =
+                                        item.action === "mappings_updated";
+                                      const isCriteriaAddEvent =
+                                        item.action === "criteria_field_added";
+
+                                      const filtered = item.changes
+                                        .filter(
+                                          (c) =>
+                                            c.field !== "field_id" &&
+                                            c.field !== "rule_id",
+                                        )
+                                        .filter((change) => {
+                                          const fromObj =
+                                            change.from !== null &&
+                                            change.from !== undefined &&
+                                            typeof change.from === "object" &&
+                                            !Array.isArray(change.from);
+                                          const toObj =
+                                            change.to !== null &&
+                                            change.to !== undefined &&
+                                            typeof change.to === "object" &&
+                                            !Array.isArray(change.to);
+                                          return !(fromObj && toObj);
+                                        });
+
+                                      if (isMappingsEvent) {
+                                        // Collapse mappings into a single human-readable summary
+                                        const arrayChange = filtered.find(
+                                          (c) =>
+                                            Array.isArray(c.from) ||
+                                            Array.isArray(c.to),
+                                        );
+                                        const fromLen = Array.isArray(
+                                          arrayChange?.from,
+                                        )
+                                          ? (arrayChange!.from as unknown[])
+                                              .length
+                                          : 0;
+                                        const toLen = Array.isArray(
+                                          arrayChange?.to,
+                                        )
+                                          ? (arrayChange!.to as unknown[])
+                                              .length
+                                          : 0;
+                                        const summary =
+                                          toLen > fromLen
+                                            ? `${toLen - fromLen} mapping${toLen - fromLen !== 1 ? "s" : ""} added`
+                                            : toLen < fromLen
+                                              ? `${fromLen - toLen} mapping${fromLen - toLen !== 1 ? "s" : ""} removed`
+                                              : `${toLen || filtered.length} mapping${(toLen || filtered.length) !== 1 ? "s" : ""} updated`;
+                                        return (
+                                          <div className="grid grid-cols-[8rem_1fr] items-start gap-2 text-[11px]">
+                                            <span className="truncate font-medium text-[--color-text]">
+                                              Value Mapping
+                                            </span>
+                                            <span className="text-[--color-text-muted]">
+                                              {summary}
+                                            </span>
+                                          </div>
+                                        );
+                                      }
+
+                                      // Logic rule: show name + action as summary at top
+                                      const ruleNameVal = isLogicRuleEvent
+                                        ? filtered.find(
+                                            (c) => c.field === "name",
+                                          )?.to
+                                        : null;
+                                      const ruleActionVal = isLogicRuleEvent
+                                        ? filtered.find(
+                                            (c) => c.field === "action",
+                                          )?.to
+                                        : null;
+
+                                      return filtered.map((change, i) => {
                                         const fieldLower =
                                           change.field.toLowerCase();
                                         const isCondition =
                                           fieldLower.includes("condition");
+                                        const isAddedValue =
+                                          change.from == null &&
+                                          change.to != null;
 
                                         if (isCondition) {
                                           const isAdded =
@@ -1408,22 +1470,43 @@ export function SettingsView({ role }: SettingsViewProps) {
                                         const complex =
                                           isComplexValue(change.from) ||
                                           isComplexValue(change.to);
+
+                                        // Extract the readable part of dotted paths (e.g. "CFxxxx.field_label" → "Field Label")
+                                        const rawField = change.field.replace(
+                                          /^payload\./,
+                                          "",
+                                        );
+                                        const fieldLabel = normalizeFieldLabel(
+                                          rawField.includes(".")
+                                            ? rawField.split(".").pop()!
+                                            : rawField,
+                                        );
+
                                         return (
                                           <div
                                             key={`${item.log_id}-${i}`}
                                             className="grid grid-cols-[8rem_1fr] items-start gap-2 text-[11px]"
                                           >
                                             <span className="truncate font-medium text-[--color-text]">
-                                              {normalizeFieldLabel(
-                                                change.field.replace(
-                                                  /^payload\./,
-                                                  "",
-                                                ),
-                                              )}
+                                              {fieldLabel}
                                             </span>
                                             {complex ? (
                                               <span className="italic text-[11px] text-[--color-text-muted]">
-                                                Updated
+                                                {Array.isArray(change.from) &&
+                                                Array.isArray(change.to)
+                                                  ? change.to.length >
+                                                    change.from.length
+                                                    ? `Added ${change.to.length - change.from.length} item${change.to.length - change.from.length !== 1 ? "s" : ""}`
+                                                    : change.to.length <
+                                                        change.from.length
+                                                      ? `Removed ${change.from.length - change.to.length} item${change.from.length - change.to.length !== 1 ? "s" : ""}`
+                                                      : "Modified"
+                                                  : "Updated"}
+                                              </span>
+                                            ) : isAddedValue ? (
+                                              // From null → value: just show the new value
+                                              <span className="font-medium text-[--color-text]">
+                                                {formatAuditValue(change.to)}
                                               </span>
                                             ) : (
                                               <span className="flex min-w-0 items-center gap-1.5 text-[--color-text-muted]">
@@ -1443,7 +1526,8 @@ export function SettingsView({ role }: SettingsViewProps) {
                                             )}
                                           </div>
                                         );
-                                      })}
+                                      });
+                                    })()}
                                   </div>
                                 </div>
                               )}

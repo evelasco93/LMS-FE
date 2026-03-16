@@ -427,10 +427,22 @@ export function EditHistoryPopover({
 
   const hasHistory = Array.isArray(history) && history.length > 0;
   const sorted = hasHistory
-    ? [...history].sort(
-        (a, b) =>
-          new Date(a.changed_at).getTime() - new Date(b.changed_at).getTime(),
-      )
+    ? (() => {
+        // Deduplicate entries with the same timestamp + value pair.
+        // Prefer entries that have a changed_by actor over system-generated ones.
+        const seen = new Map<string, EditHistoryEntry>();
+        for (const entry of history) {
+          const key = `${entry.changed_at}|${String(entry.previous_value)}|${String(entry.new_value)}`;
+          const existing = seen.get(key);
+          if (!existing || (!existing.changed_by && entry.changed_by)) {
+            seen.set(key, entry);
+          }
+        }
+        return [...seen.values()].sort(
+          (a, b) =>
+            new Date(a.changed_at).getTime() - new Date(b.changed_at).getTime(),
+        );
+      })()
     : [];
 
   const hasFallback = !!(resolveAuthor(updatedBy) || updatedAt);
@@ -531,7 +543,7 @@ export function EditHistoryPopover({
                       {by ? (
                         <span>by {by}</span>
                       ) : (
-                        <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
+                        <span className="inline-flex items-center gap-0.5 rounded border border-[--color-border] bg-[--color-bg-muted] px-1.5 py-0.5 text-[10px] font-medium text-[--color-text-muted]">
                           Value Mapping
                         </span>
                       )}
