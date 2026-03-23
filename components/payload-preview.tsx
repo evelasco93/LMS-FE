@@ -30,6 +30,7 @@ import {
 } from "@/lib/utils";
 import type {
   Campaign,
+  Client,
   EditHistoryEntry,
   Lead,
   TrustedFormResult,
@@ -554,18 +555,25 @@ export function PayloadPreview({
   lead,
   allLeads,
   campaignPlugins,
+  clients,
+  onOpenClient,
 }: {
   lead: Lead;
   allLeads: Lead[];
   campaignPlugins?: Campaign["plugins"];
+  clients?: Client[];
+  onOpenClient?: (clientId: string) => void;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    "summary" | "payload" | "quality-control" | "history"
+    "summary" | "payload" | "quality-control" | "history" | "delivery"
   >("summary");
+  const [expandedHistoryIds, setExpandedHistoryIds] = useState<Set<string>>(
+    new Set(),
+  );
   const [payloadTab, setPayloadTab] = useState<"normalized" | "raw">(
     "normalized",
   );
@@ -636,7 +644,8 @@ export function PayloadPreview({
       tabParam === "summary" ||
       tabParam === "payload" ||
       tabParam === "quality-control" ||
-      tabParam === "history"
+      tabParam === "history" ||
+      tabParam === "delivery"
     ) {
       setActiveTab(tabParam);
     }
@@ -796,6 +805,19 @@ export function PayloadPreview({
                   });
                 },
                 activeTab === "quality-control",
+              )}
+              {tabBtn(
+                "Delivery",
+                () => {
+                  setActiveTab("delivery");
+                  setLeadQueryParams({
+                    lead: currentLead.id,
+                    leadTab: "delivery",
+                    leadQc: undefined,
+                    leadPt: undefined,
+                  });
+                },
+                activeTab === "delivery",
               )}
               {tabBtn(
                 "History",
@@ -1483,111 +1505,349 @@ export function PayloadPreview({
 
                           return true;
                         })
-                        .map((item) => (
-                          <div
-                            key={item.log_id}
-                            className="rounded-lg border border-[--color-border] bg-[--color-panel] p-3"
-                          >
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <div className="flex items-center gap-2">
-                                <Badge tone={auditActionTone(item.action)}>
-                                  {auditActionLabel(item.action)}
-                                </Badge>
-                                <span className="text-xs text-[--color-text-muted]">
-                                  by{" "}
-                                  <span className="font-medium text-[--color-text]">
-                                    {resolveAuditActor(item.actor)}
+                        .map((item) => {
+                          const isExpanded = expandedHistoryIds.has(
+                            item.log_id,
+                          );
+                          const toggleExpand = () =>
+                            setExpandedHistoryIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(item.log_id)) {
+                                next.delete(item.log_id);
+                              } else {
+                                next.add(item.log_id);
+                              }
+                              return next;
+                            });
+                          return (
+                            <div
+                              key={item.log_id}
+                              className="rounded-lg border border-[--color-border] bg-[--color-panel]"
+                            >
+                              <button
+                                type="button"
+                                className="flex w-full flex-wrap items-center justify-between gap-2 p-3 text-left"
+                                onClick={toggleExpand}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <Badge tone={auditActionTone(item.action)}>
+                                    {auditActionLabel(item.action)}
+                                  </Badge>
+                                  <span className="text-xs text-[--color-text-muted]">
+                                    by{" "}
+                                    <span className="font-medium text-[--color-text]">
+                                      {resolveAuditActor(item.actor)}
+                                    </span>
                                   </span>
+                                </div>
+                                <span className="ml-auto flex items-center gap-1.5 text-xs text-[--color-text-muted]">
+                                  {item.changed_at
+                                    ? new Intl.DateTimeFormat(undefined, {
+                                        year: "numeric",
+                                        month: "short",
+                                        day: "2-digit",
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                        second: "2-digit",
+                                        timeZoneName: "short",
+                                      }).format(new Date(item.changed_at))
+                                    : "—"}
+                                  <ChevronDown
+                                    size={13}
+                                    className={`shrink-0 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                                  />
                                 </span>
-                              </div>
-                              <span className="text-xs text-[--color-text-muted]">
-                                {item.changed_at
-                                  ? new Intl.DateTimeFormat(undefined, {
-                                      year: "numeric",
-                                      month: "short",
-                                      day: "2-digit",
-                                      hour: "2-digit",
-                                      minute: "2-digit",
-                                      second: "2-digit",
-                                      timeZoneName: "short",
-                                    }).format(new Date(item.changed_at))
-                                  : "—"}
-                              </span>
-                            </div>
-                            {item.changes.length > 0 && (
-                              <div className="mt-2 space-y-1.5">
-                                {item.changes.map((change, i) => {
-                                  const isPluginsEvent =
-                                    item.action === "plugins_updated";
-                                  const pluginDisplayNames: Record<
-                                    string,
-                                    string
-                                  > = {
-                                    duplicate_check: "Duplicate Check",
-                                    trusted_form: "TrustedForm",
-                                    ipqs: "IPQS",
-                                  };
-                                  const rawField = change.field.replace(
-                                    /^payload\./,
-                                    "",
-                                  );
-                                  let fieldLabel: string;
-                                  if (
-                                    isPluginsEvent &&
-                                    rawField.includes(".")
-                                  ) {
-                                    const dotIdx = rawField.indexOf(".");
-                                    const pluginKey = rawField.slice(0, dotIdx);
-                                    const pluginPath = rawField
-                                      .slice(dotIdx + 1)
-                                      .split(".")
-                                      .map((segment) =>
-                                        normalizeFieldLabel(segment),
-                                      )
-                                      .join(" · ");
-                                    const pluginName =
-                                      pluginDisplayNames[pluginKey] ??
-                                      normalizeFieldLabel(pluginKey);
-                                    fieldLabel = `${pluginName} — ${pluginPath}`;
-                                  } else {
-                                    fieldLabel = normalizeFieldLabel(
-                                      rawField.includes(".")
-                                        ? rawField.split(".").pop()!
-                                        : rawField,
-                                    );
-                                  }
-                                  return (
-                                    <div
-                                      key={`${item.log_id}-${i}`}
-                                      className="flex flex-col gap-0.5 rounded bg-[--color-bg-muted] px-2 py-1.5 text-xs"
-                                    >
-                                      <span className="font-semibold text-[--color-text-strong]">
-                                        {fieldLabel}
-                                      </span>
-                                      <span className="flex items-center gap-1 text-[--color-text-muted]">
-                                        <span className="line-through">
-                                          {formatAuditValue(change.from)}
-                                        </span>
-                                        <ArrowRight
-                                          size={10}
-                                          className="shrink-0"
-                                        />
-                                        <span className="font-medium text-[--color-text]">
-                                          {formatAuditValue(change.to)}
-                                        </span>
-                                      </span>
+                              </button>
+                              <AnimatePresence initial={false}>
+                                {isExpanded && (
+                                  <motion.div
+                                    key="body"
+                                    initial={{ height: 0, opacity: 0 }}
+                                    animate={{ height: "auto", opacity: 1 }}
+                                    exit={{ height: 0, opacity: 0 }}
+                                    transition={{
+                                      duration: 0.15,
+                                      ease: "easeInOut",
+                                    }}
+                                    className="overflow-hidden"
+                                  >
+                                    <div className="border-t border-[--color-border] px-3 pb-3 pt-2">
+                                      {item.changes.length > 0 ? (
+                                        <div className="space-y-1.5">
+                                          {item.changes.map((change, i) => {
+                                            const isPluginsEvent =
+                                              item.action === "plugins_updated";
+                                            const pluginDisplayNames: Record<
+                                              string,
+                                              string
+                                            > = {
+                                              duplicate_check:
+                                                "Duplicate Check",
+                                              trusted_form: "TrustedForm",
+                                              ipqs: "IPQS",
+                                            };
+                                            const rawField =
+                                              change.field.replace(
+                                                /^payload\./,
+                                                "",
+                                              );
+                                            let fieldLabel: string;
+                                            if (
+                                              isPluginsEvent &&
+                                              rawField.includes(".")
+                                            ) {
+                                              const dotIdx =
+                                                rawField.indexOf(".");
+                                              const pluginKey = rawField.slice(
+                                                0,
+                                                dotIdx,
+                                              );
+                                              const pluginPath = rawField
+                                                .slice(dotIdx + 1)
+                                                .split(".")
+                                                .map((segment) =>
+                                                  normalizeFieldLabel(segment),
+                                                )
+                                                .join(" · ");
+                                              const pluginName =
+                                                pluginDisplayNames[pluginKey] ??
+                                                normalizeFieldLabel(pluginKey);
+                                              fieldLabel = `${pluginName} — ${pluginPath}`;
+                                            } else {
+                                              fieldLabel = normalizeFieldLabel(
+                                                rawField.includes(".")
+                                                  ? rawField.split(".").pop()!
+                                                  : rawField,
+                                              );
+                                            }
+                                            return (
+                                              <div
+                                                key={`${item.log_id}-${i}`}
+                                                className="flex flex-col gap-0.5 rounded bg-[--color-bg-muted] px-2 py-1.5 text-xs"
+                                              >
+                                                <span className="font-semibold text-[--color-text-strong]">
+                                                  {fieldLabel}
+                                                </span>
+                                                <span className="flex items-center gap-1 text-[--color-text-muted]">
+                                                  <span className="line-through">
+                                                    {formatAuditValue(
+                                                      change.from,
+                                                    )}
+                                                  </span>
+                                                  <ArrowRight
+                                                    size={10}
+                                                    className="shrink-0"
+                                                  />
+                                                  <span className="font-medium text-[--color-text]">
+                                                    {formatAuditValue(
+                                                      change.to,
+                                                    )}
+                                                  </span>
+                                                </span>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      ) : (
+                                        <p className="text-xs text-[--color-text-muted]">
+                                          No field-level changes recorded.
+                                        </p>
+                                      )}
                                     </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                            {item.changes.length === 0 && (
-                              <p className="mt-1 text-xs text-[--color-text-muted]">
-                                No field-level changes recorded.
-                              </p>
-                            )}
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
+                </motion.div>
+              )}
+              {/* ── Delivery ── */}
+              {activeTab === "delivery" && (
+                <motion.div
+                  key="delivery"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.15, ease: "easeOut" }}
+                >
+                  {currentLead.delivery_result ? (
+                    <div className="space-y-4">
+                      {/* Status banner */}
+                      <div
+                        className={`flex items-center gap-2 rounded-lg border px-4 py-3 ${
+                          currentLead.delivery_result.accepted
+                            ? "border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-400"
+                            : "border-[--color-danger]/30 bg-[--color-danger]/10 text-[--color-danger]"
+                        }`}
+                      >
+                        {currentLead.delivery_result.accepted ? (
+                          <Check size={15} className="shrink-0" />
+                        ) : (
+                          <X size={15} className="shrink-0" />
+                        )}
+                        <span className="text-sm font-semibold">
+                          {currentLead.delivery_result.accepted
+                            ? "Accepted by client"
+                            : "Rejected by client"}
+                        </span>
+                        {currentLead.delivery_result.acceptance_match && (
+                          <span className="ml-auto text-xs opacity-75">
+                            Match:{" "}
+                            <span className="font-mono">
+                              {currentLead.delivery_result.acceptance_match}
+                            </span>
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div className="rounded-lg border border-[--color-border] bg-[--color-bg-muted] p-3">
+                          <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+                            Client
+                          </p>
+                          {onOpenClient ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onOpenClient(
+                                  currentLead.delivery_result!.client_id,
+                                )
+                              }
+                              className="mt-0.5 text-sm font-medium text-[--color-primary] hover:underline"
+                            >
+                              {clients?.find(
+                                (c) =>
+                                  c.id ===
+                                  currentLead.delivery_result!.client_id,
+                              )?.name ?? currentLead.delivery_result.client_id}
+                            </button>
+                          ) : (
+                            <p className="mt-0.5 text-sm font-medium text-[--color-text-strong]">
+                              {clients?.find(
+                                (c) =>
+                                  c.id ===
+                                  currentLead.delivery_result!.client_id,
+                              )?.name ?? currentLead.delivery_result.client_id}
+                            </p>
+                          )}
+                        </div>
+                        <InfoItem
+                          label="Delivered At"
+                          value={new Intl.DateTimeFormat(undefined, {
+                            year: "numeric",
+                            month: "short",
+                            day: "2-digit",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            second: "2-digit",
+                            timeZoneName: "short",
+                          }).format(
+                            new Date(currentLead.delivery_result.delivered_at),
+                          )}
+                        />
+                        <InfoItem
+                          label="Distribution Mode"
+                          value={
+                            currentLead.delivery_result.distribution_mode ===
+                            "weighted"
+                              ? "Weighted"
+                              : "Round Robin"
+                          }
+                        />
+                        {currentLead.delivery_result.distribution_mode ===
+                          "weighted" && (
+                          <InfoItem
+                            label="Weight at Delivery"
+                            value={`${currentLead.delivery_result.client_weight_at_delivery}`}
+                          />
+                        )}
+                        <InfoItem
+                          label="Webhook Method"
+                          value={currentLead.delivery_result.webhook_method}
+                        />
+                        <InfoItem
+                          label="Webhook URL"
+                          value={
+                            <span className="break-all font-mono text-xs">
+                              {currentLead.delivery_result.webhook_url}
+                            </span>
+                          }
+                        />
+                        {currentLead.delivery_result.webhook_response_status !=
+                          null && (
+                          <InfoItem
+                            label="HTTP Status"
+                            value={
+                              <Badge
+                                tone={
+                                  currentLead.delivery_result
+                                    .webhook_response_status >= 200 &&
+                                  currentLead.delivery_result
+                                    .webhook_response_status < 300
+                                    ? "success"
+                                    : "danger"
+                                }
+                              >
+                                {
+                                  currentLead.delivery_result
+                                    .webhook_response_status
+                                }
+                              </Badge>
+                            }
+                          />
+                        )}
+                        {currentLead.delivery_result.error && (
+                          <div className="md:col-span-2">
+                            <InfoItem
+                              label="Error"
+                              value={
+                                <span className="text-[--color-danger]">
+                                  {currentLead.delivery_result.error}
+                                </span>
+                              }
+                            />
                           </div>
-                        ))}
+                        )}
+                      </div>
+
+                      {currentLead.delivery_result.webhook_response_body && (
+                        <div>
+                          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                            Response Body
+                          </p>
+                          <pre className="max-h-40 overflow-auto rounded-lg bg-[--color-bg-muted] p-3 text-[11px] leading-relaxed text-[--color-text]">
+                            {(() => {
+                              try {
+                                return JSON.stringify(
+                                  JSON.parse(
+                                    currentLead.delivery_result
+                                      .webhook_response_body!,
+                                  ),
+                                  null,
+                                  2,
+                                );
+                              } catch {
+                                return currentLead.delivery_result
+                                  .webhook_response_body;
+                              }
+                            })()}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="py-12 text-center">
+                      <p className="text-sm text-[--color-text-muted]">
+                        No delivery data available for this lead.
+                      </p>
+                      {currentLead.test && (
+                        <p className="mt-1 text-xs text-[--color-text-muted]">
+                          Test leads are not delivered to clients.
+                        </p>
+                      )}
                     </div>
                   )}
                 </motion.div>

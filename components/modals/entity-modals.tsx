@@ -1,14 +1,160 @@
 "use client";
 
 import type React from "react";
-import { useEffect, useState } from "react";
-import { Sparkles } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { History, Sparkles } from "lucide-react";
+import useSWR from "swr";
+import { AnimatePresence, motion } from "framer-motion";
 import { Modal } from "@/components/modal";
 import { Button } from "@/components/button";
+import { Badge } from "@/components/badge";
 import { Field, PhoneField } from "@/components/shared-ui";
-import { inputClass, generateCodeFromName } from "@/lib/utils";
-import type { Affiliate, Client, Credential } from "@/lib/types";
+import { inputClass, generateCodeFromName, formatDate } from "@/lib/utils";
+import { getEntityAudit } from "@/lib/api";
+import type { Affiliate, Client, Credential, AuditLogItem } from "@/lib/types";
 import type { AffiliateStatus, ClientStatus } from "@/lib/types";
+
+// ─── Shared audit helpers ──────────────────────────────────────────────────────
+
+function auditActionLabel(action: string): string {
+  const labels: Record<string, string> = {
+    created: "Created",
+    updated: "Updated",
+    deleted: "Deleted",
+    soft_deleted: "Deactivated",
+    restored: "Restored",
+    delivery_config_updated: "Delivery Config Updated",
+    distribution_updated: "Distribution Updated",
+    lead_delivered: "Lead Delivered",
+    delivery_skipped: "Delivery Skipped",
+    weight_updated: "Client Weight Updated",
+    status_changed: "Status Changed",
+  };
+  return (
+    labels[action] ??
+    action
+      .split("_")
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ")
+  );
+}
+
+function auditActionTone(
+  action: string,
+): "success" | "danger" | "warning" | "info" | "neutral" {
+  if (
+    action === "created" ||
+    action === "restored" ||
+    action === "lead_delivered"
+  )
+    return "success";
+  if (action === "deleted" || action === "soft_deleted") return "danger";
+  if (action === "delivery_skipped") return "warning";
+  if (action.endsWith("_updated") || action === "updated") return "info";
+  return "neutral";
+}
+
+function formatAuditVal(val: unknown): string {
+  if (val === null || val === undefined) return "—";
+  if (typeof val === "boolean") return val ? "true" : "false";
+  if (typeof val === "object") {
+    const o = val as Record<string, unknown>;
+    if ("mode" in o) return `mode: ${o.mode}`;
+    if ("enabled" in o) return `enabled: ${o.enabled}`;
+    return "…";
+  }
+  return String(val);
+}
+
+function resolveActor(actor?: AuditLogItem["actor"]): string {
+  if (!actor) return "System";
+  return actor.full_name || actor.email || actor.username || "Unknown";
+}
+
+// ─── EntityAuditTimeline ───────────────────────────────────────────────────────
+
+function EntityAuditTimeline({ entityId }: { entityId: string }) {
+  const { data, isLoading } = useSWR(
+    entityId ? ["entity-audit", entityId] : null,
+    () => getEntityAudit(entityId, { limit: 100 }),
+  );
+
+  const items: AuditLogItem[] = data?.data?.items ?? [];
+
+  if (isLoading)
+    return (
+      <div className="py-10 text-center text-sm text-[--color-text-muted]">
+        Loading history…
+      </div>
+    );
+
+  if (items.length === 0)
+    return (
+      <div className="py-10 text-center text-sm text-[--color-text-muted]">
+        No history for this record.
+      </div>
+    );
+
+  return (
+    <div className="space-y-2">
+      {[...items]
+        .sort(
+          (a, b) =>
+            new Date(b.changed_at).getTime() - new Date(a.changed_at).getTime(),
+        )
+        .map((item) => (
+          <div
+            key={item.log_id}
+            className="rounded-lg border border-[--color-border] bg-[--color-panel] p-3"
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone={auditActionTone(item.action)}>
+                {auditActionLabel(item.action)}
+              </Badge>
+              <span className="text-xs text-[--color-text-muted]">
+                {resolveActor(item.actor)}
+              </span>
+              <span className="ml-auto text-xs text-[--color-text-muted]">
+                {item.changed_at
+                  ? new Intl.DateTimeFormat(undefined, {
+                      month: "short",
+                      day: "2-digit",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    }).format(new Date(item.changed_at))
+                  : "—"}
+              </span>
+            </div>
+            {item.changes && item.changes.length > 0 && (
+              <ul className="mt-2 space-y-0.5 pl-1">
+                {item.changes.map((ch, i) => (
+                  <li
+                    key={i}
+                    className="flex flex-wrap gap-1 text-xs text-[--color-text-muted]"
+                  >
+                    <span className="font-semibold text-[--color-text]">
+                      {ch.field}
+                    </span>
+                    {ch.from !== undefined && (
+                      <>
+                        <span className="opacity-50">from</span>
+                        <span className="font-mono line-through opacity-60">
+                          {formatAuditVal(ch.from)}
+                        </span>
+                        <span className="opacity-50">→</span>
+                      </>
+                    )}
+                    <span className="font-mono">{formatAuditVal(ch.to)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
+    </div>
+  );
+}
 
 // ─── ClientModal ──────────────────────────────────────────────────────────────
 
@@ -23,6 +169,10 @@ export function ClientModal({
 }) {
   const [form, setForm] = useState<Partial<Client>>({});
   const generateCode = () => generateCodeFromName(form.name || "", "");
+
+  useEffect(() => {
+    if (!isOpen) setForm({});
+  }, [isOpen]);
 
   return (
     <Modal title="Create Client" isOpen={isOpen} onClose={onClose}>
@@ -219,6 +369,10 @@ export function AffiliateModal({
 }) {
   const [form, setForm] = useState<Partial<Affiliate>>({});
   const generateCode = () => generateCodeFromName(form.name || "", "");
+
+  useEffect(() => {
+    if (!isOpen) setForm({});
+  }, [isOpen]);
 
   return (
     <Modal title="Create Affiliate" isOpen={isOpen} onClose={onClose}>
@@ -570,6 +724,10 @@ export function CampaignModal({
 }) {
   const [name, setName] = useState("");
 
+  useEffect(() => {
+    if (!isOpen) setName("");
+  }, [isOpen]);
+
   return (
     <Modal title="Create Campaign" isOpen={isOpen} onClose={onClose}>
       <form
@@ -716,6 +874,584 @@ export function LinkAffiliateModal({
           </Button>
         </div>
       </div>
+    </Modal>
+  );
+}
+
+// ─── ClientDetailModal ────────────────────────────────────────────────────────
+
+export function ClientDetailModal({
+  client,
+  isOpen,
+  onClose,
+  onSave,
+  onRequestDelete,
+}: {
+  client: Client | null;
+  isOpen: boolean;
+  onClose: () => void;
+  onSave?: (id: string, payload: Partial<Client>) => Promise<void> | void;
+  onRequestDelete?: (client: Client) => void;
+}) {
+  const [activeTab, setActiveTab] = useState<"details" | "history">("details");
+  const [saving, setSaving] = useState(false);
+  const initialForm = useMemo(
+    () => ({
+      name: client?.name ?? "",
+      email: client?.email ?? "",
+      phone: client?.phone ?? "",
+      client_code: client?.client_code ?? "",
+      status: client?.status ?? "ACTIVE",
+    }),
+    [client],
+  );
+  const [form, setForm] = useState(initialForm);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setActiveTab("details");
+      return;
+    }
+    setForm(initialForm);
+  }, [isOpen, initialForm]);
+
+  const dirtyFields = useMemo(() => {
+    const fields: Array<"name" | "email" | "phone" | "client_code" | "status"> =
+      [];
+    if (form.name.trim() !== initialForm.name.trim()) fields.push("name");
+    if (form.email.trim() !== initialForm.email.trim()) fields.push("email");
+    if ((form.phone ?? "").trim() !== (initialForm.phone ?? "").trim())
+      fields.push("phone");
+    if (
+      (form.client_code ?? "").trim() !== (initialForm.client_code ?? "").trim()
+    )
+      fields.push("client_code");
+    if (form.status !== initialForm.status) fields.push("status");
+    return fields;
+  }, [form, initialForm]);
+
+  const isDirty = dirtyFields.length > 0;
+  const clientStatusOptions: ClientStatus[] = ["ACTIVE", "INACTIVE"];
+
+  const handleSave = async () => {
+    if (!client || !onSave || !isDirty) return;
+    setSaving(true);
+    try {
+      await onSave(client.id, {
+        name: form.name.trim(),
+        email: form.email.trim(),
+        phone: form.phone?.trim() || undefined,
+        client_code: form.client_code?.trim() || undefined,
+        status: form.status as ClientStatus,
+      });
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const tabBtn = (
+    label: string,
+    tab: "details" | "history",
+    icon?: React.ReactNode,
+  ) => (
+    <button
+      type="button"
+      onClick={() => setActiveTab(tab)}
+      className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+        activeTab === tab
+          ? "bg-[--color-primary] text-white"
+          : "text-[--color-text-muted] hover:text-[--color-text]"
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+
+  return (
+    <Modal
+      title={client?.name ?? "Client"}
+      isOpen={isOpen}
+      onClose={onClose}
+      width={640}
+      bodyClassName="px-5 py-4 h-[620px]"
+    >
+      {client && (
+        <div className="flex h-full min-h-0 flex-col">
+          {/* Tab bar */}
+          <div className="flex gap-1 border-b border-[--color-border] pb-2">
+            {tabBtn("Details", "details")}
+            {tabBtn("History", "history", <History size={13} />)}
+          </div>
+
+          <div className="mt-4 flex-1 min-h-0 overflow-hidden">
+            <AnimatePresence mode="wait" initial={false}>
+              {activeTab === "details" && (
+                <motion.div
+                  key="details"
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.13 }}
+                  className="h-full space-y-2 overflow-y-auto pr-1"
+                >
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                        Name
+                      </p>
+                      <input
+                        className={`${inputClass} ${
+                          dirtyFields.includes("name")
+                            ? "border-[--color-warning] bg-[color-mix(in_srgb,var(--color-warning)_10%,transparent)]"
+                            : ""
+                        }`}
+                        value={form.name}
+                        onChange={(e) =>
+                          setForm((prev) => ({ ...prev, name: e.target.value }))
+                        }
+                      />
+                    </div>
+                    <div>
+                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                        Status
+                      </p>
+                      <select
+                        className={`${inputClass} ${
+                          dirtyFields.includes("status")
+                            ? "border-[--color-warning] bg-[color-mix(in_srgb,var(--color-warning)_10%,transparent)]"
+                            : ""
+                        }`}
+                        value={form.status}
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            status: e.target.value as ClientStatus,
+                          }))
+                        }
+                      >
+                        {clientStatusOptions.map((status) => (
+                          <option key={status} value={status}>
+                            {status}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                        Email
+                      </p>
+                      <input
+                        type="email"
+                        className={`${inputClass} ${
+                          dirtyFields.includes("email")
+                            ? "border-[--color-warning] bg-[color-mix(in_srgb,var(--color-warning)_10%,transparent)]"
+                            : ""
+                        }`}
+                        value={form.email}
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            email: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div>
+                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                        Phone
+                      </p>
+                      <PhoneField
+                        value={form.phone}
+                        onChange={(value) =>
+                          setForm((prev) => ({ ...prev, phone: value }))
+                        }
+                      />
+                    </div>
+                    <div>
+                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                        Client Code
+                      </p>
+                      <input
+                        className={`${inputClass} font-mono ${
+                          dirtyFields.includes("client_code")
+                            ? "border-[--color-warning] bg-[color-mix(in_srgb,var(--color-warning)_10%,transparent)]"
+                            : ""
+                        }`}
+                        value={form.client_code}
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            client_code: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div>
+                      <p className="mb-0.5 text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                        Created
+                      </p>
+                      <p className="text-sm">
+                        {client.created_at
+                          ? formatDate(client.created_at)
+                          : "—"}
+                      </p>
+                    </div>
+                    {client.updated_at && (
+                      <div className="col-span-2">
+                        <p className="mb-0.5 text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                          Last Updated
+                        </p>
+                        <p className="text-sm">
+                          {formatDate(client.updated_at)}
+                        </p>
+                      </div>
+                    )}
+                    {client.deleted_at && (
+                      <div className="col-span-2">
+                        <p className="mb-0.5 text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                          Deactivated
+                        </p>
+                        <p className="text-sm text-[--color-danger]">
+                          {formatDate(client.deleted_at)}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-2 border-t border-[--color-border] pt-3">
+                    <Button
+                      variant="danger"
+                      onClick={() => {
+                        if (onRequestDelete && client) {
+                          onRequestDelete(client);
+                          onClose();
+                        }
+                      }}
+                    >
+                      Delete
+                    </Button>
+                    <div className="flex items-center gap-2">
+                      {isDirty && (
+                        <Button
+                          variant="ghost"
+                          onClick={() => setForm(initialForm)}
+                          disabled={saving}
+                        >
+                          Reset
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        onClick={onClose}
+                        disabled={saving}
+                      >
+                        Close
+                      </Button>
+                      {isDirty && (
+                        <Button onClick={handleSave} disabled={saving}>
+                          {saving ? "Saving…" : "Save"}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {activeTab === "history" && (
+                <motion.div
+                  key="history"
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.13 }}
+                  className="h-full overflow-y-auto pr-1"
+                >
+                  <EntityAuditTimeline entityId={client.id} />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+export function AffiliateDetailModal({
+  affiliate,
+  isOpen,
+  onClose,
+  onSave,
+  onRequestDelete,
+}: {
+  affiliate: Affiliate | null;
+  isOpen: boolean;
+  onClose: () => void;
+  onSave?: (id: string, payload: Partial<Affiliate>) => Promise<void> | void;
+  onRequestDelete?: (affiliate: Affiliate) => void;
+}) {
+  const [activeTab, setActiveTab] = useState<"details" | "history">("details");
+  const [saving, setSaving] = useState(false);
+  const initialForm = useMemo(
+    () => ({
+      name: affiliate?.name ?? "",
+      email: affiliate?.email ?? "",
+      phone: affiliate?.phone ?? "",
+      affiliate_code: affiliate?.affiliate_code ?? "",
+      status: affiliate?.status ?? "ACTIVE",
+    }),
+    [affiliate],
+  );
+  const [form, setForm] = useState(initialForm);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setActiveTab("details");
+      return;
+    }
+    setForm(initialForm);
+  }, [isOpen, initialForm]);
+
+  const dirtyFields = useMemo(() => {
+    const fields: Array<
+      "name" | "email" | "phone" | "affiliate_code" | "status"
+    > = [];
+    if (form.name.trim() !== initialForm.name.trim()) fields.push("name");
+    if (form.email.trim() !== initialForm.email.trim()) fields.push("email");
+    if (form.phone.trim() !== initialForm.phone.trim()) fields.push("phone");
+    if (
+      (form.affiliate_code ?? "").trim() !==
+      (initialForm.affiliate_code ?? "").trim()
+    )
+      fields.push("affiliate_code");
+    if (form.status !== initialForm.status) fields.push("status");
+    return fields;
+  }, [form, initialForm]);
+
+  const isDirty = dirtyFields.length > 0;
+  const affiliateStatusOptions: AffiliateStatus[] = ["ACTIVE", "INACTIVE"];
+
+  const tabBtn = (
+    label: string,
+    tab: "details" | "history",
+    icon?: React.ReactNode,
+  ) => (
+    <button
+      type="button"
+      onClick={() => setActiveTab(tab)}
+      className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+        activeTab === tab
+          ? "bg-[--color-primary] text-white"
+          : "text-[--color-text-muted] hover:text-[--color-text]"
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+
+  const handleSave = async () => {
+    if (!affiliate || !onSave || !isDirty) return;
+    setSaving(true);
+    try {
+      await onSave(affiliate.id, {
+        name: form.name.trim(),
+        email: form.email.trim(),
+        phone: form.phone.trim(),
+        affiliate_code: form.affiliate_code?.trim() || undefined,
+        status: form.status as AffiliateStatus,
+      });
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal
+      title={affiliate?.name ?? "Affiliate"}
+      isOpen={isOpen}
+      onClose={onClose}
+      width={640}
+      bodyClassName="px-5 py-4 h-[620px]"
+    >
+      {affiliate && (
+        <div className="flex h-full min-h-0 flex-col">
+          <div className="flex gap-1 border-b border-[--color-border] pb-2">
+            {tabBtn("Details", "details")}
+            {tabBtn("History", "history", <History size={13} />)}
+          </div>
+
+          <div className="mt-4 flex-1 min-h-0 overflow-hidden">
+            <AnimatePresence mode="wait" initial={false}>
+              {activeTab === "details" && (
+                <motion.div
+                  key="affiliate-details"
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.13 }}
+                  className="h-full space-y-2 overflow-y-auto pr-1"
+                >
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                        Name
+                      </p>
+                      <input
+                        className={`${inputClass} ${
+                          dirtyFields.includes("name")
+                            ? "border-[--color-warning] bg-[color-mix(in_srgb,var(--color-warning)_10%,transparent)]"
+                            : ""
+                        }`}
+                        value={form.name}
+                        onChange={(e) =>
+                          setForm((prev) => ({ ...prev, name: e.target.value }))
+                        }
+                      />
+                    </div>
+                    <div>
+                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                        Status
+                      </p>
+                      <select
+                        className={`${inputClass} ${
+                          dirtyFields.includes("status")
+                            ? "border-[--color-warning] bg-[color-mix(in_srgb,var(--color-warning)_10%,transparent)]"
+                            : ""
+                        }`}
+                        value={form.status}
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            status: e.target.value as AffiliateStatus,
+                          }))
+                        }
+                      >
+                        {affiliateStatusOptions.map((status) => (
+                          <option key={status} value={status}>
+                            {status}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                        Email
+                      </p>
+                      <input
+                        type="email"
+                        className={`${inputClass} ${
+                          dirtyFields.includes("email")
+                            ? "border-[--color-warning] bg-[color-mix(in_srgb,var(--color-warning)_10%,transparent)]"
+                            : ""
+                        }`}
+                        value={form.email}
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            email: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div>
+                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                        Phone
+                      </p>
+                      <PhoneField
+                        value={form.phone}
+                        onChange={(value) =>
+                          setForm((prev) => ({ ...prev, phone: value }))
+                        }
+                      />
+                    </div>
+                    <div>
+                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                        Affiliate Code
+                      </p>
+                      <input
+                        className={`${inputClass} font-mono ${
+                          dirtyFields.includes("affiliate_code")
+                            ? "border-[--color-warning] bg-[color-mix(in_srgb,var(--color-warning)_10%,transparent)]"
+                            : ""
+                        }`}
+                        value={form.affiliate_code}
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            affiliate_code: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div>
+                      <p className="mb-0.5 text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                        Created
+                      </p>
+                      <p className="text-sm">
+                        {affiliate.created_at
+                          ? formatDate(affiliate.created_at)
+                          : "—"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-2 border-t border-[--color-border] pt-3">
+                    <Button
+                      variant="danger"
+                      onClick={() => {
+                        if (onRequestDelete && affiliate) {
+                          onRequestDelete(affiliate);
+                          onClose();
+                        }
+                      }}
+                    >
+                      Delete
+                    </Button>
+                    <div className="flex items-center gap-2">
+                      {isDirty && (
+                        <Button
+                          variant="ghost"
+                          onClick={() => setForm(initialForm)}
+                          disabled={saving}
+                        >
+                          Reset
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        onClick={onClose}
+                        disabled={saving}
+                      >
+                        Close
+                      </Button>
+                      {isDirty && (
+                        <Button onClick={handleSave} disabled={saving}>
+                          {saving ? "Saving…" : "Save"}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {activeTab === "history" && (
+                <motion.div
+                  key="affiliate-history"
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.13 }}
+                  className="h-full overflow-y-auto pr-1"
+                >
+                  <EntityAuditTimeline entityId={affiliate.id} />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+      )}
     </Modal>
   );
 }

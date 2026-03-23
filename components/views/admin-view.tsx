@@ -330,6 +330,27 @@ function buildDisplayedResponse(item: IntakeLogItem): unknown {
   return buildSynthesizedResponse(item);
 }
 
+function isRejectedIntake(item: IntakeLogItem): boolean {
+  if (item.status === "rejected") return true;
+
+  const response = buildDisplayedResponse(item);
+  if (!response || typeof response !== "object") return false;
+
+  const record = response as Record<string, unknown>;
+  const result = String(record.result ?? "").toLowerCase();
+  if (result === "failed" || result === "rejected") return true;
+
+  if (record.rejected === true) return true;
+
+  const errors = record.errors;
+  if (Array.isArray(errors) && errors.length > 0) return true;
+
+  const message = String(record.message ?? record.msg ?? "").toLowerCase();
+  if (message.includes("rejected") || message.includes("failed")) return true;
+
+  return false;
+}
+
 // ─── Intake Log Detail Modal ──────────────────────────────────────────────────
 
 function IntakeLogDetailModal({
@@ -356,6 +377,7 @@ function IntakeLogDetailModal({
   if (!item) return null;
 
   const displayedResponse = buildDisplayedResponse(item);
+  const isRejected = isRejectedIntake(item);
 
   return (
     <AnimatePresence>
@@ -386,8 +408,15 @@ function IntakeLogDetailModal({
             >
               {/* Modal header */}
               <div className="flex shrink-0 items-center gap-3 border-b border-[--color-border] px-5 py-4">
-                <Badge tone={intakeStatusTone(item.status)}>
-                  {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
+                <Badge tone={isRejected ? "danger" : "success"}>
+                  {isRejected ? "Rejected" : "Accepted"}
+                </Badge>
+                <Badge
+                  tone={
+                    item.status === "test" || item.is_test ? "info" : "success"
+                  }
+                >
+                  {item.status === "test" || item.is_test ? "Test" : "Live"}
                 </Badge>
                 <span className="text-base font-semibold text-[--color-text-strong]">
                   Intake Log Details
@@ -478,7 +507,7 @@ function IntakeLogDetailModal({
                 </div>
 
                 {/* Rejection reason */}
-                {item.status === "rejected" && (
+                {isRejected && (
                   <div className="rounded-xl border border-[--color-danger] bg-[--color-panel] px-4 py-3 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.03)]">
                     <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-[--color-danger]">
                       <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-[--color-danger] bg-[--color-bg-muted]">
@@ -2600,7 +2629,7 @@ export function AdminView({
                                 label: "Status",
                                 icon: <BadgeCheck size={11} />,
                               },
-                              { label: "Method", icon: <Clock3 size={11} /> },
+                              { label: "Mode", icon: <Clock3 size={11} /> },
                               {
                                 label: "Campaign",
                                 icon: <Building2 size={11} />,
@@ -2648,13 +2677,30 @@ export function AdminView({
                                 {formatLocalTime(item.received_at)}
                               </td>
                               <td className="px-3 py-2.5">
-                                <Badge tone={intakeStatusTone(item.status)}>
-                                  {item.status.charAt(0).toUpperCase() +
-                                    item.status.slice(1)}
+                                <Badge
+                                  tone={
+                                    isRejectedIntake(item)
+                                      ? "danger"
+                                      : "success"
+                                  }
+                                >
+                                  {isRejectedIntake(item)
+                                    ? "Rejected"
+                                    : "Accepted"}
                                 </Badge>
                               </td>
-                              <td className="px-3 py-2.5 text-xs text-[--color-text-muted]">
-                                POST
+                              <td className="px-3 py-2.5">
+                                <Badge
+                                  tone={
+                                    item.status === "test" || item.is_test
+                                      ? "info"
+                                      : "success"
+                                  }
+                                >
+                                  {item.status === "test" || item.is_test
+                                    ? "Test"
+                                    : "Live"}
+                                </Badge>
                               </td>
                               <td className="px-3 py-2.5">
                                 {item.campaign_id && onOpenCampaign ? (

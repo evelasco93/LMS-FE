@@ -72,7 +72,13 @@ function isComplexValue(val: unknown): boolean {
 function formatAuditValue(val: unknown): string {
   if (val === null || val === undefined) return "—";
   if (typeof val === "boolean") return val ? "true" : "false";
-  if (typeof val === "object") return "...";
+  if (typeof val === "object") {
+    const o = val as Record<string, unknown>;
+    if ("mode" in o) return `mode: ${o.mode}`;
+    if ("enabled" in o) return `enabled: ${o.enabled}`;
+    if ("url" in o || "method" in o) return "Config object";
+    return "…";
+  }
   return String(val);
 }
 
@@ -82,10 +88,34 @@ function resolveAuditActor(actor?: AuditActor | null): string {
 }
 
 function auditActionLabel(action: string): string {
-  return action
-    .split("_")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
+  const labels: Record<string, string> = {
+    created: "Created",
+    updated: "Updated",
+    deleted: "Deleted",
+    soft_deleted: "Deactivated",
+    restored: "Restored",
+    status_changed: "Status Changed",
+    key_rotated: "Key Rotated",
+    password_reset: "Password Reset",
+    credential_enabled: "Credential Enabled",
+    credential_disabled: "Credential Disabled",
+    plugin_setting_enabled: "Integration Enabled",
+    plugin_setting_disabled: "Integration Disabled",
+    delivery_config_updated: "Delivery Config Updated",
+    distribution_updated: "Distribution Updated",
+    lead_delivered: "Lead Delivered",
+    delivery_skipped: "Delivery Skipped",
+    weight_updated: "Client Weight Updated",
+    mappings_updated: "Mappings Updated",
+    plugins_updated: "Plugins Updated",
+  };
+  return (
+    labels[action] ??
+    action
+      .split("_")
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ")
+  );
 }
 
 function auditActionTone(
@@ -94,6 +124,7 @@ function auditActionTone(
   if (
     action === "created" ||
     action === "restored" ||
+    action === "lead_delivered" ||
     action === "credential_enabled" ||
     action === "plugin_setting_enabled"
   )
@@ -108,11 +139,15 @@ function auditActionTone(
   if (
     action === "status_changed" ||
     action === "key_rotated" ||
-    action === "password_reset"
+    action === "password_reset" ||
+    action === "delivery_skipped"
   )
     return "warning";
   if (
     action === "updated" ||
+    action === "delivery_config_updated" ||
+    action === "distribution_updated" ||
+    action === "weight_updated" ||
     action.endsWith("_added") ||
     action.endsWith("_updated") ||
     action === "mappings_updated" ||

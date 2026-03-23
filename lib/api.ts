@@ -7,6 +7,8 @@ import type {
   AuditQueryResponse,
   AvailablePlugin,
   Campaign,
+  ClientDeliveryConfig,
+  DistributionMode,
   CampaignParticipantStatus,
   CampaignStatus,
   Client,
@@ -28,7 +30,21 @@ async function handleResponse<T>(res: Response): Promise<T> {
     const text = await res.text();
     throw new Error(text || res.statusText);
   }
-  return res.json() as Promise<T>;
+  const text = await res.text();
+  if (!text) return {} as T;
+
+  const data = JSON.parse(text) as T;
+  if (
+    data &&
+    typeof data === "object" &&
+    "success" in data &&
+    (data as { success?: boolean }).success === false
+  ) {
+    const err = data as { message?: string; error?: string };
+    throw new Error(err.error || err.message || "Request failed");
+  }
+
+  return data;
 }
 
 function buildUrl(
@@ -219,7 +235,6 @@ export async function updateCampaignPlugins(
       enabled?: boolean;
       stage?: number;
       gate?: boolean;
-      claim?: boolean;
     };
     ipqs?: {
       enabled?: boolean;
@@ -297,6 +312,59 @@ export async function removeAffiliateFromCampaign(
   return request<ApiResponse<Campaign>>(url, { method: "DELETE" });
 }
 
+export async function setCampaignAffiliateLeadCap(
+  campaignId: string,
+  affiliateId: string,
+  leadCap: number | null,
+) {
+  const url = `${API_BASE_URL}/campaigns/${campaignId}/affiliates/${affiliateId}/cap`;
+  return request<ApiResponse<Campaign>>(url, {
+    method: "PUT",
+    body: JSON.stringify({ lead_cap: leadCap }),
+  });
+}
+
+export async function setCampaignClientDeliveryConfig(
+  campaignId: string,
+  clientId: string,
+  payload: ClientDeliveryConfig,
+) {
+  const url = `${API_BASE_URL}/campaigns/${campaignId}/clients/${clientId}/delivery`;
+  return request<ApiResponse<Campaign>>(url, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** Sets only the weighted-distribution share for a single linked client.
+ *  The full delivery config must be supplied so all required fields are included. */
+export async function setClientWeight(
+  campaignId: string,
+  clientId: string,
+  deliveryConfig: ClientDeliveryConfig,
+  weight: number,
+) {
+  const url = `${API_BASE_URL}/campaigns/${campaignId}/clients/${clientId}/delivery`;
+  return request<ApiResponse<Campaign>>(url, {
+    method: "PUT",
+    body: JSON.stringify({ ...deliveryConfig, weight }),
+  });
+}
+
+export async function setCampaignDistributionConfig(
+  campaignId: string,
+  payload: {
+    mode: DistributionMode;
+    enabled: boolean;
+  },
+) {
+  const url = `${API_BASE_URL}/campaigns/${campaignId}/distribution`;
+  return request<ApiResponse<Campaign>>(url, {
+    method: "PUT",
+    body: JSON.stringify({ mode: payload.mode, enabled: payload.enabled }),
+  });
+}
+
 export async function rotateAffiliateKey(
   campaignId: string,
   affiliateId: string,
@@ -309,8 +377,14 @@ export async function rotateAffiliateKey(
 }
 
 // Leads
-export async function listLeads() {
-  const url = buildUrl("/leads");
+export async function listLeads(params?: {
+  campaign_id?: string;
+  test?: boolean;
+  includeDeleted?: boolean;
+  limit?: number;
+  lastEvaluatedKey?: string;
+}) {
+  const url = buildUrl("/leads", params);
   return request<PaginatedResponse<Lead>>(url);
 }
 

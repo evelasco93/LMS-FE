@@ -8,7 +8,9 @@ import {
   ChevronDown,
   Copy,
   FileText,
+  GitBranch,
   HandHeart,
+  History,
   Settings2,
   Info,
   KeyRound,
@@ -67,17 +69,23 @@ import type {
   Affiliate,
   AuditLogItem,
   Campaign,
+  ClientDeliveryConfig,
   Client,
   CognitoUser,
   CriteriaField,
   CriteriaFieldOption,
   CriteriaFieldType,
   CriteriaValueMapping,
+  DistributionMode,
   Lead,
   LogicRule,
   PluginSettingRecord,
 } from "@/lib/types";
-import type { CampaignDetailTab, CampaignParticipantStatus } from "@/lib/types";
+import type {
+  CampaignClient,
+  CampaignDetailTab,
+  CampaignParticipantStatus,
+} from "@/lib/types";
 import { generatePostingInstructions } from "@/lib/generate-posting-instructions";
 
 const CONFIG_AUDIT_ACTIONS = new Set([
@@ -92,10 +100,54 @@ const CONFIG_AUDIT_ACTIONS = new Set([
 ]);
 
 function auditActionLabel(action: string): string {
-  return action
-    .split("_")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
+  const labels: Record<string, string> = {
+    created: "Created",
+    updated: "Updated",
+    deleted: "Deleted",
+    soft_deleted: "Deactivated",
+    restored: "Restored",
+    status_changed: "Status Changed",
+    delivery_config_updated: "Delivery Config Updated",
+    distribution_updated: "Distribution Updated",
+    lead_delivered: "Lead Delivered",
+    delivery_skipped: "Delivery Skipped",
+    weight_updated: "Client Weight Updated",
+    mappings_updated: "Mappings Updated",
+    plugins_updated: "Plugins Updated",
+  };
+  return (
+    labels[action] ??
+    action
+      .split("_")
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ")
+  );
+}
+
+function auditActionTone(
+  action: string,
+): "success" | "danger" | "warning" | "info" | "neutral" {
+  if (
+    action === "created" ||
+    action === "restored" ||
+    action === "lead_delivered"
+  )
+    return "success";
+  if (action === "deleted" || action === "soft_deleted") return "danger";
+  if (action === "status_changed" || action === "delivery_skipped")
+    return "warning";
+  if (
+    action === "updated" ||
+    action === "delivery_config_updated" ||
+    action === "distribution_updated" ||
+    action === "weight_updated" ||
+    action.endsWith("_added") ||
+    action.endsWith("_updated") ||
+    action === "mappings_updated" ||
+    action === "plugins_updated"
+  )
+    return "info";
+  return "neutral";
 }
 
 function isComplexValue(val: unknown): boolean {
@@ -112,12 +164,128 @@ function formatAuditVal(val: unknown): string {
   return String(val);
 }
 
+function stableAuditValue(value: unknown): string {
+  if (value === null || value === undefined) return String(value);
+  if (typeof value === "object") {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return "[object]";
+    }
+  }
+  return String(value);
+}
+
+function getMeaningfulAuditChanges(item: AuditLogItem) {
+  return item.changes.filter(
+    (change) => stableAuditValue(change.from) !== stableAuditValue(change.to),
+  );
+}
+
+// ── CampaignAuditRow ──────────────────────────────────────────────────────────
+
+function CampaignAuditRow({ item }: { item: AuditLogItem }) {
+  const [expanded, setExpanded] = useState(false);
+  const actor = item.actor
+    ? item.actor.full_name ||
+      item.actor.email ||
+      item.actor.username ||
+      "Unknown"
+    : "System";
+  return (
+    <div className="rounded-lg border border-[--color-border] bg-[--color-panel]">
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 p-3 text-left"
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <Badge tone={auditActionTone(item.action)}>
+          {auditActionLabel(item.action)}
+        </Badge>
+        <span className="text-xs text-[--color-text-muted]">{actor}</span>
+        <span className="ml-auto flex items-center gap-1.5 text-xs text-[--color-text-muted]">
+          {item.changed_at
+            ? new Intl.DateTimeFormat(undefined, {
+                month: "short",
+                day: "2-digit",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              }).format(new Date(item.changed_at))
+            : "—"}
+          <ChevronDown
+            size={13}
+            className={`shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}
+          />
+        </span>
+      </button>
+      <AnimatePresence initial={false}>
+        {expanded && (
+          <motion.div
+            key="body"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.15, ease: "easeInOut" }}
+            className="overflow-hidden"
+          >
+            <div className="border-t border-[--color-border] px-3 pb-3 pt-2">
+              {item.changes.length > 0 ? (
+                <ul className="space-y-1.5">
+                  {item.changes.map((ch, i) => (
+                    <li
+                      key={i}
+                      className="flex flex-col gap-0.5 rounded bg-[--color-bg-muted] px-2 py-1.5 text-xs"
+                    >
+                      <span className="font-semibold text-[--color-text-strong]">
+                        {ch.field}
+                      </span>
+                      {ch.from !== undefined && (
+                        <span className="flex items-center gap-1 text-[--color-text-muted]">
+                          <span className="font-mono line-through opacity-60">
+                            {isComplexValue(ch.from)
+                              ? JSON.stringify(ch.from)
+                              : formatAuditVal(ch.from)}
+                          </span>
+                          <ArrowRight size={10} className="shrink-0" />
+                          <span className="font-mono font-medium text-[--color-text]">
+                            {isComplexValue(ch.to)
+                              ? JSON.stringify(ch.to)
+                              : formatAuditVal(ch.to)}
+                          </span>
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-xs text-[--color-text-muted]">
+                  No field-level changes recorded.
+                </p>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 function leadModeFromAffiliateStatus(
   status?: CampaignParticipantStatus,
 ): "all" | "test" | "live" {
-  if (status === "TEST") return "test";
   if (status === "LIVE") return "live";
+  if (status === "TEST") return "test";
   return "all";
+}
+
+function defaultDeliveryConfig(): ClientDeliveryConfig {
+  return {
+    url: "",
+    method: "POST",
+    payload_mapping: [],
+    acceptance_rules: [],
+  };
 }
 
 export function CampaignDetailModal({
@@ -137,6 +305,10 @@ export function CampaignDetailModal({
   onUpdatePlugins,
   onUpdateName,
   onRotateParticipantKey,
+  onUpdateAffiliateLeadCap,
+  onUpdateClientDeliveryConfig,
+  onUpdateCampaignDistribution,
+  onUpdateClientWeight,
   onOpenLeadsForCampaign,
   tab,
   onTabChange,
@@ -176,7 +348,6 @@ export function CampaignDetailModal({
         enabled?: boolean;
         stage?: number;
         gate?: boolean;
-        claim?: boolean;
       };
       ipqs?: {
         enabled?: boolean;
@@ -194,15 +365,41 @@ export function CampaignDetailModal({
     type: "client" | "affiliate",
     participantId: string,
   ) => Promise<void>;
+  onUpdateAffiliateLeadCap: (
+    campaignId: string,
+    affiliateId: string,
+    leadCap: number | null,
+  ) => Promise<void>;
+  onUpdateClientDeliveryConfig: (
+    campaignId: string,
+    clientId: string,
+    payload: ClientDeliveryConfig,
+  ) => Promise<void>;
+  onUpdateCampaignDistribution: (
+    campaignId: string,
+    payload: {
+      mode: DistributionMode;
+      enabled: boolean;
+    },
+  ) => Promise<void>;
+  onUpdateClientWeight: (
+    campaignId: string,
+    clientId: string,
+    deliveryConfig: ClientDeliveryConfig,
+    weight: number,
+  ) => Promise<void>;
   onOpenLeadsForCampaign: (
     campaignId: string,
     options?: { affiliateId?: string; mode?: "all" | "test" | "live" },
   ) => void;
   tab: CampaignDetailTab;
-  onTabChange: (tab: CampaignDetailTab) => void;
+  onTabChange: (
+    tab: CampaignDetailTab,
+    subTab?: "base-criteria" | "logic" | "routing",
+  ) => void;
   focusAffiliateId: string | null;
-  subTab?: "base-criteria" | "logic";
-  onSubTabChange?: (sub: "base-criteria" | "logic") => void;
+  subTab?: "base-criteria" | "logic" | "routing";
+  onSubTabChange?: (sub: "base-criteria" | "logic" | "routing") => void;
 }) {
   const [titleEditing, setTitleEditing] = useState(false);
   const [savingTitle, setSavingTitle] = useState(false);
@@ -293,7 +490,6 @@ export function CampaignDetailModal({
   >(["phone", "email"]);
   const [trustedFormEnabled, setTrustedFormEnabled] = useState(true);
   const [trustedFormGate, setTrustedFormGate] = useState(true);
-  const [trustedFormClaim, setTrustedFormClaim] = useState(false);
   const [ipqsGate, setIpqsGate] = useState(true);
   const [tfStep, setTfStep] = useState(2);
   const [ipqsStep, setIpqsStep] = useState(3);
@@ -302,14 +498,14 @@ export function CampaignDetailModal({
 
   // ── Settings tab ─────────────────────────────────────────────────────────
   const [settingsSubTab, setSettingsSubTab] = useState<
-    "base-criteria" | "logic"
+    "base-criteria" | "logic" | "routing"
   >("base-criteria");
 
   useEffect(() => {
     if (subTab) setSettingsSubTab(subTab);
   }, [subTab]);
 
-  const handleSubTabChange = (sub: "base-criteria" | "logic") => {
+  const handleSubTabChange = (sub: "base-criteria" | "logic" | "routing") => {
     setSettingsSubTab(sub);
     onSubTabChange?.(sub);
   };
@@ -367,6 +563,41 @@ export function CampaignDetailModal({
   const [localAffiliateLinks, setLocalAffiliateLinks] = useState<
     NonNullable<Campaign["affiliates"]>
   >(campaign?.affiliates ?? []);
+  const [affiliateCapDraft, setAffiliateCapDraft] = useState("");
+  const [savingAffiliateCap, setSavingAffiliateCap] = useState(false);
+
+  const [deliveryClientId, setDeliveryClientId] = useState<string | null>(null);
+  const [deliveryTab, setDeliveryTab] = useState<"request" | "response">(
+    "request",
+  );
+  const [deliveryDraft, setDeliveryDraft] = useState<ClientDeliveryConfig>(
+    defaultDeliveryConfig(),
+  );
+  const [savingDeliveryConfig, setSavingDeliveryConfig] = useState(false);
+  const deliveryHasUrl = deliveryDraft.url.trim().length > 0;
+  const deliveryHasMappings = deliveryDraft.payload_mapping.some(
+    (m) => m.key.trim().length > 0,
+  );
+  const deliveryHasValidationRule = deliveryDraft.acceptance_rules.some(
+    (r) => r.match_value.trim().length > 0,
+  );
+  const deliverySaveDisabledReason = !deliveryHasValidationRule
+    ? "Add at least one response validation rule before saving."
+    : !deliveryHasUrl
+      ? "Webhook URL is required."
+      : !deliveryHasMappings
+        ? "Add at least one payload mapping before saving."
+        : "";
+
+  const [routingMode, setRoutingMode] =
+    useState<DistributionMode>("round_robin");
+  const [routingEnabled, setRoutingEnabled] = useState(false);
+  const [routingWeights, setRoutingWeights] = useState<Record<string, number>>(
+    {},
+  );
+  const [savingRouting, setSavingRouting] = useState(false);
+  const [confirmModeChange, setConfirmModeChange] =
+    useState<DistributionMode | null>(null);
 
   const [dupCheckOpen, setDupCheckOpen] = useState(false);
   const [trustedFormOpen, setTrustedFormOpen] = useState(false);
@@ -467,7 +698,12 @@ export function CampaignDetailModal({
     mutate: refreshCriteria,
     isLoading: criteriaLoading,
   } = useSWR(
-    isOpen && campaign?.id && (tab === "settings" || tab === "affiliates")
+    isOpen &&
+      campaign?.id &&
+      (tab === "settings" ||
+        tab === "affiliates" ||
+        tab === "clients" ||
+        tab === "overview")
       ? `criteria-${campaign.id}`
       : null,
     () => listCriteria(campaign!.id),
@@ -479,7 +715,7 @@ export function CampaignDetailModal({
     mutate: refreshLogicRules,
     isLoading: logicRulesLoading,
   } = useSWR(
-    isOpen && campaign?.id && tab === "settings"
+    isOpen && campaign?.id && (tab === "settings" || tab === "overview")
       ? `logic-rules-${campaign.id}`
       : null,
     () => listLogicRules(campaign!.id),
@@ -487,17 +723,32 @@ export function CampaignDetailModal({
   const logicRules: LogicRule[] = (logicRulesData as any)?.data ?? [];
 
   const { data: campaignAuditData } = useSWR(
-    isOpen && campaign?.id && tab === "overview"
+    isOpen && campaign?.id && (tab === "overview" || tab === "history")
       ? `campaign-audit-${campaign.id}`
       : null,
-    () => getEntityAudit(campaign!.id, { limit: 50 }),
+    () => getEntityAudit(campaign!.id, { limit: 100 }),
     { revalidateOnFocus: true },
   );
-  const configAuditItems = useMemo(
+  const configAuditItems = useMemo(() => {
+    const items = campaignAuditData?.data?.items ?? [];
+    return items.filter(
+      (item: AuditLogItem) =>
+        CONFIG_AUDIT_ACTIONS.has(item.action) &&
+        getMeaningfulAuditChanges(item).length > 0,
+    );
+  }, [campaignAuditData]);
+  const allCampaignAuditItems: AuditLogItem[] = useMemo(
     () =>
-      (campaignAuditData?.data?.items ?? []).filter((item: AuditLogItem) =>
-        CONFIG_AUDIT_ACTIONS.has(item.action),
-      ),
+      [...(campaignAuditData?.data?.items ?? [])]
+        .map((item) => ({
+          ...item,
+          changes: getMeaningfulAuditChanges(item),
+        }))
+        .filter((item) => item.changes.length > 0 || item.action === "created")
+        .sort(
+          (a, b) =>
+            new Date(b.changed_at).getTime() - new Date(a.changed_at).getTime(),
+        ),
     [campaignAuditData],
   );
 
@@ -668,7 +919,6 @@ export function CampaignDetailModal({
           : (campaign.plugins?.trusted_form?.enabled ?? true),
       );
       setTrustedFormGate(campaign.plugins?.trusted_form?.gate ?? true);
-      setTrustedFormClaim(campaign.plugins?.trusted_form?.claim ?? false);
       setIpqsGate(campaign.plugins?.ipqs?.gate ?? true);
       setTfStep(campaign.plugins?.trusted_form?.stage ?? 2);
       setIpqsStep(campaign.plugins?.ipqs?.stage ?? 3);
@@ -676,6 +926,49 @@ export function CampaignDetailModal({
       setIpqsStepEditing(false);
       setLocalClientLinks(campaign.clients ?? []);
       setLocalAffiliateLinks(campaign.affiliates ?? []);
+
+      const mode = campaign.distribution?.mode ?? "round_robin";
+      setRoutingMode(mode);
+      setRoutingEnabled(campaign.distribution?.enabled ?? false);
+
+      const liveClientLinks = (campaign.clients ?? []).filter(
+        (link) => link.status === "LIVE",
+      );
+      if (liveClientLinks.length === 0) {
+        setRoutingWeights({});
+      } else {
+        const hasAnyWeight = liveClientLinks.some(
+          (link) => typeof link.weight === "number" && link.weight > 0,
+        );
+        if (hasAnyWeight) {
+          // Normalize raw integer weights to percentages summing to 100
+          const totalWeight =
+            liveClientLinks.reduce((s, link) => s + (link.weight ?? 0), 0) || 1;
+          const next: Record<string, number> = {};
+          let remaining = 100;
+          liveClientLinks.forEach((link, i) => {
+            if (i === liveClientLinks.length - 1) {
+              next[link.client_id] = Math.max(0, remaining);
+            } else {
+              const pct = Math.round(((link.weight ?? 0) / totalWeight) * 100);
+              next[link.client_id] = pct;
+              remaining -= pct;
+            }
+          });
+          setRoutingWeights(next);
+        } else {
+          const n = liveClientLinks.length;
+          const base = Math.floor(100 / n);
+          let remainder = 100 - base * n;
+          const next: Record<string, number> = {};
+          liveClientLinks.forEach((link) => {
+            const add = remainder > 0 ? 1 : 0;
+            if (remainder > 0) remainder -= 1;
+            next[link.client_id] = base + add;
+          });
+          setRoutingWeights(next);
+        }
+      }
       // Init IPQS config
       const qi = campaign.plugins?.ipqs;
       setIpqsConfig({
@@ -753,6 +1046,18 @@ export function CampaignDetailModal({
     if (ipqsGloballyDisabled) setIpqsConfig((p) => ({ ...p, enabled: false }));
   }, [ipqsGloballyDisabled]);
 
+  useEffect(() => {
+    if (!participantAction || participantAction.type !== "affiliate") return;
+    const link = localAffiliateLinks.find(
+      (l) => l.affiliate_id === participantAction.id,
+    );
+    setAffiliateCapDraft(
+      link?.lead_cap === null || link?.lead_cap === undefined
+        ? ""
+        : String(link.lead_cap),
+    );
+  }, [participantAction, localAffiliateLinks]);
+
   // Mark integrations dirty whenever any plugin state changes after initial load.
   useEffect(() => {
     if (!pluginsInitRef.current) {
@@ -765,7 +1070,6 @@ export function CampaignDetailModal({
     duplicateCheckCriteria,
     trustedFormEnabled,
     trustedFormGate,
-    trustedFormClaim,
     ipqsGate,
     tfStep,
     ipqsStep,
@@ -781,6 +1085,18 @@ export function CampaignDetailModal({
   const leadsByCampaignKey = useMemo(() => {
     const counts = new Map<string, number>();
     leadsForCampaign.forEach((lead) => {
+      const key = lead.campaign_key;
+      if (!key) return;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    });
+    return counts;
+  }, [leadsForCampaign]);
+
+  /** Live-only lead counts per campaign key (excludes test leads). Used for LIVE affiliate cap progress. */
+  const liveLeadsByCampaignKey = useMemo(() => {
+    const counts = new Map<string, number>();
+    leadsForCampaign.forEach((lead) => {
+      if (lead.test) return;
       const key = lead.campaign_key;
       if (!key) return;
       counts.set(key, (counts.get(key) ?? 0) + 1);
@@ -832,6 +1148,25 @@ export function CampaignDetailModal({
   const availableAffiliates = affiliates.filter(
     (a) => a.status === "ACTIVE" && !affiliateLinkMap.has(a.id),
   );
+
+  const getClientLeadMode = (
+    link?: CampaignClient,
+  ): "all" | "test" | "live" => {
+    if (!link) return "all";
+    if (link.status === "TEST") return "test";
+    if (link.status === "LIVE") return "live";
+    const history = [...(link.history ?? [])].reverse();
+    const lastActive = history.find(
+      (h) => h.to === "TEST" || h.to === "LIVE",
+    )?.to;
+    if (lastActive === "TEST") return "test";
+    if (lastActive === "LIVE") return "live";
+    return "all";
+  };
+
+  const getClientLeadCount = (link?: CampaignClient) => {
+    return link?.leads_delivered_count ?? 0;
+  };
 
   return (
     <>
@@ -894,6 +1229,7 @@ export function CampaignDetailModal({
                   { key: "affiliates", label: "Affiliates", icon: HandHeart },
                   { key: "integrations", label: "Integrations", icon: Plug },
                   { key: "settings", label: "Configuration", icon: Settings2 },
+                  { key: "history", label: "History", icon: History },
                 ] as const
               ).map((item) => {
                 const Icon = item.icon || Link2;
@@ -950,587 +1286,95 @@ export function CampaignDetailModal({
                         />
                       </div>
 
-                      {campaignChangeHistory.length > 0 ? (
-                        <div className="rounded-lg border border-[--color-border] overflow-hidden">
-                          <button
-                            type="button"
-                            onClick={() => setHistoryOpen((v) => !v)}
-                            className="flex w-full items-center justify-between px-4 py-3 text-left text-sm transition hover:bg-[--color-panel]"
-                          >
-                            <span className="flex items-center gap-2 font-semibold text-[--color-text-strong]">
-                              Change History
-                              <span className="text-xs font-normal text-[--color-text-muted]">
-                                ({campaignChangeHistory.length} event
-                                {campaignChangeHistory.length !== 1 ? "s" : ""})
-                              </span>
-                            </span>
-                            <ChevronDown
-                              size={14}
-                              className={`text-[--color-text-muted] transition-transform duration-200 ${historyOpen ? "rotate-180" : ""}`}
-                            />
-                          </button>
-                          <AnimatePresence>
-                            {historyOpen && (
-                              <motion.div
-                                key="change-history"
-                                initial={{ opacity: 0, height: 0 }}
-                                animate={{ opacity: 1, height: "auto" }}
-                                exit={{ opacity: 0, height: 0 }}
-                                transition={{
-                                  duration: 0.2,
-                                  ease: "easeOut",
-                                }}
-                                className="overflow-hidden"
-                              >
-                                <ul className="divide-y divide-[--color-border] px-4 pb-3">
-                                  {campaignChangeHistory.map((entry, idx) => (
-                                    <li
-                                      key={idx}
-                                      className="flex items-start gap-3 py-3"
-                                    >
-                                      <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[--color-panel]">
-                                        <ArrowRight
-                                          size={10}
-                                          className="text-[--color-text-muted]"
-                                        />
-                                      </div>
-                                      <div className="min-w-0 flex-1">
-                                        {entry.kind === "status" ? (
-                                          <p className="text-sm text-[--color-text]">
-                                            {entry.from ? (
-                                              <>
-                                                Status changed from{" "}
-                                                <Badge
-                                                  tone={
-                                                    statusColorMap[
-                                                      entry.from
-                                                    ] || "neutral"
-                                                  }
-                                                >
-                                                  {entry.from}
-                                                </Badge>{" "}
-                                                to{" "}
-                                                <Badge
-                                                  tone={
-                                                    statusColorMap[entry.to] ||
-                                                    "neutral"
-                                                  }
-                                                >
-                                                  {entry.to}
-                                                </Badge>
-                                              </>
-                                            ) : (
-                                              <>
-                                                Status initialized to{" "}
-                                                <Badge
-                                                  tone={
-                                                    statusColorMap[entry.to] ||
-                                                    "neutral"
-                                                  }
-                                                >
-                                                  {entry.to}
-                                                </Badge>
-                                              </>
-                                            )}
-                                          </p>
-                                        ) : (
-                                          <p className="text-sm text-[--color-text]">
-                                            {entry.previous_value != null ? (
-                                              <>
-                                                Campaign renamed from{" "}
-                                                <span className="font-medium text-[--color-text-strong]">
-                                                  &ldquo;
-                                                  {String(entry.previous_value)}
-                                                  &rdquo;
-                                                </span>{" "}
-                                                to{" "}
-                                                <span className="font-medium text-[--color-text-strong]">
-                                                  &ldquo;
-                                                  {String(
-                                                    entry.new_value ?? "",
-                                                  )}
-                                                  &rdquo;
-                                                </span>
-                                              </>
-                                            ) : (
-                                              <>
-                                                Campaign name set to{" "}
-                                                <span className="font-medium text-[--color-text-strong]">
-                                                  &ldquo;
-                                                  {String(
-                                                    entry.new_value ?? "",
-                                                  )}
-                                                  &rdquo;
-                                                </span>
-                                              </>
-                                            )}
-                                          </p>
-                                        )}
-                                        <p className="mt-0.5 text-xs text-[--color-text-muted]">
-                                          {formatDateTime(entry.changed_at)}
-                                          {` · by ${resolveChangedBy(entry.changed_by) || "System"}`}
-                                        </p>
-                                      </div>
-                                    </li>
-                                  ))}
-                                </ul>
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
-                      ) : null}
+                      {/* Overview shortcuts → Criteria, Logic, Distribution */}
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        {/* Criteria */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSettingsSubTab("base-criteria");
+                            onTabChange("settings", "base-criteria");
+                          }}
+                          className="flex items-start gap-3 rounded-lg border border-[--color-border] bg-[--color-panel] px-4 py-3 text-left transition hover:border-[--color-primary] hover:bg-[--color-accent]"
+                        >
+                          <LayoutGrid
+                            size={16}
+                            className="mt-0.5 shrink-0 text-[--color-primary]"
+                          />
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-[--color-text-strong]">
+                              Criteria
+                            </p>
+                            <p className="mt-0.5 text-[11px] text-[--color-text-muted]">
+                              {criteriaFields.length} field
+                              {criteriaFields.length !== 1 ? "s" : ""} defined
+                            </p>
+                          </div>
+                          <ArrowRight
+                            size={13}
+                            className="ml-auto mt-0.5 shrink-0 text-[--color-text-muted]"
+                          />
+                        </button>
 
-                      {configAuditItems.length > 0 && (
-                        <div className="rounded-lg border border-[--color-border] overflow-hidden">
-                          <button
-                            type="button"
-                            onClick={() => setConfigActivityOpen((v) => !v)}
-                            className="flex w-full items-center justify-between px-4 py-3 text-left text-sm transition hover:bg-[--color-panel]"
-                          >
-                            <span className="flex items-center gap-2 font-semibold text-[--color-text-strong]">
-                              Configuration Activity
-                              <span className="text-xs font-normal text-[--color-text-muted]">
-                                ({configAuditItems.length} event
-                                {configAuditItems.length !== 1 ? "s" : ""})
-                              </span>
-                            </span>
-                            <ChevronDown
-                              size={14}
-                              className={`text-[--color-text-muted] transition-transform duration-200 ${configActivityOpen ? "rotate-180" : ""}`}
-                            />
-                          </button>
-                          <AnimatePresence>
-                            {configActivityOpen && (
-                              <motion.div
-                                key="config-activity"
-                                initial={{ opacity: 0, height: 0 }}
-                                animate={{ opacity: 1, height: "auto" }}
-                                exit={{ opacity: 0, height: 0 }}
-                                transition={{
-                                  duration: 0.2,
-                                  ease: "easeOut",
-                                }}
-                                className="overflow-hidden"
-                              >
-                                <ul className="max-h-72 divide-y divide-[--color-border] overflow-y-auto">
-                                  {configAuditItems.map(
-                                    (item: AuditLogItem) => {
-                                      // For logic_rule events: filter out rule_id, and for *_added skip changes where from is null (just show the added value)
-                                      const isMappingsEvent =
-                                        item.action === "mappings_updated";
-                                      const isLogicRuleEvent =
-                                        item.action.startsWith("logic_rule");
-                                      const isCriteriaAddEvent =
-                                        item.action === "criteria_field_added";
+                        {/* Logic */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSettingsSubTab("logic");
+                            onTabChange("settings", "logic");
+                          }}
+                          className="flex items-start gap-3 rounded-lg border border-[--color-border] bg-[--color-panel] px-4 py-3 text-left transition hover:border-[--color-primary] hover:bg-[--color-accent]"
+                        >
+                          <GitBranch
+                            size={16}
+                            className="mt-0.5 shrink-0 text-[--color-primary]"
+                          />
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-[--color-text-strong]">
+                              Logic
+                            </p>
+                            <p className="mt-0.5 text-[11px] text-[--color-text-muted]">
+                              {logicRules.length} rule
+                              {logicRules.length !== 1 ? "s" : ""} defined
+                            </p>
+                          </div>
+                          <ArrowRight
+                            size={13}
+                            className="ml-auto mt-0.5 shrink-0 text-[--color-text-muted]"
+                          />
+                        </button>
 
-                                      // Build visible changes
-                                      let visibleChanges = item.changes.filter(
-                                        (c) =>
-                                          c.field !== "field_id" &&
-                                          c.field !== "rule_id",
-                                      );
-
-                                      // For mappings_updated collapse all changes into one summary row
-                                      // (the field names are raw IDs — we show "Value Mapping" instead)
-                                      const mappingFieldName = isMappingsEvent
-                                        ? (() => {
-                                            // Try to find a field_label in changes, or fall back to a field_name
-                                            const labelChange =
-                                              item.changes.find(
-                                                (c) =>
-                                                  c.field
-                                                    .toLowerCase()
-                                                    .includes("field_label") ||
-                                                  c.field
-                                                    .toLowerCase()
-                                                    .includes("label"),
-                                              );
-                                            // Field names often look like "CFxxxxxx.value_mappings"
-                                            const rawField =
-                                              item.changes[0]?.field ?? "";
-                                            const m =
-                                              rawField.match(
-                                                /^(CF[A-Z0-9]+)\./i,
-                                              );
-                                            const entityId = m ? m[1] : null;
-                                            return labelChange
-                                              ? String(
-                                                  labelChange.to ??
-                                                    labelChange.from ??
-                                                    "",
-                                                )
-                                              : (entityId ?? "Value Mapping");
-                                          })()
-                                        : null;
-
-                                      const hasChanges =
-                                        visibleChanges.length > 0;
-                                      const isExpanded = expandedAuditIds.has(
-                                        item.log_id,
-                                      );
-
-                                      // For logic_rule_added: find name + action from changes for summary
-                                      const ruleNameChange = isLogicRuleEvent
-                                        ? item.changes.find(
-                                            (c) => c.field === "name",
-                                          )
-                                        : null;
-                                      const ruleActionChange = isLogicRuleEvent
-                                        ? item.changes.find(
-                                            (c) => c.field === "action",
-                                          )
-                                        : null;
-
-                                      // Build tooltip content for logic rules showing conditions
-                                      const ruleConditions = isLogicRuleEvent
-                                        ? item.changes.filter(
-                                            (c) =>
-                                              c.field
-                                                .toLowerCase()
-                                                .includes("condition") ||
-                                              c.field
-                                                .toLowerCase()
-                                                .includes("group"),
-                                          )
-                                        : [];
-
-                                      return (
-                                        <li key={item.log_id}>
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              hasChanges &&
-                                              setExpandedAuditIds((prev) => {
-                                                const next = new Set(prev);
-                                                if (next.has(item.log_id))
-                                                  next.delete(item.log_id);
-                                                else next.add(item.log_id);
-                                                return next;
-                                              })
-                                            }
-                                            className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors ${
-                                              hasChanges
-                                                ? "cursor-pointer hover:bg-[--color-bg-muted]"
-                                                : "cursor-default"
-                                            } ${isExpanded ? "bg-[--color-bg-muted]" : ""}`}
-                                          >
-                                            <span className="w-40 shrink-0 text-[11px] text-[--color-text-muted]">
-                                              {formatDateTime(item.changed_at)}
-                                            </span>
-                                            <span className="flex-1 flex items-center gap-2 text-[--color-text]">
-                                              {auditActionLabel(item.action)}
-                                              {/* Logic rule summary inline */}
-                                              {isLogicRuleEvent &&
-                                                (ruleNameChange ||
-                                                  ruleActionChange) && (
-                                                  <span className="font-semibold text-[--color-text-strong]">
-                                                    {ruleNameChange
-                                                      ? String(
-                                                          ruleNameChange.to ??
-                                                            ruleNameChange.from ??
-                                                            "",
-                                                        )
-                                                      : ""}
-                                                    {ruleActionChange && (
-                                                      <span
-                                                        className={`ml-1.5 text-xs font-mono px-1 py-0.5 rounded ${
-                                                          String(
-                                                            ruleActionChange.to ??
-                                                              ruleActionChange.from,
-                                                          ) === "pass"
-                                                            ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                                                            : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                                                        }`}
-                                                      >
-                                                        {String(
-                                                          ruleActionChange.to ??
-                                                            ruleActionChange.from ??
-                                                            "",
-                                                        )}
-                                                      </span>
-                                                    )}
-                                                  </span>
-                                                )}
-                                              {/* Mappings summary */}
-                                              {isMappingsEvent && (
-                                                <span className="text-xs text-[--color-text-muted]">
-                                                  Value Mapping
-                                                </span>
-                                              )}
-                                            </span>
-                                            <span className="shrink-0 text-[11px] text-[--color-text-muted]">
-                                              {resolveChangedBy(item.actor)}
-                                            </span>
-                                            {hasChanges && (
-                                              <ChevronDown
-                                                size={13}
-                                                className={`shrink-0 text-[--color-text-muted] transition-transform duration-150 ${
-                                                  isExpanded ? "rotate-180" : ""
-                                                }`}
-                                              />
-                                            )}
-                                          </button>
-                                          {isExpanded && hasChanges && (
-                                            <div className="border-t border-[--color-border] bg-[--color-bg-muted] px-4 py-3">
-                                              <div className="space-y-2 pl-2">
-                                                {isMappingsEvent ? (
-                                                  // Mappings: show a clean summary
-                                                  <div className="text-[11px] text-[--color-text-muted]">
-                                                    <span className="font-medium text-[--color-text]">
-                                                      Value Mapping updated
-                                                    </span>
-                                                    {mappingFieldName && (
-                                                      <span className="ml-1 text-[--color-text-muted]">
-                                                        — field:{" "}
-                                                        <span className="font-mono text-[--color-text]">
-                                                          {mappingFieldName}
-                                                        </span>
-                                                      </span>
-                                                    )}
-                                                    <div className="mt-1.5 space-y-1">
-                                                      {visibleChanges
-                                                        .filter(
-                                                          (c) =>
-                                                            !c.field.includes(
-                                                              "value_mappings",
-                                                            ) ||
-                                                            Array.isArray(
-                                                              c.from,
-                                                            ) ||
-                                                            Array.isArray(c.to),
-                                                        )
-                                                        .slice(0, 6)
-                                                        .map((c, i) => {
-                                                          const isArray =
-                                                            Array.isArray(
-                                                              c.from,
-                                                            ) ||
-                                                            Array.isArray(c.to);
-                                                          if (isArray) {
-                                                            const fromLen =
-                                                              Array.isArray(
-                                                                c.from,
-                                                              )
-                                                                ? (
-                                                                    c.from as unknown[]
-                                                                  ).length
-                                                                : 0;
-                                                            const toLen =
-                                                              Array.isArray(
-                                                                c.to,
-                                                              )
-                                                                ? (
-                                                                    c.to as unknown[]
-                                                                  ).length
-                                                                : 0;
-                                                            return (
-                                                              <div
-                                                                key={i}
-                                                                className="text-[--color-text-muted]"
-                                                              >
-                                                                {toLen > fromLen
-                                                                  ? `${toLen - fromLen} mapping${toLen - fromLen !== 1 ? "s" : ""} added`
-                                                                  : toLen <
-                                                                      fromLen
-                                                                    ? `${fromLen - toLen} mapping${fromLen - toLen !== 1 ? "s" : ""} removed`
-                                                                    : `${toLen} mapping${toLen !== 1 ? "s" : ""} updated`}
-                                                              </div>
-                                                            );
-                                                          }
-                                                          return null;
-                                                        })}
-                                                    </div>
-                                                  </div>
-                                                ) : (
-                                                  visibleChanges
-                                                    .filter((change) => {
-                                                      const fromObj =
-                                                        change.from !== null &&
-                                                        change.from !==
-                                                          undefined &&
-                                                        typeof change.from ===
-                                                          "object" &&
-                                                        !Array.isArray(
-                                                          change.from,
-                                                        );
-                                                      const toObj =
-                                                        change.to !== null &&
-                                                        change.to !==
-                                                          undefined &&
-                                                        typeof change.to ===
-                                                          "object" &&
-                                                        !Array.isArray(
-                                                          change.to,
-                                                        );
-                                                      return !(
-                                                        fromObj && toObj
-                                                      );
-                                                    })
-                                                    .map((change, i) => {
-                                                      const fieldLower =
-                                                        change.field.toLowerCase();
-                                                      const isCondition =
-                                                        fieldLower.includes(
-                                                          "condition",
-                                                        );
-                                                      // "Added" event where from is null — just show the new value
-                                                      const isAddedValue =
-                                                        change.from == null &&
-                                                        change.to != null;
-
-                                                      if (isCondition) {
-                                                        const isAdded =
-                                                          fieldLower.endsWith(
-                                                            ".added",
-                                                          ) ||
-                                                          (change.from ==
-                                                            null &&
-                                                            change.to != null);
-                                                        const isRemoved =
-                                                          fieldLower.endsWith(
-                                                            ".removed",
-                                                          ) ||
-                                                          (change.to == null &&
-                                                            change.from !=
-                                                              null);
-                                                        const condVal = isAdded
-                                                          ? formatAuditVal(
-                                                              change.to,
-                                                            )
-                                                          : isRemoved
-                                                            ? formatAuditVal(
-                                                                change.from,
-                                                              )
-                                                            : null;
-                                                        return (
-                                                          <div
-                                                            key={`${item.log_id}-${i}`}
-                                                            className="grid grid-cols-[8rem_1fr] items-start gap-2 text-[11px]"
-                                                          >
-                                                            <span className="truncate font-medium text-[--color-text]">
-                                                              {isAdded
-                                                                ? "Condition added"
-                                                                : isRemoved
-                                                                  ? "Condition removed"
-                                                                  : "Condition changed"}
-                                                            </span>
-                                                            <span
-                                                              className={`font-medium ${
-                                                                isAdded
-                                                                  ? "text-[--color-success]"
-                                                                  : isRemoved
-                                                                    ? "text-[--color-danger]"
-                                                                    : "text-[--color-text]"
-                                                              }`}
-                                                            >
-                                                              {condVal ??
-                                                                `${formatAuditVal(change.from)} → ${formatAuditVal(change.to)}`}
-                                                            </span>
-                                                          </div>
-                                                        );
-                                                      }
-
-                                                      const complex =
-                                                        isComplexValue(
-                                                          change.from,
-                                                        ) ||
-                                                        isComplexValue(
-                                                          change.to,
-                                                        );
-
-                                                      // Human-readable field label
-                                                      const rawFieldName =
-                                                        change.field.replace(
-                                                          /^payload\./,
-                                                          "",
-                                                        );
-                                                      // For criteria_field_added flatten dotted field names like "CFxxx.field_label" → "Field Label"
-                                                      const fieldLabel =
-                                                        normalizeFieldLabel(
-                                                          rawFieldName.includes(
-                                                            ".",
-                                                          )
-                                                            ? rawFieldName
-                                                                .split(".")
-                                                                .pop()!
-                                                            : rawFieldName,
-                                                        );
-
-                                                      return (
-                                                        <div
-                                                          key={`${item.log_id}-${i}`}
-                                                          className="grid grid-cols-[8rem_1fr] items-start gap-2 text-[11px]"
-                                                        >
-                                                          <span className="truncate font-medium text-[--color-text]">
-                                                            {fieldLabel}
-                                                          </span>
-                                                          {complex ? (
-                                                            <span className="italic text-[11px] text-[--color-text-muted]">
-                                                              {Array.isArray(
-                                                                change.from,
-                                                              ) &&
-                                                              Array.isArray(
-                                                                change.to,
-                                                              )
-                                                                ? change.to
-                                                                    .length >
-                                                                  change.from
-                                                                    .length
-                                                                  ? `Added ${change.to.length - change.from.length} item${change.to.length - change.from.length !== 1 ? "s" : ""}`
-                                                                  : change.to
-                                                                        .length <
-                                                                      change
-                                                                        .from
-                                                                        .length
-                                                                    ? `Removed ${change.from.length - change.to.length} item${change.from.length - change.to.length !== 1 ? "s" : ""}`
-                                                                    : "Modified"
-                                                                : "Updated"}
-                                                            </span>
-                                                          ) : isAddedValue ? (
-                                                            // From null → value: just show the new value, no strikethrough
-                                                            <span className="font-medium text-[--color-text]">
-                                                              {formatAuditVal(
-                                                                change.to,
-                                                              )}
-                                                            </span>
-                                                          ) : (
-                                                            <span className="flex min-w-0 items-start gap-1.5 text-[--color-text-muted]">
-                                                              <span className="max-w-[120px] truncate line-through">
-                                                                {formatAuditVal(
-                                                                  change.from,
-                                                                )}
-                                                              </span>
-                                                              <ArrowRight
-                                                                size={9}
-                                                                className="shrink-0"
-                                                              />
-                                                              <span className="max-w-[120px] truncate font-medium text-[--color-text]">
-                                                                {formatAuditVal(
-                                                                  change.to,
-                                                                )}
-                                                              </span>
-                                                            </span>
-                                                          )}
-                                                        </div>
-                                                      );
-                                                    })
-                                                )}
-                                              </div>
-                                            </div>
-                                          )}
-                                        </li>
-                                      );
-                                    },
-                                  )}
-                                </ul>
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
-                      )}
+                        {/* Distribution */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSettingsSubTab("routing");
+                            onTabChange("settings", "routing");
+                          }}
+                          className="flex items-start gap-3 rounded-lg border border-[--color-border] bg-[--color-panel] px-4 py-3 text-left transition hover:border-[--color-primary] hover:bg-[--color-accent]"
+                        >
+                          <Settings2
+                            size={16}
+                            className="mt-0.5 shrink-0 text-[--color-primary]"
+                          />
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-[--color-text-strong]">
+                              Distribution
+                            </p>
+                            <p className="mt-0.5 text-[11px] text-[--color-text-muted]">
+                              {campaign.distribution?.enabled
+                                ? `${campaign.distribution.mode === "round_robin" ? "Round Robin" : "Weighted"} · Enabled`
+                                : "Distribution disabled"}
+                            </p>
+                          </div>
+                          <ArrowRight
+                            size={13}
+                            className="ml-auto mt-0.5 shrink-0 text-[--color-text-muted]"
+                          />
+                        </button>
+                      </div>
                     </>
                   )}
-
                   {tab === "clients" && (
                     <div className="space-y-3">
                       <div className="mb-2 flex items-center justify-between gap-3">
@@ -1592,6 +1436,55 @@ export function CampaignDetailModal({
                                         {link?.status || "TEST"}
                                       </Badge>
                                     </div>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        onOpenLeadsForCampaign(campaign.id, {
+                                          mode: getClientLeadMode(link),
+                                        })
+                                      }
+                                      className="mt-1 text-left text-xs text-[--color-text-muted] hover:text-[--color-primary] hover:underline"
+                                    >
+                                      Leads sent: {getClientLeadCount(link)}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const existing = link?.delivery_config;
+                                        setDeliveryDraft(
+                                          existing
+                                            ? {
+                                                url: existing.url ?? "",
+                                                method:
+                                                  existing.method ?? "POST",
+                                                headers: existing.headers,
+                                                payload_mapping:
+                                                  existing.payload_mapping
+                                                    ?.length > 0
+                                                    ? existing.payload_mapping
+                                                    : [],
+                                                acceptance_rules:
+                                                  existing.acceptance_rules
+                                                    ?.length > 0
+                                                    ? existing.acceptance_rules
+                                                    : [],
+                                              }
+                                            : defaultDeliveryConfig(),
+                                        );
+                                        setDeliveryTab("request");
+                                        setDeliveryClientId(c.id);
+                                      }}
+                                      className="mt-1 flex items-center gap-1 text-left text-xs text-[--color-text-muted] hover:text-[--color-primary] transition-colors group"
+                                      title="Configure delivery endpoint"
+                                    >
+                                      <Settings2
+                                        size={11}
+                                        className="shrink-0 opacity-60 group-hover:opacity-100"
+                                      />
+                                      <span className="group-hover:underline">
+                                        Configure delivery
+                                      </span>
+                                    </button>
                                   </div>
                                   <div className="flex items-center gap-1.5 shrink-0 ml-3">
                                     <button
@@ -1870,8 +1763,12 @@ export function CampaignDetailModal({
                             const link = affiliateLinkMap.get(a.id);
                             const isFocused = focusAffiliateId === a.id;
                             const infoOpen = openInfoId === `affiliate-${a.id}`;
+                            const isLiveAffiliate = link?.status === "LIVE";
                             const affiliateLeadCount = link?.campaign_key
-                              ? (leadsByCampaignKey.get(link.campaign_key) ?? 0)
+                              ? ((isLiveAffiliate
+                                  ? liveLeadsByCampaignKey
+                                  : leadsByCampaignKey
+                                ).get(link.campaign_key) ?? 0)
                               : 0;
                             return (
                               <div
@@ -1944,6 +1841,67 @@ export function CampaignDetailModal({
                                         >
                                           Total leads: {affiliateLeadCount}
                                         </button>
+                                        {link?.status === "LIVE" &&
+                                          (() => {
+                                            const cap = link?.lead_cap ?? null;
+                                            const remaining =
+                                              link?.leads_remaining ?? null;
+                                            const pct =
+                                              link?.quota_completion_percent ??
+                                              null;
+                                            return (
+                                              <>
+                                                <p className="text-xs text-[--color-text-muted]">
+                                                  Lead cap:{" "}
+                                                  <span className="font-medium text-[--color-text]">
+                                                    {cap === null
+                                                      ? "Uncapped"
+                                                      : cap}
+                                                  </span>
+                                                </p>
+                                                {cap !== null && (
+                                                  <>
+                                                    <p className="text-xs text-[--color-text-muted]">
+                                                      Remaining:{" "}
+                                                      <span
+                                                        className={`font-medium ${
+                                                          remaining === 0
+                                                            ? "text-red-500"
+                                                            : pct !== null &&
+                                                                pct >= 90
+                                                              ? "text-amber-500"
+                                                              : "text-[--color-text]"
+                                                        }`}
+                                                      >
+                                                        {remaining}
+                                                      </span>
+                                                    </p>
+                                                    <div className="flex items-center gap-2">
+                                                      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[--color-border]">
+                                                        <div
+                                                          className={`h-full rounded-full transition-all ${
+                                                            pct !== null &&
+                                                            pct >= 100
+                                                              ? "bg-red-500"
+                                                              : pct !== null &&
+                                                                  pct >= 90
+                                                                ? "bg-amber-500"
+                                                                : "bg-[--color-primary]"
+                                                          }`}
+                                                          style={{
+                                                            width: `${pct ?? 0}%`,
+                                                          }}
+                                                        />
+                                                      </div>
+                                                      <span className="shrink-0 text-[11px] text-[--color-text-muted]">
+                                                        {pct ?? 0}%
+                                                      </span>
+                                                    </div>
+                                                  </>
+                                                )}
+                                              </>
+                                            );
+                                          })()}
                                         {campaign && (
                                           <button
                                             type="button"
@@ -2495,7 +2453,7 @@ export function CampaignDetailModal({
                                     </button>
                                   </DisabledTooltip>
                                 </div>
-                                {/* Reject-on-failure + Claim certificate — collapsed by default */}
+                                {/* Reject-on-failure controls — collapsed by default */}
                                 <AnimatePresence initial={false}>
                                   {trustedFormOpen && (
                                     <motion.div
@@ -2546,39 +2504,6 @@ export function CampaignDetailModal({
                                           </button>
                                           <span className="text-[--color-text-muted]">
                                             {trustedFormGate ? "On" : "Off"}
-                                          </span>
-                                        </div>
-                                        <div className="flex items-center gap-1.5 text-xs">
-                                          <HoverTooltip message="When on, a successful validation also claims (retains) the certificate with TrustedForm, consuming it. When off, the certificate is only validated.">
-                                            <span className="cursor-help text-[--color-text-muted]">
-                                              Claim certificate
-                                            </span>
-                                          </HoverTooltip>
-                                          <button
-                                            type="button"
-                                            role="switch"
-                                            aria-checked={trustedFormClaim}
-                                            onClick={() =>
-                                              setTrustedFormClaim(
-                                                (prev) => !prev,
-                                              )
-                                            }
-                                            className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition ${
-                                              trustedFormClaim
-                                                ? "bg-[--color-primary]"
-                                                : "bg-[--color-border]"
-                                            }`}
-                                          >
-                                            <span
-                                              className={`inline-block h-4 w-4 transform rounded-full bg-[--color-bg] transition ${
-                                                trustedFormClaim
-                                                  ? "translate-x-4"
-                                                  : "translate-x-0.5"
-                                              }`}
-                                            />
-                                          </button>
-                                          <span className="text-[--color-text-muted]">
-                                            {trustedFormClaim ? "On" : "Off"}
                                           </span>
                                         </div>
                                       </div>
@@ -3923,7 +3848,6 @@ export function CampaignDetailModal({
                                     : trustedFormEnabled,
                                   stage: tfStep,
                                   gate: trustedFormGate,
-                                  claim: trustedFormClaim,
                                 },
                                 ipqs: {
                                   enabled: ipqsGloballyDisabled
@@ -4061,22 +3985,28 @@ export function CampaignDetailModal({
                         role="tablist"
                         className="flex items-center gap-1 border-b border-[--color-border]"
                       >
-                        {(["base-criteria", "logic"] as const).map((sub) => (
-                          <button
-                            key={sub}
-                            type="button"
-                            role="tab"
-                            aria-selected={settingsSubTab === sub}
-                            onClick={() => handleSubTabChange(sub)}
-                            className={`border-b-2 px-3 py-2 text-sm font-medium transition ${
-                              settingsSubTab === sub
-                                ? "border-[--color-primary] text-[--color-text-strong]"
-                                : "border-transparent text-[--color-text-muted] hover:text-[--color-text]"
-                            }`}
-                          >
-                            {sub === "base-criteria" ? "Criteria" : "Logic"}
-                          </button>
-                        ))}
+                        {(["base-criteria", "logic", "routing"] as const).map(
+                          (sub) => (
+                            <button
+                              key={sub}
+                              type="button"
+                              role="tab"
+                              aria-selected={settingsSubTab === sub}
+                              onClick={() => handleSubTabChange(sub)}
+                              className={`border-b-2 px-3 py-2 text-sm font-medium transition ${
+                                settingsSubTab === sub
+                                  ? "border-[--color-primary] text-[--color-text-strong]"
+                                  : "border-transparent text-[--color-text-muted] hover:text-[--color-text]"
+                              }`}
+                            >
+                              {sub === "base-criteria"
+                                ? "Criteria"
+                                : sub === "logic"
+                                  ? "Logic"
+                                  : "Distribution"}
+                            </button>
+                          ),
+                        )}
                       </div>
 
                       <AnimatePresence mode="wait" initial={false}>
@@ -4343,6 +4273,502 @@ export function CampaignDetailModal({
                           </motion.div>
                         )}
 
+                        {settingsSubTab === "routing" && (
+                          <motion.div
+                            key="routing"
+                            initial={{ opacity: 0, x: 8 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: -8 }}
+                            transition={{ duration: 0.15, ease: "easeOut" }}
+                            className="space-y-4"
+                          >
+                            {(() => {
+                              const liveClientRows = linkedClients
+                                .map((client) => ({
+                                  client,
+                                  link: clientLinkMap.get(client.id),
+                                }))
+                                .filter((row) => row.link?.status === "LIVE");
+
+                              const weightedTotal = liveClientRows.reduce(
+                                (sum, row) =>
+                                  sum +
+                                  Math.max(
+                                    0,
+                                    routingWeights[row.client.id] ?? 0,
+                                  ),
+                                0,
+                              );
+                              const hasLiveClients = liveClientRows.length > 0;
+
+                              const initialMode: DistributionMode =
+                                campaign.distribution?.mode ?? "round_robin";
+                              const initialEnabled =
+                                campaign.distribution?.enabled ?? false;
+                              const initialWeights: Record<string, number> =
+                                (() => {
+                                  if (!hasLiveClients) return {};
+                                  const hasAnyWeight = liveClientRows.some(
+                                    (row) =>
+                                      typeof row.link?.weight === "number" &&
+                                      row.link.weight > 0,
+                                  );
+                                  if (hasAnyWeight) {
+                                    const seeded: Record<string, number> = {};
+                                    liveClientRows.forEach((row) => {
+                                      seeded[row.client.id] = Math.max(
+                                        0,
+                                        Math.round(row.link?.weight ?? 0),
+                                      );
+                                    });
+                                    return seeded;
+                                  }
+                                  const n = liveClientRows.length;
+                                  const base = Math.floor(100 / n);
+                                  let remainder = 100 - base * n;
+                                  const seeded: Record<string, number> = {};
+                                  liveClientRows.forEach((row) => {
+                                    const add = remainder > 0 ? 1 : 0;
+                                    if (remainder > 0) remainder -= 1;
+                                    seeded[row.client.id] = base + add;
+                                  });
+                                  return seeded;
+                                })();
+                              const weightDraftChanged =
+                                routingMode === "weighted" &&
+                                liveClientRows.some(
+                                  (row) =>
+                                    Math.max(
+                                      0,
+                                      routingWeights[row.client.id] ?? 0,
+                                    ) !==
+                                    Math.max(
+                                      0,
+                                      initialWeights[row.client.id] ?? 0,
+                                    ),
+                                );
+                              const hasPendingRoutingChanges =
+                                routingMode !== initialMode ||
+                                routingEnabled !== initialEnabled ||
+                                weightDraftChanged;
+
+                              const rrCounts = liveClientRows.map((row) =>
+                                getClientLeadCount(row.link),
+                              );
+                              const fairnessDelta =
+                                rrCounts.length > 0
+                                  ? Math.max(...rrCounts) -
+                                    Math.min(...rrCounts)
+                                  : 0;
+
+                              return (
+                                <>
+                                  <div className="rounded-xl border border-[--color-border] bg-[--color-panel] p-4 space-y-4">
+                                    <div className="flex items-center justify-between">
+                                      <div>
+                                        <p className="text-sm font-semibold text-[--color-text-strong]">
+                                          Lead Routing
+                                        </p>
+                                        <p className="text-xs text-[--color-text-muted]">
+                                          Configure how accepted leads are
+                                          delivered to LIVE clients.
+                                        </p>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        disabled={!hasLiveClients}
+                                        onClick={() =>
+                                          setRoutingEnabled((prev) => !prev)
+                                        }
+                                        className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                                          !hasLiveClients
+                                            ? "cursor-not-allowed border-red-500/30 bg-red-500/10 text-red-500 opacity-80"
+                                            : routingEnabled
+                                              ? "border-green-500/30 bg-green-500/10 text-green-600"
+                                              : "border-red-500/30 bg-red-500/10 text-red-500"
+                                        }`}
+                                        title={
+                                          hasLiveClients
+                                            ? undefined
+                                            : "Routing can be enabled after at least one client is LIVE."
+                                        }
+                                      >
+                                        {routingEnabled
+                                          ? "Enabled"
+                                          : "Disabled"}
+                                      </button>
+                                    </div>
+                                    {!hasLiveClients && (
+                                      <p className="text-xs font-medium text-red-500">
+                                        Routing is disabled because there are no
+                                        LIVE clients in this campaign.
+                                      </p>
+                                    )}
+
+                                    {routingEnabled && (
+                                      <div className="space-y-2">
+                                        {(
+                                          [
+                                            {
+                                              key: "round_robin" as const,
+                                              label: "Round Robin",
+                                              description:
+                                                "Cycles through LIVE clients in order.",
+                                            },
+                                            {
+                                              key: "weighted" as const,
+                                              label: "Weighted",
+                                              description:
+                                                "Routes to the client furthest below its target share.",
+                                            },
+                                          ] as const
+                                        ).map((opt) => {
+                                          const isSelected =
+                                            routingMode === opt.key;
+                                          const isSavedActive =
+                                            campaign.distribution?.mode ===
+                                              opt.key &&
+                                            campaign.distribution?.enabled &&
+                                            !hasPendingRoutingChanges;
+                                          return (
+                                            <div
+                                              key={opt.key}
+                                              role="button"
+                                              tabIndex={0}
+                                              onClick={() => {
+                                                if (!isSelected) {
+                                                  setConfirmModeChange(opt.key);
+                                                }
+                                              }}
+                                              onKeyDown={(e) => {
+                                                if (
+                                                  e.key === "Enter" &&
+                                                  !isSelected
+                                                ) {
+                                                  setConfirmModeChange(opt.key);
+                                                }
+                                              }}
+                                              className={`rounded-lg border transition-all cursor-pointer select-none ${
+                                                isSelected
+                                                  ? "border-[--color-primary] bg-[--color-accent]"
+                                                  : "border-[--color-border] opacity-60 hover:opacity-80"
+                                              }`}
+                                            >
+                                              {/* Mode header row */}
+                                              <div className="flex items-center gap-2.5 px-3 py-2.5">
+                                                {/* Radio indicator */}
+                                                <div
+                                                  className={`flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border-2 transition-colors ${
+                                                    isSelected
+                                                      ? "border-[--color-primary]"
+                                                      : "border-[--color-border-alt]"
+                                                  }`}
+                                                >
+                                                  {isSelected && (
+                                                    <div className="h-2 w-2 rounded-full bg-[--color-primary]" />
+                                                  )}
+                                                </div>
+                                                <div className="min-w-0 flex-1">
+                                                  <p
+                                                    className={`text-xs font-semibold leading-none ${
+                                                      isSelected
+                                                        ? "text-[--color-text-strong]"
+                                                        : "text-[--color-text-muted]"
+                                                    }`}
+                                                  >
+                                                    {opt.label}
+                                                  </p>
+                                                  <p className="mt-0.5 text-[11px] text-[--color-text-muted]">
+                                                    {opt.description}
+                                                  </p>
+                                                </div>
+                                                {isSavedActive && (
+                                                  <span className="ml-auto flex-shrink-0 rounded-full border border-green-500/30 bg-green-500/10 px-2 py-0.5 text-[11px] font-semibold text-green-600">
+                                                    Active
+                                                  </span>
+                                                )}
+                                                {!isSelected &&
+                                                  !isSavedActive && (
+                                                    <span className="ml-auto flex-shrink-0 rounded-full border border-[--color-border-alt] bg-[--color-bg-muted] px-2 py-0.5 text-[11px] font-semibold text-[--color-text-muted]">
+                                                      Inactive
+                                                    </span>
+                                                  )}
+                                              </div>
+
+                                              {/* Mode content — only for selected mode */}
+                                              {isSelected && (
+                                                <div className="border-t border-[--color-border] px-3 pb-3 pt-2">
+                                                  {opt.key === "round_robin" ? (
+                                                    <div className="space-y-1.5">
+                                                      <div className="flex items-center justify-between">
+                                                        <p className="text-[11px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                                                          Fairness
+                                                        </p>
+                                                        <span className="text-[11px] text-[--color-text-muted]">
+                                                          Delta: {fairnessDelta}
+                                                        </span>
+                                                      </div>
+                                                      {liveClientRows.length ===
+                                                      0 ? (
+                                                        <p className="text-xs text-[--color-text-muted]">
+                                                          No LIVE clients
+                                                          available.
+                                                        </p>
+                                                      ) : (
+                                                        <div className="space-y-1">
+                                                          {liveClientRows.map(
+                                                            (row) => (
+                                                              <div
+                                                                key={`rr-${row.client.id}`}
+                                                                className="flex items-center justify-between rounded bg-[--color-bg-muted] px-2.5 py-1.5 text-xs"
+                                                              >
+                                                                <span className="font-medium text-[--color-text]">
+                                                                  {
+                                                                    row.client
+                                                                      .name
+                                                                  }
+                                                                </span>
+                                                                <span className="text-[--color-text-muted]">
+                                                                  Delivered:{" "}
+                                                                  {getClientLeadCount(
+                                                                    row.link,
+                                                                  )}
+                                                                </span>
+                                                              </div>
+                                                            ),
+                                                          )}
+                                                        </div>
+                                                      )}
+                                                    </div>
+                                                  ) : (
+                                                    <div className="space-y-1.5">
+                                                      <div className="flex items-center justify-between">
+                                                        <p className="text-[11px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                                                          Client Shares
+                                                        </p>
+                                                        <span
+                                                          className={`text-[11px] font-semibold ${
+                                                            weightedTotal ===
+                                                            100
+                                                              ? "text-green-600"
+                                                              : "text-[--color-danger]"
+                                                          }`}
+                                                        >
+                                                          Total: {weightedTotal}
+                                                          %
+                                                        </span>
+                                                      </div>
+                                                      {liveClientRows.length ===
+                                                      0 ? (
+                                                        <p className="text-xs text-[--color-text-muted]">
+                                                          No LIVE clients
+                                                          available.
+                                                        </p>
+                                                      ) : (
+                                                        <div className="space-y-1">
+                                                          {liveClientRows.map(
+                                                            (row) => (
+                                                              <div
+                                                                key={`w-${row.client.id}`}
+                                                                className="grid grid-cols-[minmax(0,1fr)_82px] items-center gap-2 rounded bg-[--color-bg-muted] px-2.5 py-1.5 text-xs"
+                                                              >
+                                                                <span className="truncate font-medium text-[--color-text]">
+                                                                  {
+                                                                    row.client
+                                                                      .name
+                                                                  }
+                                                                </span>
+                                                                <div className="flex items-center gap-1">
+                                                                  <input
+                                                                    className="w-full rounded border border-[--color-border] bg-[--color-panel] px-2 py-1 text-right text-xs"
+                                                                    type="number"
+                                                                    min={0}
+                                                                    max={100}
+                                                                    value={
+                                                                      routingWeights[
+                                                                        row
+                                                                          .client
+                                                                          .id
+                                                                      ] ?? 0
+                                                                    }
+                                                                    onChange={(
+                                                                      e,
+                                                                    ) => {
+                                                                      const raw =
+                                                                        Number(
+                                                                          e
+                                                                            .target
+                                                                            .value,
+                                                                        );
+                                                                      const clamped =
+                                                                        Number.isNaN(
+                                                                          raw,
+                                                                        )
+                                                                          ? 0
+                                                                          : Math.max(
+                                                                              0,
+                                                                              Math.min(
+                                                                                100,
+                                                                                Math.round(
+                                                                                  raw,
+                                                                                ),
+                                                                              ),
+                                                                            );
+                                                                      const others =
+                                                                        liveClientRows.filter(
+                                                                          (r) =>
+                                                                            r
+                                                                              .client
+                                                                              .id !==
+                                                                            row
+                                                                              .client
+                                                                              .id,
+                                                                        );
+                                                                      const remainder =
+                                                                        Math.max(
+                                                                          0,
+                                                                          100 -
+                                                                            clamped,
+                                                                        );
+                                                                      setRoutingWeights(
+                                                                        (
+                                                                          prev,
+                                                                        ) => {
+                                                                          const next =
+                                                                            {
+                                                                              ...prev,
+                                                                            };
+                                                                          next[
+                                                                            row.client.id
+                                                                          ] =
+                                                                            clamped;
+                                                                          if (
+                                                                            others.length >
+                                                                            0
+                                                                          ) {
+                                                                            const base =
+                                                                              Math.floor(
+                                                                                remainder /
+                                                                                  others.length,
+                                                                              );
+                                                                            let leftover =
+                                                                              remainder -
+                                                                              base *
+                                                                                others.length;
+                                                                            others.forEach(
+                                                                              (
+                                                                                other,
+                                                                              ) => {
+                                                                                const add =
+                                                                                  leftover >
+                                                                                  0
+                                                                                    ? 1
+                                                                                    : 0;
+                                                                                if (
+                                                                                  leftover >
+                                                                                  0
+                                                                                )
+                                                                                  leftover--;
+                                                                                next[
+                                                                                  other.client.id
+                                                                                ] =
+                                                                                  base +
+                                                                                  add;
+                                                                              },
+                                                                            );
+                                                                          }
+                                                                          return next;
+                                                                        },
+                                                                      );
+                                                                    }}
+                                                                  />
+                                                                  <span className="text-[--color-text-muted]">
+                                                                    %
+                                                                  </span>
+                                                                </div>
+                                                              </div>
+                                                            ),
+                                                          )}
+                                                        </div>
+                                                      )}
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              )}
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Confirm mode-switch dialog – rendered as popup in JSX root */}
+
+                                  {hasPendingRoutingChanges && (
+                                    <div className="flex justify-end">
+                                      <Button
+                                        size="sm"
+                                        disabled={savingRouting}
+                                        onClick={async () => {
+                                          setSavingRouting(true);
+                                          try {
+                                            // When switching to weighted mode,
+                                            // persist per-client shares first.
+                                            if (
+                                              routingMode === "weighted" &&
+                                              liveClientRows.length > 0
+                                            ) {
+                                              try {
+                                                await Promise.all(
+                                                  liveClientRows
+                                                    .filter(
+                                                      (row) =>
+                                                        row.link
+                                                          ?.delivery_config,
+                                                    )
+                                                    .map((row) =>
+                                                      onUpdateClientWeight(
+                                                        campaign.id,
+                                                        row.client.id,
+                                                        row.link!
+                                                          .delivery_config!,
+                                                        routingWeights[
+                                                          row.client.id
+                                                        ] ?? 0,
+                                                      ),
+                                                    ),
+                                                );
+                                              } catch (err) {
+                                                toast.error(
+                                                  err instanceof Error
+                                                    ? err.message
+                                                    : "Failed to save client weights",
+                                                );
+                                                return;
+                                              }
+                                            }
+                                            await onUpdateCampaignDistribution(
+                                              campaign.id,
+                                              {
+                                                mode: routingMode,
+                                                enabled: routingEnabled,
+                                              },
+                                            );
+                                          } finally {
+                                            setSavingRouting(false);
+                                          }
+                                        }}
+                                      >
+                                        Save Routing
+                                      </Button>
+                                    </div>
+                                  )}
+                                </>
+                              );
+                            })()}
+                          </motion.div>
+                        )}
+
                         {settingsSubTab === "logic" && (
                           <motion.div
                             key="logic"
@@ -4484,9 +4910,72 @@ export function CampaignDetailModal({
                       </AnimatePresence>
                     </div>
                   )}
+
+                  {/* ── History Tab ──────────────────────────────────── */}
+                  {tab === "history" && (
+                    <div className="space-y-2">
+                      {!campaignAuditData ? (
+                        <p className="py-10 text-center text-sm text-[--color-text-muted]">
+                          Loading history…
+                        </p>
+                      ) : allCampaignAuditItems.length === 0 ? (
+                        <div className="py-12 text-center">
+                          <p className="text-sm text-[--color-text-muted]">
+                            No history recorded for this campaign.
+                          </p>
+                        </div>
+                      ) : (
+                        allCampaignAuditItems.map((item) => (
+                          <CampaignAuditRow key={item.log_id} item={item} />
+                        ))
+                      )}
+                    </div>
+                  )}
                 </motion.div>
               </AnimatePresence>
             </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Confirm distribution mode change ──────────────────────────── */}
+      <Modal
+        title="Change distribution method?"
+        isOpen={!!confirmModeChange}
+        onClose={() => setConfirmModeChange(null)}
+        width={380}
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-[--color-text-muted]">
+            Switching from{" "}
+            <span className="font-semibold text-[--color-text]">
+              {routingMode === "round_robin" ? "Round Robin" : "Weighted"}
+            </span>{" "}
+            to{" "}
+            <span className="font-semibold text-[--color-text]">
+              {confirmModeChange === "round_robin" ? "Round Robin" : "Weighted"}
+            </span>
+            . Save routing afterwards to apply the change.
+          </p>
+          <div className="flex gap-2 justify-end">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setConfirmModeChange(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                if (confirmModeChange) {
+                  setRoutingMode(confirmModeChange);
+                  setConfirmModeChange(null);
+                }
+              }}
+            >
+              Confirm
+            </Button>
           </div>
         </div>
       </Modal>
@@ -5268,6 +5757,16 @@ export function CampaignDetailModal({
                     <Button
                       size="sm"
                       onClick={async () => {
+                        if (
+                          isClient &&
+                          participantAction.statusDraft === "LIVE" &&
+                          !(currentLink as CampaignClient)?.delivery_config?.url
+                        ) {
+                          toast.error(
+                            "Delivery config required — set up a delivery endpoint for this client before switching to LIVE.",
+                          );
+                          return;
+                        }
                         if (isClient) {
                           await onUpdateClientStatus(
                             campaign.id,
@@ -5368,6 +5867,123 @@ export function CampaignDetailModal({
                   </div>
                 )}
 
+                {!isClient && currentLink?.status === "LIVE" && (
+                  <div className="space-y-2 border-t border-[--color-border] pt-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                      Lead Cap
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <input
+                        className={inputClass}
+                        type="number"
+                        min={1}
+                        placeholder="Uncapped"
+                        value={affiliateCapDraft}
+                        onChange={(e) => setAffiliateCapDraft(e.target.value)}
+                      />
+                      <Button
+                        size="sm"
+                        disabled={savingAffiliateCap}
+                        onClick={async () => {
+                          const trimmed = affiliateCapDraft.trim();
+                          const parsed = Number(trimmed);
+                          if (!trimmed || Number.isNaN(parsed) || parsed < 1) {
+                            toast.warning(
+                              "Enter a cap of at least 1, or use Uncapped.",
+                            );
+                            return;
+                          }
+                          setSavingAffiliateCap(true);
+                          try {
+                            await onUpdateAffiliateLeadCap(
+                              campaign.id,
+                              pid,
+                              parsed,
+                            );
+                            setLocalAffiliateLinks((prev) =>
+                              prev.map((l) =>
+                                l.affiliate_id === pid
+                                  ? { ...l, lead_cap: parsed }
+                                  : l,
+                              ),
+                            );
+                          } finally {
+                            setSavingAffiliateCap(false);
+                          }
+                        }}
+                      >
+                        Save
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={savingAffiliateCap}
+                        onClick={async () => {
+                          setSavingAffiliateCap(true);
+                          try {
+                            await onUpdateAffiliateLeadCap(
+                              campaign.id,
+                              pid,
+                              null,
+                            );
+                            setAffiliateCapDraft("");
+                            setLocalAffiliateLinks((prev) =>
+                              prev.map((l) =>
+                                l.affiliate_id === pid
+                                  ? { ...l, lead_cap: null }
+                                  : l,
+                              ),
+                            );
+                          } finally {
+                            setSavingAffiliateCap(false);
+                          }
+                        }}
+                      >
+                        Uncapped
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {isClient && (
+                  <div className="space-y-2 border-t border-[--color-border] pt-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                      Delivery Configuration
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        const existing = (
+                          currentLink as CampaignClient | undefined
+                        )?.delivery_config;
+                        setDeliveryDraft(
+                          existing
+                            ? {
+                                url: existing.url ?? "",
+                                method: existing.method ?? "POST",
+                                headers: existing.headers,
+                                payload_mapping:
+                                  existing.payload_mapping?.length > 0
+                                    ? existing.payload_mapping
+                                    : [],
+                                acceptance_rules:
+                                  existing.acceptance_rules?.length > 0
+                                    ? existing.acceptance_rules
+                                    : [],
+                              }
+                            : defaultDeliveryConfig(),
+                        );
+                        setDeliveryTab("request");
+                        setDeliveryClientId(pid);
+                        setParticipantAction(null);
+                      }}
+                    >
+                      Configure Delivery
+                    </Button>
+                  </div>
+                )}
+
                 <div className="space-y-2 border-t border-[--color-border] pt-4">
                   <DisabledTooltip message={removeReason}>
                     <button
@@ -5402,6 +6018,627 @@ export function CampaignDetailModal({
             </Modal>
           );
         })()}
+
+      <Modal
+        title={`Client Delivery${
+          deliveryClientId
+            ? ` — ${clients.find((c) => c.id === deliveryClientId)?.name || deliveryClientId}`
+            : ""
+        }`}
+        isOpen={!!deliveryClientId}
+        onClose={() => setDeliveryClientId(null)}
+        width={720}
+        bodyClassName="px-5 py-4 h-[620px] max-h-[80vh]"
+      >
+        {deliveryClientId && (
+          <div className="flex h-full min-h-0 flex-col gap-4">
+            <div className="flex items-center gap-1 border-b border-[--color-border] pb-2">
+              {(
+                [
+                  { key: "request" as const, label: "Delivery Request" },
+                  { key: "response" as const, label: "Response Validation" },
+                ] as const
+              ).map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setDeliveryTab(t.key)}
+                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                    deliveryTab === t.key
+                      ? "bg-[--color-primary] text-white"
+                      : "text-[--color-text-muted] hover:text-[--color-text]"
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+              {deliveryTab === "request" ? (
+                <div className="space-y-3">
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <label className="space-y-1">
+                      <span className="text-xs font-medium text-[--color-text-muted]">
+                        Method
+                      </span>
+                      <select
+                        className={inputClass}
+                        value={deliveryDraft.method}
+                        onChange={(e) =>
+                          setDeliveryDraft((prev) => ({
+                            ...prev,
+                            method: e.target
+                              .value as ClientDeliveryConfig["method"],
+                          }))
+                        }
+                      >
+                        {(["POST", "GET", "PUT", "PATCH"] as const).map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="space-y-1 md:col-span-1">
+                      <span className="text-xs font-medium text-[--color-text-muted]">
+                        Webhook URL
+                      </span>
+                      <input
+                        className={`${inputClass} ${
+                          !deliveryHasUrl
+                            ? "border-red-500/60 focus:border-red-500 focus:ring-red-500/25"
+                            : ""
+                        }`}
+                        value={deliveryDraft.url}
+                        onChange={(e) =>
+                          setDeliveryDraft((prev) => ({
+                            ...prev,
+                            url: e.target.value,
+                          }))
+                        }
+                        placeholder="https://buyer.example.com/leads"
+                      />
+                    </label>
+                  </div>
+
+                  <div
+                    className={`space-y-2 rounded-lg border p-3 ${
+                      deliveryHasMappings
+                        ? "border-[--color-border]"
+                        : "border-red-500/60"
+                    }`}
+                  >
+                    <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                      Payload Mapping
+                    </p>
+
+                    {criteriaFields.length > 0 &&
+                      (() => {
+                        const alreadyMapped = new Set(
+                          deliveryDraft.payload_mapping
+                            .map((m) => m.field_name)
+                            .filter(Boolean),
+                        );
+                        const unmappedCount = criteriaFields.filter(
+                          (cf) => !alreadyMapped.has(cf.field_name),
+                        ).length;
+                        if (unmappedCount === 0) return null;
+                        return (
+                          <div className="flex items-center justify-between rounded-lg border border-[--color-border] bg-[--color-bg-muted] px-3 py-2.5">
+                            <div className="min-w-0">
+                              <p className="text-xs font-semibold text-[--color-text-strong]">
+                                Import from criteria fields
+                              </p>
+                              <p className="text-[11px] text-[--color-text-muted] mt-0.5">
+                                Add all {unmappedCount} unmapped field
+                                {unmappedCount !== 1 ? "s" : ""} at once.
+                                Existing mappings are kept.
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              className="ml-3 shrink-0 rounded-md border border-[--color-border] bg-[--color-panel] px-3 py-1.5 text-xs font-semibold text-[--color-text] hover:border-[--color-primary] hover:text-[--color-primary] transition-colors"
+                              onClick={() =>
+                                setDeliveryDraft((prev) => {
+                                  const mapped = new Set(
+                                    prev.payload_mapping
+                                      .map((m) => m.field_name)
+                                      .filter(Boolean),
+                                  );
+                                  const toAdd = criteriaFields
+                                    .filter((cf) => !mapped.has(cf.field_name))
+                                    .map((cf) => ({
+                                      key: cf.field_name,
+                                      value_source: "field" as const,
+                                      field_name: cf.field_name,
+                                    }));
+                                  if (toAdd.length === 0) return prev;
+                                  const hasOnlyEmptyPlaceholder =
+                                    prev.payload_mapping.length === 1 &&
+                                    !prev.payload_mapping[0].key &&
+                                    !prev.payload_mapping[0].field_name;
+                                  return {
+                                    ...prev,
+                                    payload_mapping: hasOnlyEmptyPlaceholder
+                                      ? toAdd
+                                      : [...prev.payload_mapping, ...toAdd],
+                                  };
+                                })
+                              }
+                            >
+                              Add All
+                            </button>
+                          </div>
+                        );
+                      })()}
+
+                    <div className="space-y-2">
+                      {deliveryDraft.payload_mapping.map((row, idx) => (
+                        <div
+                          key={`map-${idx}`}
+                          className="grid gap-2 md:grid-cols-[minmax(0,1fr)_140px_minmax(0,1fr)_auto]"
+                        >
+                          <input
+                            className={inputClass}
+                            placeholder="Outbound key"
+                            value={row.key}
+                            onChange={(e) =>
+                              setDeliveryDraft((prev) => ({
+                                ...prev,
+                                payload_mapping: prev.payload_mapping.map(
+                                  (m, i) =>
+                                    i === idx
+                                      ? { ...m, key: e.target.value }
+                                      : m,
+                                ),
+                              }))
+                            }
+                          />
+                          <select
+                            className={inputClass}
+                            value={row.value_source}
+                            onChange={(e) => {
+                              const valueSource = e.target
+                                .value as ClientDeliveryConfig["payload_mapping"][number]["value_source"];
+                              setDeliveryDraft((prev) => ({
+                                ...prev,
+                                payload_mapping: prev.payload_mapping.map(
+                                  (m, i) =>
+                                    i === idx
+                                      ? {
+                                          ...m,
+                                          value_source: valueSource,
+                                          field_name:
+                                            valueSource === "field"
+                                              ? (m.field_name ?? "")
+                                              : undefined,
+                                          static_value:
+                                            valueSource === "static"
+                                              ? (m.static_value ?? "")
+                                              : undefined,
+                                        }
+                                      : m,
+                                ),
+                              }));
+                            }}
+                          >
+                            <option value="field">Lead Field</option>
+                            <option value="static">Static Value</option>
+                          </select>
+                          {row.value_source === "field" ? (
+                            <select
+                              className={inputClass}
+                              value={row.field_name ?? ""}
+                              onChange={(e) =>
+                                setDeliveryDraft((prev) => ({
+                                  ...prev,
+                                  payload_mapping: prev.payload_mapping.map(
+                                    (m, i) =>
+                                      i === idx
+                                        ? {
+                                            ...m,
+                                            field_name: e.target.value,
+                                          }
+                                        : m,
+                                  ),
+                                }))
+                              }
+                            >
+                              <option value="">
+                                {criteriaFields.length === 0
+                                  ? "No fields defined"
+                                  : "Select lead field\u2026"}
+                              </option>
+                              {criteriaFields.map((cf) => (
+                                <option key={cf.id} value={cf.field_name}>
+                                  {cf.field_label}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              className={inputClass}
+                              placeholder="static_value"
+                              value={String(row.static_value ?? "")}
+                              onChange={(e) =>
+                                setDeliveryDraft((prev) => ({
+                                  ...prev,
+                                  payload_mapping: prev.payload_mapping.map(
+                                    (m, i) =>
+                                      i === idx
+                                        ? { ...m, static_value: e.target.value }
+                                        : m,
+                                  ),
+                                }))
+                              }
+                            />
+                          )}
+                          <button
+                            type="button"
+                            className="flex items-center justify-center rounded p-1.5 text-[--color-text-muted] hover:text-red-500 disabled:opacity-30 transition-colors"
+                            onClick={() =>
+                              setDeliveryDraft((prev) => ({
+                                ...prev,
+                                payload_mapping: prev.payload_mapping.filter(
+                                  (_, i) => i !== idx,
+                                ),
+                              }))
+                            }
+                            disabled={deliveryDraft.payload_mapping.length <= 1}
+                            title="Remove row"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+
+                    <button
+                      type="button"
+                      className="mt-1 flex items-center gap-1 text-xs text-[--color-primary] hover:underline"
+                      onClick={() =>
+                        setDeliveryDraft((prev) => ({
+                          ...prev,
+                          payload_mapping: [
+                            ...prev.payload_mapping,
+                            { key: "", value_source: "field", field_name: "" },
+                          ],
+                        }))
+                      }
+                    >
+                      <Plus size={12} />
+                      Add mapping
+                    </button>
+                  </div>
+
+                  {/* \u2500\u2500 Live payload preview */}
+                  {(() => {
+                    const sampleValueFor = (
+                      field: CriteriaField | undefined,
+                    ): string => {
+                      if (!field) return "";
+                      const lbl = field.field_label.toLowerCase();
+                      if (lbl.includes("email")) return "john@example.com";
+                      if (lbl.includes("phone")) return "+1 (555) 867-5309";
+                      if (lbl.includes("first") && lbl.includes("name"))
+                        return "John";
+                      if (lbl.includes("last") && lbl.includes("name"))
+                        return "Doe";
+                      if (lbl.includes("name")) return "John Doe";
+                      if (lbl.includes("zip") || lbl.includes("postal"))
+                        return "90210";
+                      if (lbl.includes("city")) return "Los Angeles";
+                      if (
+                        lbl.includes("ip") ||
+                        field.field_name.toLowerCase().includes("ip")
+                      )
+                        return "203.0.113.42";
+                      if (lbl.includes("address")) return "123 Main St";
+                      if (lbl.includes("dob") || lbl.includes("birth"))
+                        return "1990-06-15";
+                      switch (field.data_type) {
+                        case "US State":
+                          return "CA";
+                        case "Number":
+                          return "30";
+                        case "Boolean":
+                          return "true";
+                        case "Date":
+                          return "2026-01-15";
+                        case "List":
+                          return field.options?.[0]?.value ?? "option1";
+                        default:
+                          return "Sample value";
+                      }
+                    };
+
+                    const previewEntries = deliveryDraft.payload_mapping
+                      .filter((m) => m.key.trim())
+                      .map((m) => {
+                        if (m.value_source === "static") {
+                          return {
+                            key: m.key.trim(),
+                            value: String(m.static_value ?? ""),
+                          };
+                        }
+                        const cf = criteriaFields.find(
+                          (f) => f.field_name === m.field_name,
+                        );
+                        return {
+                          key: m.key.trim(),
+                          value: cf ? sampleValueFor(cf) : "\u2026",
+                        };
+                      });
+
+                    if (previewEntries.length === 0) return null;
+
+                    const lines = [
+                      "{",
+                      ...previewEntries.map(
+                        (e, i) =>
+                          `  "${e.key}": "${e.value}"${i < previewEntries.length - 1 ? "," : ""}`,
+                      ),
+                      "}",
+                    ];
+
+                    return (
+                      <div className="rounded-lg border border-[--color-border] bg-[--color-bg-muted] p-3">
+                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                          Expected Payload Preview
+                        </p>
+                        <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-[--color-text]">
+                          {lines.join("\n")}
+                        </pre>
+                      </div>
+                    );
+                  })()}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div
+                    className={`space-y-2 rounded-lg border p-3 ${
+                      deliveryHasValidationRule
+                        ? "border-[--color-border]"
+                        : "border-red-500/60"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                          Acceptance Rules
+                        </p>
+                        <p className="text-[11px] text-[--color-text-muted] mt-0.5">
+                          Rules are evaluated as OR (first match wins). Matching
+                          is case-insensitive.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      {deliveryDraft.acceptance_rules.map((rule, idx) => (
+                        <div
+                          key={`rule-${idx}`}
+                          className="grid gap-2 md:grid-cols-[minmax(0,1fr)_110px_auto]"
+                        >
+                          <input
+                            className={inputClass}
+                            placeholder="Response contains..."
+                            value={rule.match_value}
+                            onChange={(e) =>
+                              setDeliveryDraft((prev) => ({
+                                ...prev,
+                                acceptance_rules: prev.acceptance_rules.map(
+                                  (r, i) =>
+                                    i === idx
+                                      ? { ...r, match_value: e.target.value }
+                                      : r,
+                                ),
+                              }))
+                            }
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDeliveryDraft((prev) => ({
+                                ...prev,
+                                acceptance_rules: prev.acceptance_rules.map(
+                                  (r, i) =>
+                                    i === idx
+                                      ? {
+                                          ...r,
+                                          action:
+                                            r.action === "passed"
+                                              ? "failed"
+                                              : "passed",
+                                        }
+                                      : r,
+                                ),
+                              }))
+                            }
+                            className={`flex w-[100px] items-center justify-between rounded-full border px-1 py-1 text-xs font-semibold transition-colors ${
+                              rule.action === "passed"
+                                ? "border-green-500/40 bg-green-500/10"
+                                : "border-red-500/40 bg-red-500/10"
+                            }`}
+                          >
+                            <span
+                              className={`flex h-5 w-5 items-center justify-center rounded-full text-white transition-all ${
+                                rule.action === "passed"
+                                  ? "bg-green-500"
+                                  : "bg-red-500"
+                              }`}
+                            >
+                              {rule.action === "passed" ? "✓" : "✕"}
+                            </span>
+                            <span
+                              className={`flex-1 text-center ${
+                                rule.action === "passed"
+                                  ? "text-green-600"
+                                  : "text-red-500"
+                              }`}
+                            >
+                              {rule.action === "passed" ? "Pass" : "Fail"}
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            className="flex items-center justify-center rounded p-1.5 text-[--color-text-muted] hover:text-red-500 disabled:opacity-30 transition-colors"
+                            onClick={() =>
+                              setDeliveryDraft((prev) => ({
+                                ...prev,
+                                acceptance_rules: prev.acceptance_rules.filter(
+                                  (_, i) => i !== idx,
+                                ),
+                              }))
+                            }
+                            disabled={
+                              deliveryDraft.acceptance_rules.length <= 1
+                            }
+                            title="Remove rule"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      className="mt-1 flex items-center gap-1 text-xs text-[--color-primary] hover:underline"
+                      onClick={() =>
+                        setDeliveryDraft((prev) => ({
+                          ...prev,
+                          acceptance_rules: [
+                            ...prev.acceptance_rules,
+                            { match_value: "", action: "passed" },
+                          ],
+                        }))
+                      }
+                    >
+                      <Plus size={12} />
+                      Add rule
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-[--color-border] pt-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setDeliveryClientId(null)}
+              >
+                Cancel
+              </Button>
+              <DisabledTooltip message={deliverySaveDisabledReason}>
+                <span className="inline-flex">
+                  <Button
+                    size="sm"
+                    disabled={
+                      savingDeliveryConfig ||
+                      Boolean(deliverySaveDisabledReason)
+                    }
+                    onClick={async () => {
+                      const trimmedUrl = deliveryDraft.url.trim();
+                      if (!trimmedUrl) {
+                        toast.warning("Webhook URL is required.");
+                        return;
+                      }
+                      try {
+                        // URL validation
+                        // eslint-disable-next-line no-new
+                        new URL(trimmedUrl);
+                      } catch {
+                        toast.warning("Enter a valid webhook URL.");
+                        return;
+                      }
+
+                      if (deliveryDraft.payload_mapping.length === 0) {
+                        toast.warning(
+                          "At least one payload mapping is required.",
+                        );
+                        return;
+                      }
+                      const hasBadMapping = deliveryDraft.payload_mapping.some(
+                        (m) =>
+                          !m.key.trim() ||
+                          (m.value_source === "field"
+                            ? !(m.field_name ?? "").trim()
+                            : String(m.static_value ?? "").trim().length === 0),
+                      );
+                      if (hasBadMapping) {
+                        toast.warning("Complete all payload mapping rows.");
+                        return;
+                      }
+
+                      if (deliveryDraft.acceptance_rules.length === 0) {
+                        toast.warning(
+                          "At least one acceptance rule is required.",
+                        );
+                        return;
+                      }
+                      const hasBadRule = deliveryDraft.acceptance_rules.some(
+                        (r) => !r.match_value.trim(),
+                      );
+                      if (hasBadRule) {
+                        toast.warning("Complete all acceptance rules.");
+                        return;
+                      }
+
+                      setSavingDeliveryConfig(true);
+                      try {
+                        const payload: ClientDeliveryConfig = {
+                          ...deliveryDraft,
+                          url: trimmedUrl,
+                          payload_mapping: deliveryDraft.payload_mapping.map(
+                            (m) =>
+                              m.value_source === "field"
+                                ? {
+                                    key: m.key.trim(),
+                                    value_source: "field",
+                                    field_name: (m.field_name ?? "").trim(),
+                                  }
+                                : {
+                                    key: m.key.trim(),
+                                    value_source: "static",
+                                    static_value: m.static_value,
+                                  },
+                          ),
+                          acceptance_rules: deliveryDraft.acceptance_rules.map(
+                            (r) => ({
+                              match_value: r.match_value.trim(),
+                              action: r.action,
+                            }),
+                          ),
+                        };
+
+                        await onUpdateClientDeliveryConfig(
+                          campaign.id,
+                          deliveryClientId,
+                          payload,
+                        );
+
+                        setLocalClientLinks((prev) =>
+                          prev.map((l) =>
+                            l.client_id === deliveryClientId
+                              ? { ...l, delivery_config: payload }
+                              : l,
+                          ),
+                        );
+                        setDeliveryClientId(null);
+                      } finally {
+                        setSavingDeliveryConfig(false);
+                      }
+                    }}
+                  >
+                    Save Delivery Config
+                  </Button>
+                </span>
+              </DisabledTooltip>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       <LinkClientModal
         isOpen={linkClientModalOpen}

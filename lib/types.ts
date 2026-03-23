@@ -2,12 +2,42 @@ export type ClientStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED";
 export type AffiliateStatus = "ACTIVE" | "INACTIVE";
 export type CampaignParticipantStatus = "TEST" | "LIVE" | "DISABLED";
 export type CampaignStatus = "DRAFT" | "TEST" | "ACTIVE" | "INACTIVE";
+export type DistributionMode = "round_robin" | "weighted";
 export type CampaignDetailTab =
   | "overview"
   | "clients"
   | "affiliates"
   | "integrations"
-  | "settings";
+  | "settings"
+  | "history";
+
+export type WebhookMethod = "POST" | "GET" | "PUT" | "PATCH";
+
+export interface WebhookFieldMapping {
+  key: string;
+  value_source: "field" | "static";
+  field_name?: string;
+  static_value?: unknown;
+}
+
+export interface WebhookAcceptanceRule {
+  match_value: string;
+  action: "passed" | "failed";
+}
+
+export interface ClientDeliveryConfig {
+  url: string;
+  method: WebhookMethod;
+  headers?: Record<string, string>;
+  payload_mapping: WebhookFieldMapping[];
+  acceptance_rules: WebhookAcceptanceRule[];
+}
+
+export interface CampaignDistributionConfig {
+  mode: DistributionMode;
+  enabled: boolean;
+  rr_last_client_id?: string | null;
+}
 
 /** Identity of the user who performed an action (matches RequestActor schema). */
 export interface RequestActor {
@@ -81,6 +111,10 @@ export interface CampaignAffiliate {
   campaign_key: string;
   status?: CampaignParticipantStatus;
   added_at?: string;
+  lead_cap?: number | null;
+  leads_sent?: number;
+  leads_remaining?: number | null;
+  quota_completion_percent?: number | null;
   history?: ParticipantHistoryEntry[];
 }
 
@@ -88,6 +122,9 @@ export interface CampaignClient {
   client_id: string;
   status?: CampaignParticipantStatus;
   added_at?: string;
+  delivery_config?: ClientDeliveryConfig;
+  weight?: number;
+  leads_delivered_count?: number;
   history?: ParticipantHistoryEntry[];
 }
 
@@ -95,6 +132,7 @@ export interface Campaign {
   id: string;
   name: string;
   status: CampaignStatus;
+  distribution?: CampaignDistributionConfig;
   plugins?: {
     duplicate_check?: {
       enabled?: boolean;
@@ -104,7 +142,6 @@ export interface Campaign {
       enabled?: boolean;
       stage?: number;
       gate?: boolean;
-      claim?: boolean;
     };
     ipqs?: {
       enabled?: boolean;
@@ -251,6 +288,28 @@ export interface Lead {
     mapped_value: string;
     mapped_at: string;
   }>;
+  /** Whether this lead was sold to a client. */
+  sold?: boolean;
+  /** Outcome of the delivery attempt. */
+  sold_status?: "sold" | "not_sold" | "not_delivered";
+  /** The client this lead was sold to, if any. */
+  sold_to_client_id?: string;
+  /** Full delivery result from the webhook attempt. */
+  delivery_result?: LeadDeliveryResult;
+}
+
+export interface LeadDeliveryResult {
+  client_id: string;
+  delivered_at: string;
+  webhook_url: string;
+  webhook_method: string;
+  webhook_response_status?: number;
+  webhook_response_body?: string;
+  accepted: boolean;
+  acceptance_match?: string;
+  error?: string;
+  distribution_mode: DistributionMode;
+  client_weight_at_delivery: number;
 }
 
 export interface PaginatedResponse<T> {

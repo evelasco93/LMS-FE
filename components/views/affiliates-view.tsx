@@ -11,6 +11,7 @@ import { Badge } from "@/components/badge";
 import { Button } from "@/components/button";
 import { AuditPopover } from "@/components/shared-ui";
 import {
+  AffiliateDetailModal,
   AffiliateModal,
   EditAffiliateModal,
 } from "@/components/modals/entity-modals";
@@ -75,6 +76,8 @@ export function AffiliatesView({
   const [editingAffiliate, setEditingAffiliate] = useState<Affiliate | null>(
     null,
   );
+  const [viewAffiliateTarget, setViewAffiliateTarget] =
+    useState<Affiliate | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Affiliate | null>(null);
 
   const refresh = () => {
@@ -264,19 +267,9 @@ export function AffiliatesView({
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => {
-                    setEditingAffiliate(a);
-                    setEditAffiliateModal(true);
-                  }}
+                  onClick={() => setViewAffiliateTarget(a)}
                 >
-                  Edit
-                </Button>
-                <Button
-                  size="sm"
-                  variant="danger"
-                  onClick={() => setDeleteTarget(a)}
-                >
-                  Delete
+                  View
                 </Button>
               </div>
             ),
@@ -303,6 +296,13 @@ export function AffiliatesView({
           setEditingAffiliate(null);
         }}
         onSubmit={onEditAffiliate}
+      />
+      <AffiliateDetailModal
+        affiliate={viewAffiliateTarget}
+        isOpen={!!viewAffiliateTarget}
+        onClose={() => setViewAffiliateTarget(null)}
+        onSave={onEditAffiliate}
+        onRequestDelete={(affiliate) => setDeleteTarget(affiliate)}
       />
       <DeleteConfirmModal
         isOpen={!!deleteTarget}

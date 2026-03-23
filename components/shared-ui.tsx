@@ -14,7 +14,7 @@ import {
   normalizeFieldLabel,
 } from "@/lib/utils";
 import { listUsers, getEntityAudit } from "@/lib/api";
-import type { AuditLogItem } from "@/lib/types";
+import type { AuditLogItem, EditHistoryEntry } from "@/lib/types";
 import { Modal } from "@/components/modal";
 
 // ─── SectionLabel ────────────────────────────────────────────────────────────
@@ -233,15 +233,37 @@ export function AuditPopover({
                 {changeItems.map((item) =>
                   item.changes.map((change, i) => {
                     const by = resolveAuthor(item.actor);
-                    const isComplex =
-                      change.from !== null &&
-                      change.from !== undefined &&
-                      typeof change.from === "object";
+                    const summarizeObject = (value: unknown): string => {
+                      if (!value || typeof value !== "object") return "…";
+                      const obj = value as Record<string, unknown>;
+                      if ("mode" in obj || "enabled" in obj) {
+                        const mode =
+                          typeof obj.mode === "string" ? obj.mode : undefined;
+                        const enabled =
+                          typeof obj.enabled === "boolean"
+                            ? obj.enabled
+                            : undefined;
+                        if (mode && enabled !== undefined) {
+                          const modeLabel =
+                            mode === "round_robin"
+                              ? "Round Robin"
+                              : mode === "weighted"
+                                ? "Weighted"
+                                : mode;
+                          return `${modeLabel} · ${enabled ? "Enabled" : "Disabled"}`;
+                        }
+                      }
+                      try {
+                        return JSON.stringify(value);
+                      } catch {
+                        return "…";
+                      }
+                    };
                     const fmtVal = (v: unknown) =>
                       v === null || v === undefined
                         ? "—"
                         : typeof v === "object"
-                          ? "..."
+                          ? summarizeObject(v)
                           : String(v);
                     return (
                       <div
@@ -258,17 +280,17 @@ export function AuditPopover({
                             {formatDateTime(item.changed_at)}
                           </span>
                         </div>
-                        {!isComplex && (
-                          <div className="mt-2 flex flex-wrap items-center gap-2">
-                            <span className="rounded bg-[--color-bg] px-2 py-0.5 text-sm text-[--color-text-muted] line-through">
-                              {fmtVal(change.from)}
-                            </span>
-                            <span className="text-[--color-text-muted]">→</span>
-                            <span className="rounded bg-[--color-bg] px-2 py-0.5 text-sm font-medium text-[--color-text-strong]">
-                              {fmtVal(change.to)}
-                            </span>
-                          </div>
-                        )}
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <span className="rounded bg-[--color-bg] px-2 py-0.5 text-sm text-[--color-text-muted] line-through">
+                            {fmtVal(change.from)}
+                          </span>
+                          <span className="inline-flex items-center leading-none text-[--color-text-muted]">
+                            →
+                          </span>
+                          <span className="rounded bg-[--color-bg] px-2 py-0.5 text-sm font-medium text-[--color-text-strong]">
+                            {fmtVal(change.to)}
+                          </span>
+                        </div>
                         {by && (
                           <p className="mt-1.5 text-xs text-[--color-text-muted]">
                             by {by}
@@ -496,7 +518,9 @@ export function EditHistoryPopover({
                     <span className="rounded bg-[--color-bg] px-2 py-0.5 text-sm text-[--color-text-muted] line-through">
                       {originalValue || "—"}
                     </span>
-                    <span className="text-[--color-text-muted]">→</span>
+                    <span className="inline-flex items-center leading-none text-[--color-text-muted]">
+                      →
+                    </span>
                     <span className="rounded bg-[--color-bg] px-2 py-0.5 text-sm font-medium text-[--color-text-strong]">
                       (editing…)
                     </span>
@@ -520,7 +544,7 @@ export function EditHistoryPopover({
                   entry.field
                     .replace(/^payload\./, "")
                     .replace(/_/g, " ")
-                    .replace(/\b\w/g, (c) => c.toUpperCase());
+                    .replace(/\b\w/g, (c: string) => c.toUpperCase());
                 return (
                   <div
                     key={i}
@@ -533,7 +557,9 @@ export function EditHistoryPopover({
                       <span className="rounded bg-[--color-bg] px-2 py-0.5 text-sm text-[--color-text-muted] line-through">
                         {prev ?? "—"}
                       </span>
-                      <span className="text-[--color-text-muted]">→</span>
+                      <span className="inline-flex items-center leading-none text-[--color-text-muted]">
+                        →
+                      </span>
                       <span className="rounded bg-[--color-bg] px-2 py-0.5 text-sm font-medium text-[--color-text-strong]">
                         {next ?? "—"}
                       </span>

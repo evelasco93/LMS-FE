@@ -13,6 +13,7 @@ import { AuditPopover } from "@/components/shared-ui";
 import {
   ClientModal,
   EditClientModal,
+  ClientDetailModal,
 } from "@/components/modals/entity-modals";
 import { DeleteConfirmModal } from "@/components/modals/delete-confirm-modal";
 import {
@@ -74,6 +75,7 @@ export function ClientsView({
   const [editClientModal, setEditClientModal] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Client | null>(null);
+  const [viewClientTarget, setViewClientTarget] = useState<Client | null>(null);
 
   const refresh = () => {
     onDataChanged();
@@ -258,19 +260,9 @@ export function ClientsView({
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => {
-                    setEditingClient(client);
-                    setEditClientModal(true);
-                  }}
+                  onClick={() => setViewClientTarget(client)}
                 >
-                  Edit
-                </Button>
-                <Button
-                  size="sm"
-                  variant="danger"
-                  onClick={() => setDeleteTarget(client)}
-                >
-                  Delete
+                  View
                 </Button>
               </div>
             ),
@@ -295,6 +287,13 @@ export function ClientsView({
           setEditingClient(null);
         }}
         onSubmit={onEditClient}
+      />
+      <ClientDetailModal
+        client={viewClientTarget}
+        isOpen={!!viewClientTarget}
+        onClose={() => setViewClientTarget(null)}
+        onSave={onEditClient}
+        onRequestDelete={(client) => setDeleteTarget(client)}
       />
       <DeleteConfirmModal
         isOpen={!!deleteTarget}

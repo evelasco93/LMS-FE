@@ -25,6 +25,7 @@ import { AdminView } from "@/components/views/admin-view";
 import { ToolsView } from "@/components/views/tools-view";
 import { PayloadPreview } from "@/components/payload-preview";
 import { CampaignDetailModal } from "@/components/campaign-detail-modal";
+import { ClientDetailModal } from "@/components/modals/entity-modals";
 
 import {
   listLeads,
@@ -41,9 +42,18 @@ import {
   updateCampaignClientStatus,
   updateCampaignAffiliateStatus,
   updateCampaignPlugins,
+  setCampaignAffiliateLeadCap,
+  setCampaignClientDeliveryConfig,
+  setCampaignDistributionConfig,
+  setClientWeight,
 } from "@/lib/api";
 import type { Affiliate, Campaign, Client, Lead } from "@/lib/types";
-import type { CampaignDetailTab, CampaignParticipantStatus } from "@/lib/types";
+import type {
+  CampaignDetailTab,
+  CampaignParticipantStatus,
+  ClientDeliveryConfig,
+  DistributionMode,
+} from "@/lib/types";
 import {
   login,
   getCurrentUser,
@@ -232,13 +242,16 @@ function DashboardContent({
   const [campaignDetailTab, setCampaignDetailTab] =
     useState<CampaignDetailTab>("overview");
   const [campaignDetailSubTab, setCampaignDetailSubTab] = useState<
-    "base-criteria" | "logic" | undefined
+    "base-criteria" | "logic" | "routing" | undefined
   >(undefined);
   const [focusedAffiliateId, setFocusedAffiliateId] = useState<string | null>(
     null,
   );
 
   const [campaignDetailOpen, setCampaignDetailOpen] = useState(false);
+  const [quickViewClientId, setQuickViewClientId] = useState<string | null>(
+    null,
+  );
   const closeCampaignResetTimeoutRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
@@ -338,7 +351,6 @@ function DashboardContent({
 
         toast.success(`1 new lead received: ${leadId}`, {
           id: `new-lead-${leadId}`,
-          onClick: openSingleLead,
           action: {
             label: "Open",
             onClick: openSingleLead,
@@ -367,7 +379,6 @@ function DashboardContent({
 
         toast.success(`${newLeads.length} new leads received`, {
           id: "new-leads",
-          onClick: openLeadsList,
           action: {
             label: "View",
             onClick: openLeadsList,
@@ -489,7 +500,10 @@ function DashboardContent({
 
     const fallbackPrimary = {
       key: validSort.includes(sort) ? sort : "created_at",
-      dir: searchParams?.get("lead_dir") === "asc" ? "asc" : ("desc" as const),
+      dir:
+        searchParams?.get("lead_dir") === "asc"
+          ? ("asc" as const)
+          : ("desc" as const),
     };
 
     return {
@@ -543,26 +557,38 @@ function DashboardContent({
     if (!campaignParam || campaigns.length === 0) return;
     const found = campaigns.find((c) => c.id === campaignParam);
     if (found) {
+      // If the modal is already open for this campaign, only refresh the
+      // campaign data — don't reset the tab/subTab from the URL, because the
+      // tab is already being managed by onTabChange directly.  Without this
+      // guard, an SWR campaign refresh that fires before router.replace
+      // completes reads stale searchParams and resets the active tab.
+      const alreadyOpen =
+        campaignDetailOpen && selectedCampaign?.id === campaignParam;
       setSelectedCampaign(found);
       setCampaignDetailOpen(true);
-      const sectionParam = searchParams?.get("section");
-      const nextTab: CampaignDetailTab =
-        sectionParam === "clients" ||
-        sectionParam === "affiliates" ||
-        sectionParam === "integrations" ||
-        sectionParam === "settings"
-          ? (sectionParam as CampaignDetailTab)
-          : "overview";
-      setCampaignDetailTab(nextTab);
-      const subsectionParam = searchParams?.get("subsection");
-      setCampaignDetailSubTab(
-        subsectionParam === "logic"
-          ? "logic"
-          : subsectionParam === "criteria"
-            ? "base-criteria"
-            : undefined,
-      );
-      setFocusedAffiliateId(searchParams?.get("affiliate") || null);
+      if (!alreadyOpen) {
+        const sectionParam = searchParams?.get("section");
+        const nextTab: CampaignDetailTab =
+          sectionParam === "clients" ||
+          sectionParam === "affiliates" ||
+          sectionParam === "integrations" ||
+          sectionParam === "settings" ||
+          sectionParam === "history"
+            ? (sectionParam as CampaignDetailTab)
+            : "overview";
+        setCampaignDetailTab(nextTab);
+        const subsectionParam = searchParams?.get("subsection");
+        setCampaignDetailSubTab(
+          subsectionParam === "logic"
+            ? "logic"
+            : subsectionParam === "routing"
+              ? "routing"
+              : subsectionParam === "criteria"
+                ? "base-criteria"
+                : undefined,
+        );
+        setFocusedAffiliateId(searchParams?.get("affiliate") || null);
+      }
     }
   }, [campaigns, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -973,6 +999,67 @@ function DashboardContent({
     await refreshCampaignsAndSelect(campaignId);
   };
 
+  const onUpdateAffiliateLeadCap = async (
+    campaignId: string,
+    affiliateId: string,
+    leadCap: number | null,
+  ) => {
+    const promise = setCampaignAffiliateLeadCap(
+      campaignId,
+      affiliateId,
+      leadCap,
+    );
+    await toast.promise(promise, {
+      loading: "Updating lead cap…",
+      success: leadCap == null ? "Lead cap removed" : "Lead cap updated",
+      error: (err) => err?.message || "Unable to update lead cap",
+    });
+    await refreshCampaignsAndSelect(campaignId);
+  };
+
+  const onUpdateClientDeliveryConfig = async (
+    campaignId: string,
+    clientId: string,
+    payload: ClientDeliveryConfig,
+  ) => {
+    const promise = setCampaignClientDeliveryConfig(
+      campaignId,
+      clientId,
+      payload,
+    );
+    await toast.promise(promise, {
+      loading: "Saving delivery config…",
+      success: "Delivery config updated",
+      error: (err) => err?.message || "Unable to update delivery config",
+    });
+    await refreshCampaignsAndSelect(campaignId);
+  };
+
+  const onUpdateCampaignDistribution = async (
+    campaignId: string,
+    payload: {
+      mode: DistributionMode;
+      enabled: boolean;
+    },
+  ) => {
+    const promise = setCampaignDistributionConfig(campaignId, payload);
+    await toast.promise(promise, {
+      loading: "Saving routing config…",
+      success: "Routing config updated",
+      error: (err) => err?.message || "Unable to update routing config",
+    });
+    await refreshCampaignsAndSelect(campaignId);
+  };
+
+  const onUpdateCampaignClientWeight = async (
+    campaignId: string,
+    clientId: string,
+    deliveryConfig: ClientDeliveryConfig,
+    weight: number,
+  ) => {
+    await setClientWeight(campaignId, clientId, deliveryConfig, weight);
+  };
+
   return (
     <div className="flex h-screen overflow-hidden bg-[--color-bg] text-[--color-text]">
       <Sidebar
@@ -1075,6 +1162,8 @@ function DashboardContent({
                     campaignPlugins={
                       campaigns.find((c) => c.id === lead.campaign_id)?.plugins
                     }
+                    clients={clients}
+                    onOpenClient={(clientId) => setQuickViewClientId(clientId)}
                   />
                 )}
               />
@@ -1200,14 +1289,22 @@ function DashboardContent({
         onRemoveClient={onRemoveClientFromCampaign}
         onRemoveAffiliate={onRemoveAffiliateFromCampaign}
         onUpdatePlugins={onUpdateCampaignPlugins}
-        onTabChange={(tab) => {
+        onTabChange={(tab, subTab) => {
           setCampaignDetailTab(tab);
+          setCampaignDetailSubTab(subTab);
           if (tab !== "affiliates") setFocusedAffiliateId(null);
           setQueryParams({
             view: "campaigns",
             campaign: selectedCampaign?.id,
             section: tab,
-            subsection: undefined,
+            subsection:
+              subTab === "logic"
+                ? "logic"
+                : subTab === "routing"
+                  ? "routing"
+                  : subTab === "base-criteria"
+                    ? "criteria"
+                    : undefined,
             affiliate:
               tab === "affiliates"
                 ? focusedAffiliateId || undefined
@@ -1218,7 +1315,12 @@ function DashboardContent({
         onSubTabChange={(sub) => {
           setCampaignDetailSubTab(sub);
           setQueryParams({
-            subsection: sub === "logic" ? "logic" : "criteria",
+            subsection:
+              sub === "logic"
+                ? "logic"
+                : sub === "routing"
+                  ? "routing"
+                  : "criteria",
           });
         }}
         onOpenLeadsForCampaign={openLeadsForCampaign}
@@ -1226,6 +1328,15 @@ function DashboardContent({
         tab={campaignDetailTab}
         onUpdateName={onEditCampaignName}
         onRotateParticipantKey={onRotateCampaignParticipantKey}
+        onUpdateAffiliateLeadCap={onUpdateAffiliateLeadCap}
+        onUpdateClientDeliveryConfig={onUpdateClientDeliveryConfig}
+        onUpdateCampaignDistribution={onUpdateCampaignDistribution}
+        onUpdateClientWeight={onUpdateCampaignClientWeight}
+      />
+      <ClientDetailModal
+        client={clients.find((c) => c.id === quickViewClientId) ?? null}
+        isOpen={!!quickViewClientId}
+        onClose={() => setQuickViewClientId(null)}
       />
     </div>
   );

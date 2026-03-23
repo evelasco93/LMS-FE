@@ -864,7 +864,7 @@ export function LeadsView({
             label: "Mode",
             width: "96px",
             render: (lead) => (
-              <Badge tone={lead.test ? "info" : "success"}>
+              <Badge tone={lead.test ? "warning" : "neutral"}>
                 {lead.test ? "Test" : "Live"}
               </Badge>
             ),
@@ -995,6 +995,28 @@ export function LeadsView({
                 {lead.rejected ? "Rejected" : "Accepted"}
               </Badge>
             ),
+          },
+          {
+            key: "sold_status",
+            label: "Client Delivery",
+            width: "120px",
+            render: (lead) => {
+              if (lead.test)
+                return (
+                  <span className="flex items-center gap-1 text-xs text-[--color-text-muted]">
+                    <MinusCircle size={13} />
+                    Disabled
+                  </span>
+                );
+              const s = lead.sold_status;
+              if (!s || s === "not_delivered")
+                return <Badge tone="neutral">Not Delivered</Badge>;
+              return (
+                <Badge tone={s === "sold" ? "info" : "warning"}>
+                  {s === "sold" ? "Sold" : "Not Sold"}
+                </Badge>
+              );
+            },
           },
           {
             key: "payload",
