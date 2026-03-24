@@ -69,6 +69,113 @@ function isComplexValue(val: unknown): boolean {
   return false;
 }
 
+function humanizeAuditValue(val: unknown): string {
+  if (val === null || val === undefined) return "\u2014";
+  if (typeof val === "boolean") return val ? "Yes" : "No";
+  if (typeof val === "string") {
+    const known: Record<string, string> = {
+      name_to_abbr: "Name \u2192 Abbreviation",
+      abbr_to_name: "Abbreviation \u2192 Name",
+      round_robin: "Round Robin",
+      weighted: "Weighted",
+      round_robin_weighted: "Weighted Round Robin",
+    };
+    if (known[val]) return known[val];
+    // snake_case values \u2192 human label
+    if (/^[a-z][a-z0-9_]*$/.test(val)) return normalizeFieldLabel(val);
+    return val;
+  }
+  return String(val);
+}
+
+function diffDeliveryConfig(
+  from: unknown,
+  to: unknown,
+): { label: string; from: string; to: string }[] {
+  if (!from || !to || typeof from !== "object" || typeof to !== "object") {
+    return [{ label: "Config", from: "\u2014", to: "Updated" }];
+  }
+  const f = from as Record<string, unknown>;
+  const t = to as Record<string, unknown>;
+  const diffs: { label: string; from: string; to: string }[] = [];
+  if (f.url !== t.url) {
+    diffs.push({
+      label: "URL",
+      from: String(f.url ?? "\u2014"),
+      to: String(t.url ?? "\u2014"),
+    });
+  }
+  if (f.method !== t.method) {
+    diffs.push({
+      label: "Method",
+      from: String(f.method ?? "\u2014"),
+      to: String(t.method ?? "\u2014"),
+    });
+  }
+  const fromMappings = Array.isArray(f.payload_mapping)
+    ? f.payload_mapping
+    : [];
+  const toMappings = Array.isArray(t.payload_mapping) ? t.payload_mapping : [];
+  if (fromMappings.length !== toMappings.length) {
+    diffs.push({
+      label: "Payload Fields",
+      from: String(fromMappings.length),
+      to: String(toMappings.length),
+    });
+  } else if (
+    fromMappings.length > 0 &&
+    JSON.stringify(fromMappings) !== JSON.stringify(toMappings)
+  ) {
+    diffs.push({
+      label: "Payload Fields",
+      from: `${fromMappings.length} fields`,
+      to: "Modified",
+    });
+  }
+  const fromRules = Array.isArray(f.acceptance_rules) ? f.acceptance_rules : [];
+  const toRules = Array.isArray(t.acceptance_rules) ? t.acceptance_rules : [];
+  if (fromRules.length !== toRules.length) {
+    diffs.push({
+      label: "Acceptance Rules",
+      from: String(fromRules.length),
+      to: String(toRules.length),
+    });
+  } else if (
+    fromRules.length > 0 &&
+    JSON.stringify(fromRules) !== JSON.stringify(toRules)
+  ) {
+    diffs.push({
+      label: "Acceptance Rules",
+      from: `${fromRules.length} rules`,
+      to: "Modified",
+    });
+  }
+  return diffs.length > 0
+    ? diffs
+    : [{ label: "Config", from: "\u2014", to: "Updated" }];
+}
+
+function extractReadableFieldLabel(field: string): string {
+  const raw = field.replace(/^payload\./, "");
+  // Dotted path \u2192 take the last segment
+  if (raw.includes(".")) {
+    return normalizeFieldLabel(raw.split(".").pop()!);
+  }
+  // Strip leading ID-like segments (all uppercase + digits)
+  const parts = raw.split("_");
+  let startIdx = 0;
+  for (let i = 0; i < parts.length; i++) {
+    if (/^[A-Z0-9]+$/.test(parts[i])) {
+      startIdx = i + 1;
+    } else {
+      break;
+    }
+  }
+  const semanticParts = startIdx > 0 ? parts.slice(startIdx) : parts;
+  if (semanticParts.length === 0) return normalizeFieldLabel(raw);
+  return normalizeFieldLabel(semanticParts.join("_"));
+}
+
 function formatAuditValue(val: unknown): string {
   if (val === null || val === undefined) return "—";
   if (typeof val === "boolean") return val ? "true" : "false";
@@ -1389,6 +1496,15 @@ export function SettingsView({ role }: SettingsViewProps) {
                                             c.field !== "rule_id",
                                         )
                                         .filter((change) => {
+                                          // Always keep delivery_config — handled with sub-diff
+                                          if (
+                                            change.field ===
+                                              "delivery_config" ||
+                                            change.field.endsWith(
+                                              ".delivery_config",
+                                            )
+                                          )
+                                            return true;
                                           const fromObj =
                                             change.from !== null &&
                                             change.from !== undefined &&
@@ -1452,6 +1568,51 @@ export function SettingsView({ role }: SettingsViewProps) {
                                         : null;
 
                                       return filtered.map((change, i) => {
+                                        // ── Delivery config: show sub-diff ──
+                                        if (
+                                          change.field === "delivery_config" ||
+                                          change.field.endsWith(
+                                            ".delivery_config",
+                                          )
+                                        ) {
+                                          const subDiffs = diffDeliveryConfig(
+                                            change.from,
+                                            change.to,
+                                          );
+                                          return (
+                                            <div
+                                              key={`${item.log_id}-${i}`}
+                                              className="grid grid-cols-[8rem_1fr] items-start gap-2 text-[11px]"
+                                            >
+                                              <span className="truncate font-medium text-[--color-text]">
+                                                Delivery Config
+                                              </span>
+                                              <div className="space-y-1">
+                                                {subDiffs.map((d, j) => (
+                                                  <div
+                                                    key={j}
+                                                    className="flex items-center gap-1.5"
+                                                  >
+                                                    <span className="w-28 shrink-0 text-[--color-text-muted]">
+                                                      {d.label}
+                                                    </span>
+                                                    <span className="max-w-[120px] truncate line-through opacity-60">
+                                                      {d.from}
+                                                    </span>
+                                                    <ArrowRight
+                                                      size={9}
+                                                      className="shrink-0"
+                                                    />
+                                                    <span className="max-w-[120px] truncate font-medium text-[--color-text]">
+                                                      {d.to}
+                                                    </span>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            </div>
+                                          );
+                                        }
+
                                         const fieldLower =
                                           change.field.toLowerCase();
                                         const isCondition =
@@ -1506,16 +1667,10 @@ export function SettingsView({ role }: SettingsViewProps) {
                                           isComplexValue(change.from) ||
                                           isComplexValue(change.to);
 
-                                        // Extract the readable part of dotted paths (e.g. "CFxxxx.field_label" → "Field Label")
-                                        const rawField = change.field.replace(
-                                          /^payload\./,
-                                          "",
-                                        );
-                                        const fieldLabel = normalizeFieldLabel(
-                                          rawField.includes(".")
-                                            ? rawField.split(".").pop()!
-                                            : rawField,
-                                        );
+                                        const fieldLabel =
+                                          extractReadableFieldLabel(
+                                            change.field,
+                                          );
 
                                         return (
                                           <div
@@ -1539,14 +1694,13 @@ export function SettingsView({ role }: SettingsViewProps) {
                                                   : "Updated"}
                                               </span>
                                             ) : isAddedValue ? (
-                                              // From null → value: just show the new value
                                               <span className="font-medium text-[--color-text]">
-                                                {formatAuditValue(change.to)}
+                                                {humanizeAuditValue(change.to)}
                                               </span>
                                             ) : (
                                               <span className="flex min-w-0 items-center gap-1.5 text-[--color-text-muted]">
                                                 <span className="max-w-[160px] truncate line-through">
-                                                  {formatAuditValue(
+                                                  {humanizeAuditValue(
                                                     change.from,
                                                   )}
                                                 </span>
@@ -1555,7 +1709,9 @@ export function SettingsView({ role }: SettingsViewProps) {
                                                   className="shrink-0"
                                                 />
                                                 <span className="max-w-[160px] truncate font-medium text-[--color-text]">
-                                                  {formatAuditValue(change.to)}
+                                                  {humanizeAuditValue(
+                                                    change.to,
+                                                  )}
                                                 </span>
                                               </span>
                                             )}

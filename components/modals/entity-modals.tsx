@@ -2,14 +2,19 @@
 
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
-import { History, Sparkles } from "lucide-react";
+import { History, Sparkles, ChevronDown, ArrowRight } from "lucide-react";
 import useSWR from "swr";
 import { AnimatePresence, motion } from "framer-motion";
 import { Modal } from "@/components/modal";
 import { Button } from "@/components/button";
 import { Badge } from "@/components/badge";
 import { Field, PhoneField } from "@/components/shared-ui";
-import { inputClass, generateCodeFromName, formatDate } from "@/lib/utils";
+import {
+  inputClass,
+  generateCodeFromName,
+  formatDate,
+  normalizeFieldLabel,
+} from "@/lib/utils";
 import { getEntityAudit } from "@/lib/api";
 import type { Affiliate, Client, Credential, AuditLogItem } from "@/lib/types";
 import type { AffiliateStatus, ClientStatus } from "@/lib/types";
@@ -71,7 +76,99 @@ function resolveActor(actor?: AuditLogItem["actor"]): string {
   return actor.full_name || actor.email || actor.username || "Unknown";
 }
 
+function formatEntityLogDate(value: string): string {
+  const date = new Date(value);
+  const d = new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+  const t = new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  }).format(date);
+  return `${d} \u00b7 ${t}`;
+}
+
 // ─── EntityAuditTimeline ───────────────────────────────────────────────────────
+
+function EntityAuditRow({ item }: { item: AuditLogItem }) {
+  const [expanded, setExpanded] = useState(false);
+  const actor = resolveActor(item.actor);
+  const hasChanges = item.changes.length > 0;
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => hasChanges && setExpanded((v) => !v)}
+        className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors ${
+          hasChanges
+            ? "cursor-pointer hover:bg-[--color-bg-muted]"
+            : "cursor-default"
+        } ${expanded ? "bg-[--color-bg-muted]" : ""}`}
+      >
+        <span className="w-48 shrink-0 text-[11px] text-[--color-text-muted]">
+          {item.changed_at ? formatEntityLogDate(item.changed_at) : "\u2014"}
+        </span>
+        <span className="w-32 shrink-0 truncate text-sm font-medium text-[--color-text]">
+          {actor}
+        </span>
+        <span className="flex flex-1 items-center gap-1.5 truncate text-sm text-[--color-text-muted]">
+          {auditActionLabel(item.action)}
+        </span>
+        {hasChanges && (
+          <ChevronDown
+            size={14}
+            className={`shrink-0 text-[--color-text-muted] transition-transform duration-150 ${
+              expanded ? "rotate-180" : ""
+            }`}
+          />
+        )}
+      </button>
+      {expanded && hasChanges && (
+        <div className="border-t border-[--color-border] bg-[--color-bg-muted] px-4 py-3">
+          <div className="space-y-2 pl-2">
+            {item.changes.map((ch, i) => {
+              const isAddedValue = ch.from == null && ch.to != null;
+              const rawField = ch.field.replace(/^payload\./, "");
+              const fieldLabel = normalizeFieldLabel(
+                rawField.includes(".") ? rawField.split(".").pop()! : rawField,
+              );
+              return (
+                <div
+                  key={i}
+                  className="grid grid-cols-[10rem_1fr] items-start gap-2 text-[11px]"
+                >
+                  <span className="truncate font-medium text-[--color-text]">
+                    {fieldLabel}
+                  </span>
+                  {isAddedValue ? (
+                    <span className="font-medium text-[--color-text]">
+                      {formatAuditVal(ch.to)}
+                    </span>
+                  ) : (
+                    <span className="flex min-w-0 items-center gap-1.5 text-[--color-text-muted]">
+                      <span className="max-w-[140px] truncate line-through">
+                        {formatAuditVal(ch.from)}
+                      </span>
+                      <ArrowRight size={9} className="shrink-0" />
+                      <span className="max-w-[140px] truncate font-medium text-[--color-text]">
+                        {formatAuditVal(ch.to)}
+                      </span>
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function EntityAuditTimeline({ entityId }: { entityId: string }) {
   const { data, isLoading } = useSWR(
@@ -95,63 +192,16 @@ function EntityAuditTimeline({ entityId }: { entityId: string }) {
       </div>
     );
 
+  const sorted = [...items].sort(
+    (a, b) =>
+      new Date(b.changed_at).getTime() - new Date(a.changed_at).getTime(),
+  );
+
   return (
-    <div className="space-y-2">
-      {[...items]
-        .sort(
-          (a, b) =>
-            new Date(b.changed_at).getTime() - new Date(a.changed_at).getTime(),
-        )
-        .map((item) => (
-          <div
-            key={item.log_id}
-            className="rounded-lg border border-[--color-border] bg-[--color-panel] p-3"
-          >
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge tone={auditActionTone(item.action)}>
-                {auditActionLabel(item.action)}
-              </Badge>
-              <span className="text-xs text-[--color-text-muted]">
-                {resolveActor(item.actor)}
-              </span>
-              <span className="ml-auto text-xs text-[--color-text-muted]">
-                {item.changed_at
-                  ? new Intl.DateTimeFormat(undefined, {
-                      month: "short",
-                      day: "2-digit",
-                      year: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    }).format(new Date(item.changed_at))
-                  : "—"}
-              </span>
-            </div>
-            {item.changes && item.changes.length > 0 && (
-              <ul className="mt-2 space-y-0.5 pl-1">
-                {item.changes.map((ch, i) => (
-                  <li
-                    key={i}
-                    className="flex flex-wrap gap-1 text-xs text-[--color-text-muted]"
-                  >
-                    <span className="font-semibold text-[--color-text]">
-                      {ch.field}
-                    </span>
-                    {ch.from !== undefined && (
-                      <>
-                        <span className="opacity-50">from</span>
-                        <span className="font-mono line-through opacity-60">
-                          {formatAuditVal(ch.from)}
-                        </span>
-                        <span className="opacity-50">→</span>
-                      </>
-                    )}
-                    <span className="font-mono">{formatAuditVal(ch.to)}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        ))}
+    <div className="divide-y divide-[--color-border]">
+      {sorted.map((item) => (
+        <EntityAuditRow key={item.log_id} item={item} />
+      ))}
     </div>
   );
 }
