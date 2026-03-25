@@ -19,6 +19,8 @@ import type {
   Lead,
   PaginatedResponse,
   IntakeLogItem,
+  TableColumnConfig,
+  UserTablePreference,
 } from "./types";
 
 interface RequestInitWithBody extends RequestInit {
@@ -642,6 +644,8 @@ import type {
   CriteriaFieldOption,
   CriteriaValueMapping,
   CriteriaFieldType,
+  CriteriaCatalogSet,
+  CriteriaCatalogVersion,
   LogicRule,
 } from "./types";
 
@@ -735,6 +739,90 @@ export async function seedBaseFields(campaignId: string) {
   return request<{ success: boolean; message?: string }>(url, {
     method: "POST",
   });
+}
+
+// ─── Criteria Catalog ──────────────────────────────────────────────────────────────
+
+export async function listCriteriaCatalog() {
+  return request<{ success: boolean; data: { items: CriteriaCatalogSet[] } }>(
+    buildUrl("/campaigns/criteria-catalog"),
+  );
+}
+
+export async function getCriteriaCatalogSet(setId: string) {
+  return request<{
+    success: boolean;
+    data: { set: CriteriaCatalogSet; versions: CriteriaCatalogVersion[] };
+  }>(buildUrl(`/campaigns/criteria-catalog/${encodeURIComponent(setId)}`));
+}
+
+export async function getCriteriaCatalogVersion(
+  setId: string,
+  version: number,
+) {
+  return request<{ success: boolean; data: CriteriaCatalogVersion }>(
+    buildUrl(
+      `/campaigns/criteria-catalog/${encodeURIComponent(setId)}/versions/${version}`,
+    ),
+  );
+}
+
+type CatalogFieldInput = {
+  field_label: string;
+  field_name: string;
+  data_type: CriteriaFieldType;
+  required?: boolean;
+  description?: string;
+  options?: CriteriaFieldOption[];
+  value_mappings?: CriteriaValueMapping[];
+  state_mapping?: "abbr_to_name" | "name_to_abbr" | null;
+  client_override?: boolean;
+  affiliate_override?: boolean;
+};
+
+export async function createCriteriaCatalogSet(payload: {
+  name: string;
+  description?: string;
+  fields?: CatalogFieldInput[];
+}) {
+  return request<{ success: boolean; data: { set: CriteriaCatalogSet } }>(
+    buildUrl("/campaigns/criteria-catalog"),
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+export async function updateCriteriaCatalogSet(
+  setId: string,
+  payload: {
+    name?: string;
+    description?: string;
+    fields: CatalogFieldInput[];
+  },
+) {
+  return request<{ success: boolean; data: { set: CriteriaCatalogSet } }>(
+    buildUrl(`/campaigns/criteria-catalog/${encodeURIComponent(setId)}`),
+    { method: "PUT", body: JSON.stringify(payload) },
+  );
+}
+
+export async function deactivateCriteriaCatalogSet(setId: string) {
+  return request<{ success: boolean }>(
+    buildUrl(`/campaigns/criteria-catalog/${encodeURIComponent(setId)}`),
+    { method: "DELETE" },
+  );
+}
+
+export async function applyCriteriaCatalog(
+  campaignId: string,
+  criteria_set_id: string,
+  version: number,
+) {
+  return request<{ success: boolean; data: unknown }>(
+    buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/criteria/apply-catalog`,
+    ),
+    { method: "POST", body: JSON.stringify({ criteria_set_id, version }) },
+  );
 }
 
 export async function qaCheckTrustedForm(
@@ -896,6 +984,31 @@ export async function getIntakeLogs(params?: {
     data: IntakeLogItem[];
     lastEvaluatedKey?: string;
   }>(url);
+}
+
+// ─── Table Preferences ───────────────────────────────────────────────────────
+
+export async function getUserTablePreference(tableId: string) {
+  return request<{ success: boolean; data: UserTablePreference }>(
+    buildUrl(`/users/preferences/${encodeURIComponent(tableId)}`),
+  );
+}
+
+export async function setUserTablePreference(
+  tableId: string,
+  payload: { columns: TableColumnConfig[] },
+) {
+  return request<{ success: boolean; data: UserTablePreference }>(
+    buildUrl(`/users/preferences/${encodeURIComponent(tableId)}`),
+    { method: "PUT", body: JSON.stringify(payload) },
+  );
+}
+
+export async function deleteUserTablePreference(tableId: string) {
+  return request<{ success: boolean }>(
+    buildUrl(`/users/preferences/${encodeURIComponent(tableId)}`),
+    { method: "DELETE" },
+  );
 }
 
 // Posting instructions

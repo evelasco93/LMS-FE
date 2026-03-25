@@ -5,7 +5,9 @@ import useSWR from "swr";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowRight,
+  Check,
   ChevronDown,
+  ChevronRight,
   Copy,
   FileText,
   GitBranch,
@@ -58,12 +60,17 @@ import {
   updateCriteriaField,
   deleteCriteriaField,
   updateCriteriaValueMappings,
-  seedBaseFields,
   listLogicRules,
   createLogicRule,
   updateLogicRule,
   deleteLogicRule,
   getEntityAudit,
+  listCriteriaCatalog,
+  getCriteriaCatalogSet,
+  createCriteriaCatalogSet,
+  updateCriteriaCatalogSet,
+  deactivateCriteriaCatalogSet,
+  applyCriteriaCatalog,
 } from "@/lib/api";
 import type {
   Affiliate,
@@ -76,6 +83,8 @@ import type {
   CriteriaFieldOption,
   CriteriaFieldType,
   CriteriaValueMapping,
+  CriteriaCatalogSet,
+  CriteriaCatalogVersion,
   DistributionMode,
   Lead,
   LogicRule,
@@ -87,6 +96,16 @@ import type {
   CampaignParticipantStatus,
 } from "@/lib/types";
 import { generatePostingInstructions } from "@/lib/generate-posting-instructions";
+
+// ─── Catalog field draft type (used when creating/editing catalog sets) ──────
+type CatalogFieldDraft = {
+  field_label: string;
+  field_name: string;
+  data_type: CriteriaFieldType;
+  required: boolean;
+  description: string;
+  state_mapping: "abbr_to_name" | "name_to_abbr" | null;
+};
 
 const CONFIG_AUDIT_ACTIONS = new Set([
   "criteria_field_added",
@@ -438,6 +457,7 @@ export function CampaignDetailModal({
   focusAffiliateId,
   subTab,
   onSubTabChange,
+  onCampaignUpdate,
 }: {
   campaign: Campaign | null;
   clients: Client[];
@@ -523,6 +543,7 @@ export function CampaignDetailModal({
   focusAffiliateId: string | null;
   subTab?: "base-criteria" | "logic" | "routing";
   onSubTabChange?: (sub: "base-criteria" | "logic" | "routing") => void;
+  onCampaignUpdate?: (update: Partial<Campaign>) => void;
 }) {
   const [titleEditing, setTitleEditing] = useState(false);
   const [savingTitle, setSavingTitle] = useState(false);
@@ -633,7 +654,61 @@ export function CampaignDetailModal({
     onSubTabChange?.(sub);
   };
 
-  const [seedingBaseFields, setSeedingBaseFields] = useState(false);
+  // ── Criteria Catalog states ──────────────────────────────────────────────
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogSets, setCatalogSets] = useState<CriteriaCatalogSet[]>([]);
+  const [expandedSetId, setExpandedSetId] = useState<string | null>(null);
+  const [setVersionsMap, setSetVersionsMap] = useState<
+    Record<string, CriteriaCatalogVersion[]>
+  >({});
+  const [loadingVersionsFor, setLoadingVersionsFor] = useState<string | null>(
+    null,
+  );
+  const [applyingCatalog, setApplyingCatalog] = useState<string | null>(null);
+  const [catalogFormMode, setCatalogFormMode] = useState<
+    "browse" | "create" | "edit"
+  >("browse");
+  const [editingCatalogSet, setEditingCatalogSet] =
+    useState<CriteriaCatalogSet | null>(null);
+  const [catalogFormDraft, setCatalogFormDraft] = useState({
+    name: "",
+    description: "",
+  });
+  const [catalogFieldDrafts, setCatalogFieldDrafts] = useState<
+    CatalogFieldDraft[]
+  >([]);
+  const [savingCatalog, setSavingCatalog] = useState(false);
+  const [confirmDeactivateSet, setConfirmDeactivateSet] =
+    useState<CriteriaCatalogSet | null>(null);
+  const [deactivating, setDeactivating] = useState(false);
+  // Set of "{setId}#v{version}" keys whose field list is expanded
+  const [expandedVersionFields, setExpandedVersionFields] = useState<
+    Set<string>
+  >(new Set());
+  // Track the applied catalog on this campaign (local mirror of campaign.criteria_set_*)
+  const [localCriteriaSetId, setLocalCriteriaSetId] = useState<string | null>(
+    campaign?.criteria_set_id ?? null,
+  );
+  const [localCriteriaSetVersion, setLocalCriteriaSetVersion] = useState<
+    number | null
+  >(campaign?.criteria_set_version ?? null);
+
+  // Sync applied-catalog state whenever a different campaign is opened.
+  // (useState initializer only runs once on mount, so we need this effect.)
+  useEffect(() => {
+    setLocalCriteriaSetId(campaign?.criteria_set_id ?? null);
+    setLocalCriteriaSetVersion(campaign?.criteria_set_version ?? null);
+  }, [campaign?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Save-as-Set ────────────────────────────────────────────────────────────
+  const [saveAsSetOpen, setSaveAsSetOpen] = useState(false);
+  const [saveAsSetDraft, setSaveAsSetDraft] = useState({
+    name: "",
+    description: "",
+  });
+  const [savingAsSet, setSavingAsSet] = useState(false);
+
   const [addFieldOpen, setAddFieldOpen] = useState(false);
   const [editFieldData, setEditFieldData] = useState<CriteriaField | null>(
     null,
@@ -4154,6 +4229,41 @@ export function CampaignDetailModal({
                           >
                             {/* Header */}
                             <div className="flex items-center justify-end gap-2">
+                              {criteriaFields.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSaveAsSetDraft({
+                                      name: "",
+                                      description: "",
+                                    });
+                                    setSaveAsSetOpen(true);
+                                  }}
+                                  className="shrink-0 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-3 py-1.5 text-[11px] font-medium text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg] transition-colors"
+                                >
+                                  Save as Set
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  setCatalogOpen(true);
+                                  setCatalogFormMode("browse");
+                                  setCatalogLoading(true);
+                                  try {
+                                    const res = await listCriteriaCatalog();
+                                    if (res.success)
+                                      setCatalogSets(res.data.items);
+                                  } catch {
+                                    toast.error("Failed to load catalog.");
+                                  } finally {
+                                    setCatalogLoading(false);
+                                  }
+                                }}
+                                className="shrink-0 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-3 py-1.5 text-[11px] font-medium text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg] transition-colors"
+                              >
+                                Criteria Catalog
+                              </button>
                               <Button
                                 size="sm"
                                 iconLeft={<Plus size={14} />}
@@ -4183,19 +4293,46 @@ export function CampaignDetailModal({
                                   }}
                                 >
                                   {criteriaFields.length === 0 ? (
-                                    <div className="rounded-xl border border-dashed border-[--color-border] py-12 text-center text-sm text-[--color-text-muted]">
-                                      No criteria fields yet.{" "}
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setFieldDraft(emptyFieldDraft);
-                                          setEditFieldData(null);
-                                          setAddFieldOpen(true);
-                                        }}
-                                        className="text-[--color-primary] hover:underline"
-                                      >
-                                        Add the first field
-                                      </button>
+                                    <div className="rounded-xl border border-dashed border-[--color-border] px-6 py-10 text-center">
+                                      <p className="text-sm text-[--color-text-muted] mb-4">
+                                        No criteria fields yet.
+                                      </p>
+                                      <div className="flex flex-col items-center gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={async () => {
+                                            setCatalogOpen(true);
+                                            setCatalogFormMode("browse");
+                                            setCatalogLoading(true);
+                                            try {
+                                              const res =
+                                                await listCriteriaCatalog();
+                                              if (res.success)
+                                                setCatalogSets(res.data.items);
+                                            } catch {
+                                              toast.error(
+                                                "Failed to load catalog.",
+                                              );
+                                            } finally {
+                                              setCatalogLoading(false);
+                                            }
+                                          }}
+                                          className="rounded-md bg-[--color-primary] px-4 py-2 text-[13px] font-medium text-white hover:opacity-90 transition-opacity"
+                                        >
+                                          Apply from Criteria Catalog
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setFieldDraft(emptyFieldDraft);
+                                            setEditFieldData(null);
+                                            setAddFieldOpen(true);
+                                          }}
+                                          className="text-[12px] text-[--color-text-muted] hover:text-[--color-text] hover:underline transition-colors"
+                                        >
+                                          or add a custom field
+                                        </button>
+                                      </div>
                                     </div>
                                   ) : (
                                     <div className="overflow-hidden rounded-xl border border-[--color-border]">
@@ -5131,6 +5268,747 @@ export function CampaignDetailModal({
         saving={savingRule}
       />
 
+      {/* ── Criteria Catalog modal ──────────────────────────────────────── */}
+      <Modal
+        title={
+          catalogFormMode === "create"
+            ? "New Catalog Set"
+            : catalogFormMode === "edit"
+              ? `Edit: ${editingCatalogSet?.name ?? ""}`
+              : "Criteria Catalog"
+        }
+        isOpen={catalogOpen}
+        onClose={() => {
+          setCatalogOpen(false);
+          setCatalogFormMode("browse");
+        }}
+        width={640}
+        bodyClassName="px-5 py-4 overflow-y-auto h-[520px]"
+      >
+        <AnimatePresence mode="wait" initial={false}>
+          {/* ── browse view ─────────────────────────────────────────────── */}
+          {catalogFormMode === "browse" && (
+            <motion.div
+              key="catalog-browse"
+              initial={{ opacity: 0, x: -16 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -16 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+              className="space-y-4 text-sm"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-xs text-[--color-text-muted] leading-relaxed">
+                  Versioned criteria sets. Apply a version to copy its fields
+                  into this campaign's criteria.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCatalogFormMode("create");
+                    setCatalogFormDraft({ name: "", description: "" });
+                    setCatalogFieldDrafts([]);
+                  }}
+                  className="shrink-0 inline-flex items-center gap-1 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-2.5 py-1.5 text-[11px] font-medium text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg] transition-colors"
+                >
+                  <Plus size={11} />
+                  New Set
+                </button>
+              </div>
+
+              {/* currently applied badge */}
+              {localCriteriaSetId && (
+                <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 px-3 py-2 flex items-center gap-2 text-[11px]">
+                  <Check
+                    size={12}
+                    className="text-emerald-600 dark:text-emerald-400 shrink-0"
+                  />
+                  <span className="text-emerald-700 dark:text-emerald-400">
+                    Currently applied:{" "}
+                    <strong>
+                      {catalogSets.find((s) => s.id === localCriteriaSetId)
+                        ?.name ?? localCriteriaSetId}
+                    </strong>{" "}
+                    v{localCriteriaSetVersion}
+                  </span>
+                </div>
+              )}
+
+              {catalogLoading ? (
+                <p className="text-sm text-[--color-text-muted]">Loading…</p>
+              ) : catalogSets.length === 0 ? (
+                <p className="text-sm text-[--color-text-muted]">
+                  No catalog sets yet. Create one to get started.
+                </p>
+              ) : (
+                <div className="divide-y divide-[--color-border] rounded-xl border border-[--color-border] overflow-hidden">
+                  {catalogSets.map((set) => (
+                    <div key={set.id}>
+                      {/* set header row */}
+                      <div
+                        className="flex items-center gap-3 px-4 py-3 bg-[--color-bg] hover:bg-[--color-bg-muted] transition-colors cursor-pointer"
+                        onClick={async () => {
+                          if (expandedSetId === set.id) {
+                            setExpandedSetId(null);
+                            return;
+                          }
+                          setExpandedSetId(set.id);
+                          if (setVersionsMap[set.id]) return;
+                          setLoadingVersionsFor(set.id);
+                          try {
+                            const res = await getCriteriaCatalogSet(set.id);
+                            if (res.success) {
+                              setSetVersionsMap((prev) => ({
+                                ...prev,
+                                [set.id]: res.data.versions,
+                              }));
+                            }
+                          } catch {
+                            toast.error("Failed to load versions.");
+                          } finally {
+                            setLoadingVersionsFor(null);
+                          }
+                        }}
+                      >
+                        <span className="text-[--color-text-muted]">
+                          {expandedSetId === set.id ? (
+                            <ChevronDown size={14} />
+                          ) : (
+                            <ChevronRight size={14} />
+                          )}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium text-[--color-text-strong] text-[13px]">
+                              {set.name}
+                            </span>
+                            <span className="font-mono text-[10px] text-[--color-text-muted] bg-[--color-bg-muted] border border-[--color-border] rounded px-1.5 py-0.5">
+                              {localCriteriaSetId === set.id &&
+                              localCriteriaSetVersion != null
+                                ? `v${localCriteriaSetVersion}`
+                                : `v${set.latest_version}`}
+                            </span>
+                            {!set.active && (
+                              <span className="text-[10px] font-medium text-rose-500 bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800 rounded px-1.5 py-0.5">
+                                inactive
+                              </span>
+                            )}
+                            {localCriteriaSetId === set.id && (
+                              <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded px-1.5 py-0.5">
+                                Active
+                              </span>
+                            )}
+                          </div>
+                          {set.description && (
+                            <p className="mt-0.5 text-[11px] text-[--color-text-muted]">
+                              {set.description}
+                            </p>
+                          )}
+                        </div>
+                        <div
+                          className="flex items-center gap-2"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              setCatalogFormMode("edit");
+                              setEditingCatalogSet(set);
+                              setCatalogFormDraft({
+                                name: set.name,
+                                description: set.description ?? "",
+                              });
+                              // pre-populate field drafts from latest version
+                              if (setVersionsMap[set.id]) {
+                                const latest = setVersionsMap[set.id].find(
+                                  (v) => v.version === set.latest_version,
+                                );
+                                setCatalogFieldDrafts(
+                                  latest?.fields.map((f) => ({
+                                    field_label: f.field_label,
+                                    field_name: f.field_name,
+                                    data_type: f.data_type,
+                                    required: f.required,
+                                    description: f.description ?? "",
+                                    state_mapping: f.state_mapping ?? null,
+                                  })) ?? [],
+                                );
+                              } else {
+                                // fetch versions first
+                                try {
+                                  const res = await getCriteriaCatalogSet(
+                                    set.id,
+                                  );
+                                  if (res.success) {
+                                    setSetVersionsMap((prev) => ({
+                                      ...prev,
+                                      [set.id]: res.data.versions,
+                                    }));
+                                    const latest = res.data.versions.find(
+                                      (v) => v.version === set.latest_version,
+                                    );
+                                    setCatalogFieldDrafts(
+                                      latest?.fields.map((f) => ({
+                                        field_label: f.field_label,
+                                        field_name: f.field_name,
+                                        data_type: f.data_type,
+                                        required: f.required,
+                                        description: f.description ?? "",
+                                        state_mapping: f.state_mapping ?? null,
+                                      })) ?? [],
+                                    );
+                                  }
+                                } catch {
+                                  toast.error("Failed to load set fields.");
+                                }
+                              }
+                            }}
+                            className="inline-flex items-center gap-1 rounded-md border border-[--color-border] bg-[--color-surface] px-2 py-1 text-[11px] font-medium text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg-muted] transition-colors"
+                          >
+                            <Pencil size={10} />
+                            Edit
+                          </button>
+                          {set.active && (
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeactivateSet(set)}
+                              className="inline-flex items-center gap-1 rounded-md border border-[--color-border] bg-[--color-surface] px-2 py-1 text-[11px] font-medium text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors"
+                            >
+                              Deactivate
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* versions panel (expanded) */}
+                      <AnimatePresence initial={false}>
+                        {expandedSetId === set.id && (
+                          <motion.div
+                            key={`versions-${set.id}`}
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: "auto", opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.2, ease: "easeOut" }}
+                            style={{ overflow: "hidden" }}
+                            className="bg-[--color-bg-muted] border-t border-[--color-border]"
+                          >
+                            {loadingVersionsFor === set.id ? (
+                              <p className="px-6 py-3 text-xs text-[--color-text-muted]">
+                                Loading versions…
+                              </p>
+                            ) : (setVersionsMap[set.id] ?? []).length === 0 ? (
+                              <p className="px-6 py-3 text-xs text-[--color-text-muted]">
+                                No versions found.
+                              </p>
+                            ) : (
+                              [...(setVersionsMap[set.id] ?? [])]
+                                .sort((a, b) => b.version - a.version)
+                                .map((v) => {
+                                  const isApplied =
+                                    localCriteriaSetId === set.id &&
+                                    localCriteriaSetVersion === v.version;
+                                  const applyKey = `${set.id}#v${v.version}`;
+                                  return (
+                                    <div
+                                      key={v.version}
+                                      className="border-b last:border-0 border-[--color-border]"
+                                    >
+                                      {/* version header row */}
+                                      <div className="flex items-center gap-3 px-6 py-2.5">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const key = applyKey;
+                                            setExpandedVersionFields((prev) => {
+                                              const next = new Set(prev);
+                                              if (next.has(key))
+                                                next.delete(key);
+                                              else next.add(key);
+                                              return next;
+                                            });
+                                          }}
+                                          className="flex items-center gap-1.5 flex-1 min-w-0 text-left"
+                                        >
+                                          <span className="text-[--color-text-muted]">
+                                            {expandedVersionFields.has(
+                                              applyKey,
+                                            ) ? (
+                                              <ChevronDown size={11} />
+                                            ) : (
+                                              <ChevronRight size={11} />
+                                            )}
+                                          </span>
+                                          <span className="font-mono text-[11px] font-semibold text-[--color-text-strong] w-6">
+                                            v{v.version}
+                                          </span>
+                                          <span className="text-[11px] text-[--color-text-muted]">
+                                            {v.fields.length} field
+                                            {v.fields.length !== 1 ? "s" : ""}
+                                          </span>
+                                          {v.campaigns_using.length > 0 && (
+                                            <span className="text-[10px] text-[--color-text-muted]">
+                                              · {v.campaigns_using.length}{" "}
+                                              campaign
+                                              {v.campaigns_using.length !== 1
+                                                ? "s"
+                                                : ""}
+                                            </span>
+                                          )}
+                                        </button>
+                                        <span className="text-[10px] text-[--color-text-muted]">
+                                          {v.created_at
+                                            ? new Date(
+                                                v.created_at,
+                                              ).toLocaleDateString()
+                                            : ""}
+                                        </span>
+                                        <div className="shrink-0">
+                                          {isApplied ? (
+                                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                                              <Check size={11} />
+                                              Applied
+                                            </span>
+                                          ) : (
+                                            <button
+                                              type="button"
+                                              disabled={
+                                                applyingCatalog !== null
+                                              }
+                                              onClick={async () => {
+                                                setApplyingCatalog(applyKey);
+                                                try {
+                                                  await applyCriteriaCatalog(
+                                                    campaign.id,
+                                                    set.id,
+                                                    v.version,
+                                                  );
+                                                  toast.success(
+                                                    `Applied "${set.name}" v${v.version}.`,
+                                                  );
+                                                  setLocalCriteriaSetId(set.id);
+                                                  setLocalCriteriaSetVersion(
+                                                    v.version,
+                                                  );
+                                                  onCampaignUpdate?.({
+                                                    criteria_set_id: set.id,
+                                                    criteria_set_version:
+                                                      v.version,
+                                                  });
+                                                  await refreshCriteria();
+                                                } catch (err: any) {
+                                                  toast.error(
+                                                    err?.message ||
+                                                      "Failed to apply catalog version.",
+                                                  );
+                                                } finally {
+                                                  setApplyingCatalog(null);
+                                                }
+                                              }}
+                                              className="inline-flex items-center gap-1 rounded-md border border-[--color-border] bg-[--color-surface] px-2.5 py-1 text-[11px] font-medium text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg] disabled:opacity-50 transition-colors"
+                                            >
+                                              {applyingCatalog === applyKey
+                                                ? "Applying…"
+                                                : "Apply"}
+                                            </button>
+                                          )}
+                                        </div>
+                                      </div>
+                                      {/* expandable fields table */}
+                                      <AnimatePresence initial={false}>
+                                        {expandedVersionFields.has(
+                                          applyKey,
+                                        ) && (
+                                          <motion.div
+                                            key={`vf-${applyKey}`}
+                                            initial={{ height: 0, opacity: 0 }}
+                                            animate={{
+                                              height: "auto",
+                                              opacity: 1,
+                                            }}
+                                            exit={{ height: 0, opacity: 0 }}
+                                            transition={{
+                                              duration: 0.18,
+                                              ease: "easeOut",
+                                            }}
+                                            style={{ overflow: "hidden" }}
+                                          >
+                                            {v.fields.length === 0 ? (
+                                              <p className="px-10 pb-3 text-[11px] text-[--color-text-muted]">
+                                                No fields in this version.
+                                              </p>
+                                            ) : (
+                                              <table className="w-full text-[11px] border-t border-[--color-border] bg-[--color-bg]">
+                                                <thead>
+                                                  <tr className="bg-[--color-bg-muted]">
+                                                    <th className="pl-10 pr-3 py-1.5 text-left text-[10px] uppercase tracking-wide text-[--color-text-muted] font-medium">
+                                                      Label
+                                                    </th>
+                                                    <th className="px-3 py-1.5 text-left text-[10px] uppercase tracking-wide text-[--color-text-muted] font-medium">
+                                                      Name
+                                                    </th>
+                                                    <th className="px-3 py-1.5 text-left text-[10px] uppercase tracking-wide text-[--color-text-muted] font-medium">
+                                                      Type
+                                                    </th>
+                                                    <th className="px-3 py-1.5 text-center text-[10px] uppercase tracking-wide text-[--color-text-muted] font-medium">
+                                                      Req
+                                                    </th>
+                                                  </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-[--color-border]">
+                                                  {v.fields.map((fld) => (
+                                                    <tr key={fld.field_name}>
+                                                      <td className="pl-10 pr-3 py-1.5 text-[--color-text]">
+                                                        {fld.field_label}
+                                                      </td>
+                                                      <td className="px-3 py-1.5 font-mono text-[10px] text-[--color-text-muted]">
+                                                        {fld.field_name}
+                                                      </td>
+                                                      <td className="px-3 py-1.5 text-[--color-text-muted]">
+                                                        {fld.data_type}
+                                                      </td>
+                                                      <td className="px-3 py-1.5 text-center">
+                                                        {fld.required ? (
+                                                          <span className="text-[10px] font-medium text-rose-500">
+                                                            Yes
+                                                          </span>
+                                                        ) : (
+                                                          <span className="text-[10px] text-[--color-text-muted]">
+                                                            —
+                                                          </span>
+                                                        )}
+                                                      </td>
+                                                    </tr>
+                                                  ))}
+                                                </tbody>
+                                              </table>
+                                            )}
+                                          </motion.div>
+                                        )}
+                                      </AnimatePresence>
+                                    </div>
+                                  );
+                                })
+                            )}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </motion.div>
+          )}
+
+          {/* ── create / edit form view ──────────────────────────────────── */}
+          {(catalogFormMode === "create" || catalogFormMode === "edit") && (
+            <motion.div
+              key="catalog-form"
+              initial={{ opacity: 0, x: 16 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 16 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+              className="space-y-4 text-sm"
+            >
+              {/* back link */}
+              <button
+                type="button"
+                onClick={() => setCatalogFormMode("browse")}
+                className="inline-flex items-center gap-1 text-[11px] text-[--color-text-muted] hover:text-[--color-text] transition-colors"
+              >
+                <ChevronRight size={11} className="rotate-180" />
+                Back to catalog
+              </button>
+
+              {/* name */}
+              <div className="space-y-1">
+                <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+                  Name
+                </p>
+                <input
+                  className={inputClass}
+                  placeholder="e.g. Standard residential criteria"
+                  value={catalogFormDraft.name}
+                  onChange={(e) =>
+                    setCatalogFormDraft((p) => ({ ...p, name: e.target.value }))
+                  }
+                />
+              </div>
+
+              {/* description */}
+              <div className="space-y-1">
+                <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+                  Description{" "}
+                  <span className="normal-case font-normal">(optional)</span>
+                </p>
+                <textarea
+                  className={inputClass}
+                  rows={2}
+                  placeholder="Optional notes about this criteria set"
+                  value={catalogFormDraft.description}
+                  onChange={(e) =>
+                    setCatalogFormDraft((p) => ({
+                      ...p,
+                      description: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+
+              {/* fields list */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+                    Fields{" "}
+                    {catalogFormMode === "edit" && (
+                      <span className="normal-case font-normal text-[--color-text-muted]">
+                        — saving creates a new version
+                      </span>
+                    )}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCatalogFieldDrafts((prev) => [
+                        ...prev,
+                        {
+                          field_label: "",
+                          field_name: "",
+                          data_type: "Text",
+                          required: false,
+                          description: "",
+                          state_mapping: null,
+                        },
+                      ])
+                    }
+                    className="inline-flex items-center gap-1 text-[11px] text-[--color-primary] hover:underline"
+                  >
+                    <Plus size={11} />
+                    Add field
+                  </button>
+                </div>
+
+                {catalogFieldDrafts.length === 0 ? (
+                  <p className="text-[11px] text-[--color-text-muted]">
+                    No fields yet. You can add them after saving too.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {catalogFieldDrafts.map((f, i) => (
+                      <div
+                        key={i}
+                        className="rounded-lg border border-[--color-border] bg-[--color-bg-muted] p-3 space-y-2"
+                      >
+                        <div className="grid grid-cols-2 gap-2">
+                          <input
+                            className={inputClass}
+                            placeholder="Label"
+                            value={f.field_label}
+                            onChange={(e) => {
+                              const label = e.target.value;
+                              setCatalogFieldDrafts((prev) =>
+                                prev.map((item, idx) =>
+                                  idx !== i
+                                    ? item
+                                    : {
+                                        ...item,
+                                        field_label: label,
+                                        field_name:
+                                          item.field_name ===
+                                          item.field_label
+                                            .toLowerCase()
+                                            .replace(/\s+/g, "_")
+                                            .replace(/[^a-z0-9_]/g, "")
+                                            ? label
+                                                .toLowerCase()
+                                                .replace(/\s+/g, "_")
+                                                .replace(/[^a-z0-9_]/g, "")
+                                            : item.field_name,
+                                      },
+                                ),
+                              );
+                            }}
+                          />
+                          <input
+                            className={`${inputClass} font-mono text-[11px]`}
+                            placeholder="field_name"
+                            value={f.field_name}
+                            onChange={(e) =>
+                              setCatalogFieldDrafts((prev) =>
+                                prev.map((item, idx) =>
+                                  idx === i
+                                    ? { ...item, field_name: e.target.value }
+                                    : item,
+                                ),
+                              )
+                            }
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <select
+                            className={inputClass}
+                            value={f.data_type}
+                            onChange={(e) =>
+                              setCatalogFieldDrafts((prev) =>
+                                prev.map((item, idx) =>
+                                  idx === i
+                                    ? {
+                                        ...item,
+                                        data_type: e.target
+                                          .value as CriteriaFieldType,
+                                      }
+                                    : item,
+                                ),
+                              )
+                            }
+                          >
+                            {(
+                              [
+                                "Text",
+                                "Number",
+                                "Boolean",
+                                "Date",
+                                "List",
+                                "US State",
+                              ] as CriteriaFieldType[]
+                            ).map((t) => (
+                              <option key={t} value={t}>
+                                {t}
+                              </option>
+                            ))}
+                          </select>
+                          <label className="flex items-center gap-2 text-[11px] text-[--color-text] cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={f.required}
+                              onChange={(e) =>
+                                setCatalogFieldDrafts((prev) =>
+                                  prev.map((item, idx) =>
+                                    idx === i
+                                      ? { ...item, required: e.target.checked }
+                                      : item,
+                                  ),
+                                )
+                              }
+                            />
+                            Required
+                          </label>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <input
+                            className={`${inputClass} flex-1 text-[11px]`}
+                            placeholder="Description (optional)"
+                            value={f.description}
+                            onChange={(e) =>
+                              setCatalogFieldDrafts((prev) =>
+                                prev.map((item, idx) =>
+                                  idx === i
+                                    ? { ...item, description: e.target.value }
+                                    : item,
+                                ),
+                              )
+                            }
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCatalogFieldDrafts((prev) =>
+                                prev.filter((_, idx) => idx !== i),
+                              )
+                            }
+                            className="shrink-0 p-1.5 rounded text-[--color-text-muted] hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* submit row */}
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[--color-border]">
+                <button
+                  type="button"
+                  onClick={() => setCatalogFormMode("browse")}
+                  className="rounded-md border border-[--color-border] bg-[--color-bg-muted] px-3 py-1.5 text-[11px] font-medium text-[--color-text-muted] hover:text-[--color-text] disabled:opacity-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={savingCatalog || !catalogFormDraft.name.trim()}
+                  onClick={async () => {
+                    setSavingCatalog(true);
+                    const fields = catalogFieldDrafts
+                      .filter(
+                        (f) => f.field_label.trim() && f.field_name.trim(),
+                      )
+                      .map((f) => ({
+                        field_label: f.field_label.trim(),
+                        field_name: f.field_name.trim(),
+                        data_type: f.data_type,
+                        required: f.required,
+                        ...(f.description
+                          ? { description: f.description }
+                          : {}),
+                        ...(f.state_mapping
+                          ? { state_mapping: f.state_mapping }
+                          : {}),
+                      }));
+                    try {
+                      if (catalogFormMode === "create") {
+                        await createCriteriaCatalogSet({
+                          name: catalogFormDraft.name.trim(),
+                          ...(catalogFormDraft.description
+                            ? { description: catalogFormDraft.description }
+                            : {}),
+                          ...(fields.length > 0 ? { fields } : {}),
+                        });
+                        toast.success("Catalog set created.");
+                      } else {
+                        await updateCriteriaCatalogSet(editingCatalogSet!.id, {
+                          name: catalogFormDraft.name.trim(),
+                          ...(catalogFormDraft.description !== undefined
+                            ? { description: catalogFormDraft.description }
+                            : {}),
+                          fields,
+                        });
+                        // clear cached versions so they reload on next expand
+                        setSetVersionsMap((prev) => {
+                          const next = { ...prev };
+                          delete next[editingCatalogSet!.id];
+                          return next;
+                        });
+                        toast.success(
+                          "Catalog set updated — new version saved.",
+                        );
+                      }
+                      // refresh catalog list
+                      const res = await listCriteriaCatalog();
+                      if (res.success) setCatalogSets(res.data.items);
+                      setCatalogFormMode("browse");
+                    } catch (err: any) {
+                      toast.error(
+                        err?.message || "Failed to save catalog set.",
+                      );
+                    } finally {
+                      setSavingCatalog(false);
+                    }
+                  }}
+                  className="rounded-md bg-[--color-primary] text-white px-3 py-1.5 text-[11px] font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
+                >
+                  {savingCatalog
+                    ? "Saving…"
+                    : catalogFormMode === "create"
+                      ? "Create Set"
+                      : "Save Changes"}
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </Modal>
+
       {/* ── Add / Edit Criteria Field modal ────────────────────────────── */}
       <Modal
         title={editFieldData ? "Edit Field" : "Add Field"}
@@ -5143,50 +6021,6 @@ export function CampaignDetailModal({
       >
         {addFieldOpen && (
           <div className="space-y-4 text-sm">
-            {/* ── Seed base fields quickstart ───────────────────────── */}
-            {!editFieldData && (
-              <div className="rounded-lg border border-[--color-border] bg-[--color-bg-muted] p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="font-medium text-[--color-text-strong] text-[13px]">
-                      Seed standard fields
-                    </p>
-                    <p className="mt-0.5 text-[11px] text-[--color-text-muted] leading-snug">
-                      Instantly add 10 pre-defined fields — First Name, Last
-                      Name, Phone, State, Email, IP Address, and more. Existing
-                      fields are skipped.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={seedingBaseFields}
-                    onClick={async () => {
-                      setSeedingBaseFields(true);
-                      try {
-                        await seedBaseFields(campaign.id);
-                        toast.success("Standard fields seeded.");
-                        refreshCriteria();
-                        setAddFieldOpen(false);
-                      } catch {
-                        toast.error("Failed to seed base fields.");
-                      } finally {
-                        setSeedingBaseFields(false);
-                      }
-                    }}
-                    className="shrink-0 rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-1.5 text-[11px] font-medium text-[--color-text] hover:bg-[--color-bg-muted] disabled:opacity-50 transition-colors"
-                  >
-                    {seedingBaseFields ? "Seeding…" : "Add All"}
-                  </button>
-                </div>
-              </div>
-            )}
-            {!editFieldData && (
-              <div className="flex items-center gap-2 text-[11px] text-[--color-text-muted]">
-                <div className="flex-1 border-t border-[--color-border]" />
-                or add a custom field
-                <div className="flex-1 border-t border-[--color-border]" />
-              </div>
-            )}
             <div className="space-y-1">
               <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
                 Field Label
@@ -5557,6 +6391,14 @@ export function CampaignDetailModal({
                           : {}),
                       });
                       toast.success("Field added");
+                      // Adding a custom field de-syncs the campaign from the
+                      // applied catalog version.
+                      setLocalCriteriaSetId(null);
+                      setLocalCriteriaSetVersion(null);
+                      onCampaignUpdate?.({
+                        criteria_set_id: null,
+                        criteria_set_version: null,
+                      });
                     }
                     await refreshCriteria();
                     setAddFieldOpen(false);
@@ -5768,6 +6610,64 @@ export function CampaignDetailModal({
         )}
       </Modal>
 
+      {/* ── Deactivate catalog set confirm modal ────────────────────────── */}
+      <Modal
+        title="Deactivate Catalog Set?"
+        isOpen={!!confirmDeactivateSet}
+        onClose={() => setConfirmDeactivateSet(null)}
+        width={400}
+      >
+        {confirmDeactivateSet && (
+          <div className="space-y-4 px-1 pb-1 text-sm">
+            <p className="text-[--color-text]">
+              Deactivate{" "}
+              <span className="font-semibold text-[--color-text-strong]">
+                {confirmDeactivateSet.name}
+              </span>
+              ? This will not affect campaigns already using it.
+            </p>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setConfirmDeactivateSet(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                variant="danger"
+                disabled={deactivating}
+                onClick={async () => {
+                  if (!confirmDeactivateSet) return;
+                  setDeactivating(true);
+                  try {
+                    await deactivateCriteriaCatalogSet(confirmDeactivateSet.id);
+                    toast.success(
+                      `"${confirmDeactivateSet.name}" deactivated.`,
+                    );
+                    setCatalogSets((prev) =>
+                      prev.map((s) =>
+                        s.id === confirmDeactivateSet.id
+                          ? { ...s, active: false }
+                          : s,
+                      ),
+                    );
+                    setConfirmDeactivateSet(null);
+                  } catch {
+                    toast.error("Failed to deactivate.");
+                  } finally {
+                    setDeactivating(false);
+                  }
+                }}
+              >
+                {deactivating ? "Deactivating…" : "Deactivate"}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
       {/* ── Delete Criteria Field confirm modal ────────────────────────── */}
       <Modal
         title="Delete Field"
@@ -5805,6 +6705,13 @@ export function CampaignDetailModal({
                     );
                     await refreshCriteria();
                     toast.success("Field deleted");
+                    // Deleting a field de-syncs the campaign from the applied catalog.
+                    setLocalCriteriaSetId(null);
+                    setLocalCriteriaSetVersion(null);
+                    onCampaignUpdate?.({
+                      criteria_set_id: null,
+                      criteria_set_version: null,
+                    });
                     setDeleteFieldTarget(null);
                   } catch (err: any) {
                     toast.error(err?.message || "Unable to delete field");
@@ -5818,6 +6725,112 @@ export function CampaignDetailModal({
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* ── Save criteria fields as a new catalog set ──────────────────── */}
+      <Modal
+        title="Save Fields as Catalog Set"
+        isOpen={saveAsSetOpen}
+        onClose={() => setSaveAsSetOpen(false)}
+        width={440}
+      >
+        <div className="space-y-4 text-sm">
+          <p className="text-[--color-text-muted] text-[13px]">
+            Creates a new versioned catalog set from this campaign's{" "}
+            {criteriaFields.length} field
+            {criteriaFields.length !== 1 ? "s" : ""}. The set will be applied to
+            this campaign automatically.
+          </p>
+          <div className="space-y-1">
+            <label className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+              Set Name *
+            </label>
+            <input
+              type="text"
+              value={saveAsSetDraft.name}
+              onChange={(e) =>
+                setSaveAsSetDraft((d) => ({ ...d, name: e.target.value }))
+              }
+              placeholder="e.g. Rideshare Base Criteria"
+              className="w-full rounded-md border border-[--color-border] bg-[--color-bg] px-3 py-2 text-sm text-[--color-text] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-1 focus:ring-[--color-primary]"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+              Description
+            </label>
+            <input
+              type="text"
+              value={saveAsSetDraft.description}
+              onChange={(e) =>
+                setSaveAsSetDraft((d) => ({
+                  ...d,
+                  description: e.target.value,
+                }))
+              }
+              placeholder="Optional description"
+              className="w-full rounded-md border border-[--color-border] bg-[--color-bg] px-3 py-2 text-sm text-[--color-text] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-1 focus:ring-[--color-primary]"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSaveAsSetOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={savingAsSet || !saveAsSetDraft.name.trim()}
+              onClick={async () => {
+                if (!campaign || !saveAsSetDraft.name.trim()) return;
+                setSavingAsSet(true);
+                try {
+                  const fields = criteriaFields.map((f) => ({
+                    field_label: f.field_label,
+                    field_name: f.field_name,
+                    data_type: f.data_type,
+                    required: f.required,
+                    ...(f.description ? { description: f.description } : {}),
+                    ...(f.options?.length ? { options: f.options } : {}),
+                    ...(f.value_mappings?.length
+                      ? { value_mappings: f.value_mappings }
+                      : {}),
+                    ...(f.state_mapping
+                      ? { state_mapping: f.state_mapping }
+                      : {}),
+                  }));
+                  const res = await createCriteriaCatalogSet({
+                    name: saveAsSetDraft.name.trim(),
+                    ...(saveAsSetDraft.description.trim()
+                      ? { description: saveAsSetDraft.description.trim() }
+                      : {}),
+                    fields,
+                  });
+                  if (!res.success) throw new Error("Failed to create set");
+                  const newSet = res.data.set;
+                  // Auto-apply v1 to this campaign
+                  await applyCriteriaCatalog(campaign.id, newSet.id, 1);
+                  setLocalCriteriaSetId(newSet.id);
+                  setLocalCriteriaSetVersion(1);
+                  onCampaignUpdate?.({
+                    criteria_set_id: newSet.id,
+                    criteria_set_version: 1,
+                  });
+                  toast.success(`Saved as "${newSet.name}" v1 and applied.`);
+                  setSaveAsSetOpen(false);
+                } catch (err: any) {
+                  toast.error(err?.message || "Failed to save as set.");
+                } finally {
+                  setSavingAsSet(false);
+                }
+              }}
+            >
+              {savingAsSet ? "Saving…" : "Save & Apply"}
+            </Button>
+          </div>
+        </div>
       </Modal>
 
       {participantAction &&

@@ -221,6 +221,8 @@ export interface Campaign {
   deleted_at?: string | null;
   is_deleted?: boolean;
   active?: boolean;
+  criteria_set_id?: string | null;
+  criteria_set_version?: number | null;
 }
 
 export interface TrustedFormResult {
@@ -483,6 +485,45 @@ export interface CriteriaField {
   updated_at?: string;
 }
 
+// ─── Criteria Catalog ─────────────────────────────────────────────────────────
+
+export interface CriteriaCatalogSet {
+  id: string;
+  record_type: "catalog_set";
+  name: string;
+  description?: string | null;
+  latest_version: number;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by?: AuditActor;
+  updated_by?: AuditActor;
+}
+
+export interface CriteriaCatalogVersion {
+  id: string;
+  record_type: "catalog_version";
+  criteria_set_id: string;
+  version: number;
+  name: string;
+  fields: Array<{
+    id?: string;
+    field_label: string;
+    field_name: string;
+    data_type: CriteriaFieldType;
+    required: boolean;
+    description?: string;
+    options?: CriteriaFieldOption[];
+    value_mappings?: CriteriaValueMapping[];
+    state_mapping?: "abbr_to_name" | "name_to_abbr" | null;
+    client_override?: boolean;
+    affiliate_override?: boolean;
+  }>;
+  campaigns_using: string[];
+  created_at: string;
+  created_by?: AuditActor;
+}
+
 // ─── Logic Rules ──────────────────────────────────────────────────────────────
 
 export type LogicRuleOperator =
@@ -582,6 +623,21 @@ export interface AuditQueryResponse {
     items: AuditLogItem[];
     nextCursor?: string | null;
   };
+}
+
+// ─── Table Preferences ───────────────────────────────────────────────────────
+
+export interface TableColumnConfig {
+  key: string;
+  visible: boolean;
+  order: number;
+}
+
+export interface UserTablePreference {
+  table_id: string;
+  columns: TableColumnConfig[];
+  created_at?: string;
+  updated_at?: string;
 }
 
 // ─── Intake Log ───────────────────────────────────────────────────────────────

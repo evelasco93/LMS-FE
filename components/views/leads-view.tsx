@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowUpDown,
   ArrowDownAZ,
   ArrowUpAZ,
   Check,
   ChevronDown,
+  Columns2,
   Filter,
   MinusCircle,
   Plus,
@@ -17,10 +18,12 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Table } from "@/components/table";
+import type { Column } from "@/components/table";
 import { PaginationControls } from "@/components/pagination-controls";
 import { Badge } from "@/components/badge";
-import { inputClass } from "@/lib/utils";
-import type { Affiliate, Campaign, Lead } from "@/lib/types";
+import { inputClass, normalizeFieldLabel } from "@/lib/utils";
+import { getUserTablePreference, setUserTablePreference } from "@/lib/api";
+import type { Affiliate, Campaign, Lead, TableColumnConfig } from "@/lib/types";
 import type { CampaignDetailTab } from "@/lib/types";
 import type React from "react";
 
@@ -96,6 +99,28 @@ function formatInTz(
 }
 
 // ─── LeadsView ────────────────────────────────────────────────────────────────
+
+const LEADS_TABLE_ID = "leads";
+
+const STATIC_COLUMN_KEYS = [
+  "id",
+  "campaign_id",
+  "campaign_key",
+  "test",
+  "qa_duplicate",
+  "qa_trusted_form",
+  "qa_ipqs",
+  "created_at",
+  "intake_status",
+  "sold_status",
+  "payload",
+] as const;
+
+type StaticColumnKey = (typeof STATIC_COLUMN_KEYS)[number];
+
+const DEFAULT_VISIBLE_COLUMN_KEYS: ReadonlySet<string> = new Set(
+  STATIC_COLUMN_KEYS as unknown as string[],
+);
 
 interface LeadsViewProps {
   leads: Lead[];
@@ -182,11 +207,53 @@ export function LeadsView({
       : [{ key: mergedInitial.sortBy, dir: mergedInitial.sortDir }],
   );
   const [controlsOpen, setControlsOpen] = useState(false);
-  const [controlsTab, setControlsTab] = useState<"filters" | "sorting">(
-    "filters",
-  );
+  const [controlsTab, setControlsTab] = useState<
+    "filters" | "sorting" | "columns"
+  >("filters");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+
+  // ── Column visibility preferences ────────────────────────────────────────
+  const [visibleColumnKeys, setVisibleColumnKeys] = useState<Set<string>>(
+    () => new Set(DEFAULT_VISIBLE_COLUMN_KEYS),
+  );
+
+  useEffect(() => {
+    getUserTablePreference(LEADS_TABLE_ID)
+      .then((res) => {
+        if (res?.data?.columns?.length) {
+          setVisibleColumnKeys(
+            new Set(res.data.columns.map((c: TableColumnConfig) => c.key)),
+          );
+        }
+      })
+      .catch(() => {
+        /* use defaults on error or 404 */
+      });
+  }, []);
+
+  const handleToggleColumn = useCallback((key: string) => {
+    setVisibleColumnKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      // persist asynchronously — fire and forget
+      const allKeys: string[] = [
+        ...(STATIC_COLUMN_KEYS as unknown as string[]),
+      ];
+      const cols: TableColumnConfig[] = allKeys
+        .concat(
+          [...next].filter((k) => !allKeys.includes(k)), // payload.* keys
+        )
+        .filter((k) => next.has(k))
+        .map((k, i) => ({ key: k, visible: true, order: i }));
+      setUserTablePreference(LEADS_TABLE_ID, { columns: cols }).catch(() => {});
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     setSearch(mergedInitial.search);
@@ -459,8 +526,272 @@ export function LeadsView({
     return filteredAndSortedLeads.slice(start, end);
   }, [filteredAndSortedLeads, page, pageSize]);
 
+  /** Scalar payload field keys extracted from the first 200 loaded leads. */
+  const payloadFieldKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const lead of leads.slice(0, 200)) {
+      if (lead.payload && typeof lead.payload === "object") {
+        for (const key of Object.keys(lead.payload)) {
+          const val = lead.payload[key];
+          if (val !== null && typeof val !== "object") {
+            keys.add(key);
+          }
+        }
+      }
+    }
+    return [...keys].sort();
+  }, [leads]);
+
   const showingFrom = totalFilteredLeads === 0 ? 0 : (page - 1) * pageSize + 1;
   const showingTo = Math.min(page * pageSize, totalFilteredLeads);
+
+  // ── Column definitions ────────────────────────────────────────────────────
+  const allStaticColumns = useMemo(
+    (): Column<Lead>[] => [
+      {
+        key: "id",
+        label: "ID",
+        width: "120px",
+        render: (lead) => <span className="font-medium">{lead.id}</span>,
+      },
+      {
+        key: "campaign_id",
+        label: "Campaign",
+        width: "180px",
+        render: (lead) => (
+          <button
+            type="button"
+            className="text-[--color-primary] underline underline-offset-2"
+            onClick={() => onOpenCampaign(lead.campaign_id)}
+          >
+            {campaignIdMap.get(lead.campaign_id)?.name || lead.campaign_id}
+          </button>
+        ),
+      },
+      {
+        key: "campaign_key",
+        label: "Affiliate",
+        width: "180px",
+        render: (lead) => {
+          const mapping = campaignKeyMap.get(lead.campaign_key || "");
+          if (!mapping) return lead.campaign_key || "";
+          const affiliateName = mapping.affiliateId
+            ? affiliateIdMap.get(mapping.affiliateId)?.name
+            : null;
+          return (
+            <button
+              type="button"
+              className="text-[--color-primary] underline underline-offset-2"
+              onClick={() =>
+                onOpenCampaign(
+                  mapping.campaign.id,
+                  "affiliates",
+                  mapping.affiliateId,
+                )
+              }
+            >
+              {affiliateName || lead.campaign_key || ""}
+            </button>
+          );
+        },
+      },
+      {
+        key: "test",
+        label: "Mode",
+        width: "96px",
+        render: (lead) => (
+          <Badge tone={lead.test ? "warning" : "neutral"}>
+            {lead.test ? "Test" : "Live"}
+          </Badge>
+        ),
+      },
+      {
+        key: "qa_duplicate",
+        label: "Duplicate",
+        width: "96px",
+        render: (lead) => (
+          <div className="mx-auto flex w-fit items-center justify-center">
+            {lead.duplicate ? (
+              <X size={18} className="text-[--color-danger]" />
+            ) : (
+              <Check size={18} className="text-[--color-success]" />
+            )}
+          </div>
+        ),
+      },
+      {
+        key: "qa_trusted_form",
+        label: "TrustedForm",
+        width: "126px",
+        render: (lead) => {
+          const tf = lead.trusted_form_result;
+          if (tf == null) {
+            const campaign = campaignIdMap.get(lead.campaign_id);
+            const disabled = campaign?.plugins?.trusted_form?.enabled === false;
+            return (
+              <div className="mx-auto flex w-fit items-center justify-center">
+                {disabled ? (
+                  <span className="flex items-center gap-1 text-xs text-[--color-text-muted]">
+                    <MinusCircle size={13} />
+                    Disabled
+                  </span>
+                ) : (
+                  <span className="text-[--color-text-muted]">—</span>
+                )}
+              </div>
+            );
+          }
+
+          if (tf.success && tf.cert_id) {
+            return (
+              <a
+                href={`https://cert.trustedform.com/${tf.cert_id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mx-auto block w-fit text-xs font-medium text-[--color-primary] underline underline-offset-2"
+              >
+                View cert
+              </a>
+            );
+          }
+
+          return (
+            <div className="mx-auto flex w-fit items-center justify-center">
+              {tf.success ? (
+                <Check size={18} className="text-[--color-success]" />
+              ) : (
+                <X size={18} className="text-[--color-danger]" />
+              )}
+            </div>
+          );
+        },
+      },
+      {
+        key: "qa_ipqs",
+        label: "IPQS",
+        width: "96px",
+        render: (lead) => {
+          const iq = lead.ipqs_result;
+          if (iq == null) {
+            const campaign = campaignIdMap.get(lead.campaign_id);
+            const disabled = campaign?.plugins?.ipqs?.enabled === false;
+            return (
+              <div className="mx-auto flex w-fit items-center justify-center">
+                {disabled ? (
+                  <span className="flex items-center gap-1 text-xs text-[--color-text-muted]">
+                    <MinusCircle size={13} />
+                    Disabled
+                  </span>
+                ) : (
+                  <span className="text-[--color-text-muted]">—</span>
+                )}
+              </div>
+            );
+          }
+          return (
+            <div className="mx-auto flex w-fit items-center justify-center">
+              {iq.success ? (
+                <Check size={18} className="text-[--color-success]" />
+              ) : (
+                <X size={18} className="text-[--color-danger]" />
+              )}
+            </div>
+          );
+        },
+      },
+      {
+        key: "created_at",
+        label: "Created",
+        width: "190px",
+        render: (lead) => {
+          const ipTz = lead.created_at ? getLeadIpTz(lead) : null;
+          if (lead.created_at && ipTz) {
+            const { time, abbr } = formatInTz(lead.created_at, ipTz);
+            return (
+              <div>
+                <span>{time}</span>
+                <span className="ml-1.5 text-xs text-[--color-text-muted]">
+                  {abbr}
+                </span>
+              </div>
+            );
+          }
+          return <span>{formatCompactDateTimeFallback(lead.created_at)}</span>;
+        },
+      },
+      {
+        key: "intake_status",
+        label: "Status",
+        width: "112px",
+        render: (lead) => (
+          <Badge tone={lead.rejected ? "danger" : "success"}>
+            {lead.rejected ? "Rejected" : "Accepted"}
+          </Badge>
+        ),
+      },
+      {
+        key: "sold_status",
+        label: "Client Delivery",
+        width: "120px",
+        render: (lead) => {
+          if (lead.test)
+            return (
+              <span className="flex items-center gap-1 text-xs text-[--color-text-muted]">
+                <MinusCircle size={13} />
+                Disabled
+              </span>
+            );
+          const s = lead.sold_status;
+          if (!s || s === "not_delivered")
+            return <Badge tone="neutral">Not Delivered</Badge>;
+          return (
+            <Badge tone={s === "sold" ? "info" : "warning"}>
+              {s === "sold" ? "Sold" : "Not Sold"}
+            </Badge>
+          );
+        },
+      },
+      {
+        key: "payload",
+        label: "Details",
+        render: (lead) => renderPayloadPreview(lead, filteredAndSortedLeads),
+      },
+    ],
+    [
+      campaignIdMap,
+      campaignKeyMap,
+      affiliateIdMap,
+      onOpenCampaign,
+      renderPayloadPreview,
+      filteredAndSortedLeads,
+    ],
+  );
+
+  const dynamicPayloadColumns = useMemo(
+    (): Column<Lead>[] =>
+      payloadFieldKeys.map((key) => ({
+        key: `payload.${key}`,
+        label: normalizeFieldLabel(key),
+        width: "120px",
+        render: (lead: Lead) => {
+          const val = lead.payload?.[key];
+          if (val == null || val === "")
+            return <span className="text-[--color-text-muted]">—</span>;
+          return <span className="font-mono text-xs">{String(val)}</span>;
+        },
+      })),
+    [payloadFieldKeys],
+  );
+
+  const activeColumns = useMemo(
+    (): Column<Lead>[] => [
+      ...allStaticColumns.filter((c) => visibleColumnKeys.has(c.key as string)),
+      ...dynamicPayloadColumns.filter((c) =>
+        visibleColumnKeys.has(c.key as string),
+      ),
+    ],
+    [allStaticColumns, dynamicPayloadColumns, visibleColumnKeys],
+  );
 
   return (
     <motion.section
@@ -562,6 +893,11 @@ export function LeadsView({
                           key: "sorting" as const,
                           label: "Sorting",
                           icon: <ArrowDownAZ size={13} />,
+                        },
+                        {
+                          key: "columns" as const,
+                          label: "Columns",
+                          icon: <Columns2 size={13} />,
                         },
                       ] as const
                     ).map((tab) => (
@@ -694,7 +1030,7 @@ export function LeadsView({
                           </div>
                         </div>
                       </motion.div>
-                    ) : (
+                    ) : controlsTab === "sorting" ? (
                       <motion.div
                         key="sorting-tab"
                         initial={{ opacity: 0, x: 8 }}
@@ -800,6 +1136,71 @@ export function LeadsView({
                           </button>
                         </div>
                       </motion.div>
+                    ) : (
+                      <motion.div
+                        key="columns-tab"
+                        initial={{ opacity: 0, x: 8 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: -8 }}
+                        transition={{ duration: 0.2, ease: "easeOut" }}
+                        className="space-y-4 min-h-[175px]"
+                      >
+                        <div>
+                          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-[--color-text-muted]">
+                            Standard Columns
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {allStaticColumns.map((col) => {
+                              const key = col.key as string;
+                              const active = visibleColumnKeys.has(key);
+                              return (
+                                <button
+                                  key={key}
+                                  type="button"
+                                  onClick={() => handleToggleColumn(key)}
+                                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+                                    active
+                                      ? "border-[--color-primary]/40 bg-[--color-primary]/10 text-[--color-primary]"
+                                      : "border-[--color-border] bg-[--color-panel] text-[--color-text-muted] hover:text-[--color-text]"
+                                  }`}
+                                >
+                                  {active && <Check size={11} />}
+                                  {String(col.label)}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {payloadFieldKeys.length > 0 && (
+                          <div>
+                            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-[--color-text-muted]">
+                              Payload Fields
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {payloadFieldKeys.map((fieldKey) => {
+                                const colKey = `payload.${fieldKey}`;
+                                const active = visibleColumnKeys.has(colKey);
+                                return (
+                                  <button
+                                    key={colKey}
+                                    type="button"
+                                    onClick={() => handleToggleColumn(colKey)}
+                                    className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+                                      active
+                                        ? "border-[--color-primary]/40 bg-[--color-primary]/10 text-[--color-primary]"
+                                        : "border-[--color-border] bg-[--color-panel] text-[--color-text-muted] hover:text-[--color-text]"
+                                    }`}
+                                  >
+                                    {active && <Check size={11} />}
+                                    {normalizeFieldLabel(fieldKey)}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </motion.div>
                     )}
                   </AnimatePresence>
                 </div>
@@ -811,220 +1212,7 @@ export function LeadsView({
 
       <Table
         rowAnimation="subtle"
-        columns={[
-          {
-            key: "id",
-            label: "ID",
-            width: "120px",
-            render: (lead) => <span className="font-medium">{lead.id}</span>,
-          },
-          {
-            key: "campaign_id",
-            label: "Campaign",
-            width: "180px",
-            render: (lead) => (
-              <button
-                type="button"
-                className="text-[--color-primary] underline underline-offset-2"
-                onClick={() => onOpenCampaign(lead.campaign_id)}
-              >
-                {campaignIdMap.get(lead.campaign_id)?.name || lead.campaign_id}
-              </button>
-            ),
-          },
-          {
-            key: "campaign_key",
-            label: "Affiliate",
-            width: "180px",
-            render: (lead) => {
-              const mapping = campaignKeyMap.get(lead.campaign_key || "");
-              if (!mapping) return lead.campaign_key || "";
-              const affiliateName = mapping.affiliateId
-                ? affiliateIdMap.get(mapping.affiliateId)?.name
-                : null;
-              return (
-                <button
-                  type="button"
-                  className="text-[--color-primary] underline underline-offset-2"
-                  onClick={() =>
-                    onOpenCampaign(
-                      mapping.campaign.id,
-                      "affiliates",
-                      mapping.affiliateId,
-                    )
-                  }
-                >
-                  {affiliateName || lead.campaign_key || ""}
-                </button>
-              );
-            },
-          },
-          {
-            key: "test",
-            label: "Mode",
-            width: "96px",
-            render: (lead) => (
-              <Badge tone={lead.test ? "warning" : "neutral"}>
-                {lead.test ? "Test" : "Live"}
-              </Badge>
-            ),
-          },
-          {
-            key: "qa_duplicate",
-            label: "Duplicate",
-            width: "96px",
-            render: (lead) => (
-              <div className="mx-auto flex w-fit items-center justify-center">
-                {lead.duplicate ? (
-                  <X size={18} className="text-[--color-danger]" />
-                ) : (
-                  <Check size={18} className="text-[--color-success]" />
-                )}
-              </div>
-            ),
-          },
-          {
-            key: "qa_trusted_form",
-            label: "TrustedForm",
-            width: "126px",
-            render: (lead) => {
-              const tf = lead.trusted_form_result;
-              if (tf == null) {
-                const campaign = campaignIdMap.get(lead.campaign_id);
-                const disabled =
-                  campaign?.plugins?.trusted_form?.enabled === false;
-                return (
-                  <div className="mx-auto flex w-fit items-center justify-center">
-                    {disabled ? (
-                      <span className="flex items-center gap-1 text-xs text-[--color-text-muted]">
-                        <MinusCircle size={13} />
-                        Disabled
-                      </span>
-                    ) : (
-                      <span className="text-[--color-text-muted]">—</span>
-                    )}
-                  </div>
-                );
-              }
-
-              if (tf.success && tf.cert_id) {
-                return (
-                  <a
-                    href={`https://cert.trustedform.com/${tf.cert_id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mx-auto block w-fit text-xs font-medium text-[--color-primary] underline underline-offset-2"
-                  >
-                    View cert
-                  </a>
-                );
-              }
-
-              return (
-                <div className="mx-auto flex w-fit items-center justify-center">
-                  {tf.success ? (
-                    <Check size={18} className="text-[--color-success]" />
-                  ) : (
-                    <X size={18} className="text-[--color-danger]" />
-                  )}
-                </div>
-              );
-            },
-          },
-          {
-            key: "qa_ipqs",
-            label: "IPQS",
-            width: "96px",
-            render: (lead) => {
-              const iq = lead.ipqs_result;
-              if (iq == null) {
-                const campaign = campaignIdMap.get(lead.campaign_id);
-                const disabled = campaign?.plugins?.ipqs?.enabled === false;
-                return (
-                  <div className="mx-auto flex w-fit items-center justify-center">
-                    {disabled ? (
-                      <span className="flex items-center gap-1 text-xs text-[--color-text-muted]">
-                        <MinusCircle size={13} />
-                        Disabled
-                      </span>
-                    ) : (
-                      <span className="text-[--color-text-muted]">—</span>
-                    )}
-                  </div>
-                );
-              }
-              return (
-                <div className="mx-auto flex w-fit items-center justify-center">
-                  {iq.success ? (
-                    <Check size={18} className="text-[--color-success]" />
-                  ) : (
-                    <X size={18} className="text-[--color-danger]" />
-                  )}
-                </div>
-              );
-            },
-          },
-          {
-            key: "created_at",
-            label: "Created",
-            width: "190px",
-            render: (lead) => {
-              const ipTz = lead.created_at ? getLeadIpTz(lead) : null;
-              if (lead.created_at && ipTz) {
-                const { time, abbr } = formatInTz(lead.created_at, ipTz);
-                return (
-                  <div>
-                    <span>{time}</span>
-                    <span className="ml-1.5 text-xs text-[--color-text-muted]">
-                      {abbr}
-                    </span>
-                  </div>
-                );
-              }
-              return (
-                <span>{formatCompactDateTimeFallback(lead.created_at)}</span>
-              );
-            },
-          },
-          {
-            key: "intake_status",
-            label: "Status",
-            width: "112px",
-            render: (lead) => (
-              <Badge tone={lead.rejected ? "danger" : "success"}>
-                {lead.rejected ? "Rejected" : "Accepted"}
-              </Badge>
-            ),
-          },
-          {
-            key: "sold_status",
-            label: "Client Delivery",
-            width: "120px",
-            render: (lead) => {
-              if (lead.test)
-                return (
-                  <span className="flex items-center gap-1 text-xs text-[--color-text-muted]">
-                    <MinusCircle size={13} />
-                    Disabled
-                  </span>
-                );
-              const s = lead.sold_status;
-              if (!s || s === "not_delivered")
-                return <Badge tone="neutral">Not Delivered</Badge>;
-              return (
-                <Badge tone={s === "sold" ? "info" : "warning"}>
-                  {s === "sold" ? "Sold" : "Not Sold"}
-                </Badge>
-              );
-            },
-          },
-          {
-            key: "payload",
-            label: "Details",
-            render: (lead) =>
-              renderPayloadPreview(lead, filteredAndSortedLeads),
-          },
-        ]}
+        columns={activeColumns}
         data={paginatedLeads}
         emptyLabel={isLoading ? "Loading leads…" : "No leads available."}
       />

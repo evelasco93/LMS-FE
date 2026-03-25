@@ -1289,6 +1289,9 @@ function DashboardContent({
         onRemoveClient={onRemoveClientFromCampaign}
         onRemoveAffiliate={onRemoveAffiliateFromCampaign}
         onUpdatePlugins={onUpdateCampaignPlugins}
+        onCampaignUpdate={(update) =>
+          setSelectedCampaign((prev) => (prev ? { ...prev, ...update } : prev))
+        }
         onTabChange={(tab, subTab) => {
           setCampaignDetailTab(tab);
           setCampaignDetailSubTab(subTab);

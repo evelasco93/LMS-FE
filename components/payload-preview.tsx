@@ -1880,6 +1880,8 @@ export function PayloadPreview({
                 try {
                   const newPayload: Record<string, unknown> = {};
                   Object.entries(localPayload).forEach(([k, v]) => {
+                    // Send only changed keys so audit/logging reflects actual edits.
+                    if (v === (originalPayloadRef.current[k] ?? "")) return;
                     try {
                       newPayload[k] = JSON.parse(v);
                     } catch {
