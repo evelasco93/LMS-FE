@@ -2,7 +2,7 @@
 
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
-import { History, Sparkles, ChevronDown, ArrowRight } from "lucide-react";
+import { History, Sparkles, ChevronDown, ArrowRight, Tag } from "lucide-react";
 import useSWR from "swr";
 import { AnimatePresence, motion } from "framer-motion";
 import { Modal } from "@/components/modal";
@@ -15,8 +15,14 @@ import {
   formatDate,
   normalizeFieldLabel,
 } from "@/lib/utils";
-import { getEntityAudit } from "@/lib/api";
-import type { Affiliate, Client, Credential, AuditLogItem } from "@/lib/types";
+import { getEntityAudit, listTagDefinitions } from "@/lib/api";
+import type {
+  Affiliate,
+  Client,
+  Credential,
+  AuditLogItem,
+  TagDefinitionRecord,
+} from "@/lib/types";
 import type { AffiliateStatus, ClientStatus } from "@/lib/types";
 
 // ─── Shared audit helpers ──────────────────────────────────────────────────────
@@ -770,12 +776,24 @@ export function CampaignModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (payload: { name: string }) => void;
+  onSubmit: (payload: { name: string; tags?: string[] }) => void;
 }) {
   const [name, setName] = useState("");
+  const [tagDraft, setTagDraft] = useState<string[]>([]);
+  const [tagDefs, setTagDefs] = useState<TagDefinitionRecord[]>([]);
 
   useEffect(() => {
-    if (!isOpen) setName("");
+    if (!isOpen) {
+      setName("");
+      setTagDraft([]);
+      return;
+    }
+    listTagDefinitions()
+      .then((res) => {
+        const items = res?.data?.items ?? [];
+        setTagDefs(items.filter((t) => !t.is_deleted));
+      })
+      .catch(() => setTagDefs([]));
   }, [isOpen]);
 
   return (
@@ -784,7 +802,8 @@ export function CampaignModal({
         className="space-y-3"
         onSubmit={(e) => {
           e.preventDefault();
-          onSubmit({ name });
+          const tags = tagDraft.length > 0 ? tagDraft : undefined;
+          onSubmit({ name, tags });
         }}
       >
         <Field label="Name" required>
@@ -796,6 +815,59 @@ export function CampaignModal({
             placeholder="Spring Promo"
           />
         </Field>
+        {tagDefs.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
+              Tags{" "}
+              <span className="font-normal normal-case tracking-normal">
+                (recommended for catalog filtering)
+              </span>
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {tagDefs.map((def) => {
+                const active = tagDraft.includes(def.label);
+                return (
+                  <button
+                    key={def.id}
+                    type="button"
+                    onClick={() =>
+                      setTagDraft((prev) =>
+                        active
+                          ? prev.filter((t) => t !== def.label)
+                          : [...prev, def.label],
+                      )
+                    }
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                      active
+                        ? def.color
+                          ? ""
+                          : "border-blue-500 bg-blue-500/10 text-blue-400"
+                        : "border-[--color-border] text-[--color-text-muted] hover:border-[--color-text-muted]"
+                    }`}
+                    style={
+                      active && def.color
+                        ? {
+                            borderColor: def.color,
+                            backgroundColor: def.color + "18",
+                            color: def.color,
+                          }
+                        : undefined
+                    }
+                  >
+                    <Tag size={12} />
+                    {def.label}
+                  </button>
+                );
+              })}
+            </div>
+            {tagDraft.length === 0 && (
+              <p className="text-[10px] text-amber-500">
+                Filling in tags helps filter catalogs and avoid
+                cross-contamination between campaign types.
+              </p>
+            )}
+          </div>
+        )}
         <p className="text-xs text-[--color-text-muted]">
           Campaigns start as DRAFT. Link a client and affiliate to move to TEST.
         </p>

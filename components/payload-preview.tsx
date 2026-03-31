@@ -6,6 +6,7 @@ import {
   ArrowRight,
   Check,
   ChevronDown,
+  Cherry,
   Copy,
   ExternalLink,
   X,
@@ -90,9 +91,292 @@ function auditActionTone(
 
 function formatAuditValue(val: unknown): string {
   if (val === null || val === undefined) return "—";
-  if (typeof val === "boolean") return val ? "true" : "false";
+  if (typeof val === "boolean") return val ? "Yes" : "No";
   if (typeof val === "object") return JSON.stringify(val);
   return String(val);
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function formatHistoryDetailValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "number") return String(value);
+  if (typeof value === "string") {
+    const maybeDate = new Date(value);
+    if (!Number.isNaN(maybeDate.getTime()) && value.includes("T")) {
+      return formatLocalDateTimeWithZone(value);
+    }
+    return value;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function formatActorLike(value: unknown): string {
+  const actor = asRecord(value);
+  if (!actor) return "System";
+  return (
+    (typeof actor.full_name === "string" && actor.full_name) ||
+    (typeof actor.email === "string" && actor.email) ||
+    (typeof actor.username === "string" && actor.username) ||
+    "Unknown"
+  );
+}
+
+function renderHistoryRows(
+  rows: Array<{
+    label: string;
+    value: unknown;
+    tone?: "default" | "success" | "danger" | "warning";
+  }>,
+  keyPrefix: string,
+) {
+  return rows
+    .filter(
+      (row) =>
+        row.value !== undefined && row.value !== null && row.value !== "",
+    )
+    .map((row, idx) => (
+      <div
+        key={`${keyPrefix}-row-${idx}`}
+        className="grid grid-cols-[9rem_1fr] items-start gap-2 text-[11px]"
+      >
+        <span className="truncate font-medium text-[--color-text]">
+          {row.label}
+        </span>
+        <span
+          className={
+            row.tone === "success"
+              ? "text-emerald-600 dark:text-emerald-400"
+              : row.tone === "danger"
+                ? "text-rose-600 dark:text-rose-400"
+                : row.tone === "warning"
+                  ? "text-amber-600 dark:text-amber-400"
+                  : "text-[--color-text-muted]"
+          }
+        >
+          {formatHistoryDetailValue(row.value)}
+        </span>
+      </div>
+    ));
+}
+
+function renderHistoryPayloadBlock(label: string, value: unknown, key: string) {
+  if (value === undefined || value === null || value === "") return null;
+
+  let display = value;
+  if (typeof value === "string") {
+    try {
+      display = JSON.parse(value);
+    } catch {
+      display = value;
+    }
+  }
+
+  return (
+    <div key={key} className="space-y-1">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
+        {label}
+      </p>
+      <pre className="max-h-36 overflow-auto rounded border border-[--color-border] bg-[--color-bg] px-2.5 py-2 text-[11px] text-[--color-text] whitespace-pre-wrap break-all">
+        {typeof display === "string"
+          ? display
+          : JSON.stringify(display, null, 2)}
+      </pre>
+    </div>
+  );
+}
+
+function renderStructuredLeadHistoryChange(
+  field: string,
+  from: unknown,
+  to: unknown,
+  key: string,
+) {
+  const normalizedField = field.replace(/^payload\./, "").toLowerCase();
+  const root = asRecord(to) ?? asRecord(from);
+  if (!root) return null;
+
+  if (normalizedField === "affiliate_pixel_result") {
+    const success = root.success === true;
+    const errorMessage =
+      typeof root.error === "string" ? root.error.toLowerCase() : "";
+    const status = success
+      ? "Fired"
+      : errorMessage.includes("not fired") || errorMessage.includes("disabled")
+        ? "Not fired"
+        : "Failed";
+
+    return (
+      <div
+        key={key}
+        className="space-y-2 rounded-md border border-[--color-border] bg-[--color-panel] px-2.5 py-2"
+      >
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
+          Affiliate Pixel Result
+        </p>
+        <div className="space-y-1">
+          {renderHistoryRows(
+            [
+              {
+                label: "Status",
+                value: status,
+                tone: success
+                  ? "success"
+                  : status === "Not fired"
+                    ? "warning"
+                    : "danger",
+              },
+              { label: "Affiliate ID", value: root.affiliate_id },
+              { label: "Campaign ID", value: root.campaign_id },
+              { label: "Fired At", value: root.fired_at },
+              { label: "Method", value: root.webhook_method },
+              { label: "Configured URL", value: root.webhook_url },
+              { label: "Final URL", value: root.final_webhook_url },
+              { label: "HTTP Status", value: root.webhook_response_status },
+              { label: "Error", value: root.error, tone: "danger" },
+            ],
+            key,
+          )}
+        </div>
+        {renderHistoryPayloadBlock(
+          "Query Params Sent",
+          root.sent_query_params,
+          `${key}-query`,
+        )}
+        {renderHistoryPayloadBlock(
+          "Body Payload Sent",
+          root.sent_body_payload,
+          `${key}-body`,
+        )}
+        {renderHistoryPayloadBlock(
+          "Request Snapshot",
+          root.sent_payload_snapshot,
+          `${key}-request-snapshot`,
+        )}
+        {renderHistoryPayloadBlock(
+          "Webhook Response",
+          root.webhook_response_body,
+          `${key}-response`,
+        )}
+      </div>
+    );
+  }
+
+  if (normalizedField === "delivery_result") {
+    const accepted = root.accepted === true;
+    return (
+      <div
+        key={key}
+        className="space-y-2 rounded-md border border-[--color-border] bg-[--color-panel] px-2.5 py-2"
+      >
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
+          Delivery Result
+        </p>
+        <div className="space-y-1">
+          {renderHistoryRows(
+            [
+              {
+                label: "Accepted",
+                value: accepted ? "Yes" : "No",
+                tone: accepted ? "success" : "danger",
+              },
+              { label: "Client ID", value: root.client_id },
+              { label: "Delivered At", value: root.delivered_at },
+              { label: "Attempts", value: root.attempts },
+              { label: "Method", value: root.webhook_method },
+              { label: "Configured URL", value: root.webhook_url },
+              { label: "Final URL", value: root.final_webhook_url },
+              { label: "HTTP Status", value: root.webhook_response_status },
+              { label: "Acceptance Match", value: root.acceptance_match },
+              { label: "Error", value: root.error, tone: "danger" },
+            ],
+            key,
+          )}
+        </div>
+        {renderHistoryPayloadBlock(
+          "Query Params Sent",
+          root.sent_query_params,
+          `${key}-query`,
+        )}
+        {renderHistoryPayloadBlock(
+          "Body Payload Sent",
+          root.sent_body_payload,
+          `${key}-body`,
+        )}
+        {renderHistoryPayloadBlock(
+          "Webhook Response",
+          root.webhook_response_body,
+          `${key}-response`,
+        )}
+      </div>
+    );
+  }
+
+  if (normalizedField === "cherry_pick_meta") {
+    const nestedDelivery = asRecord(root.delivery_result);
+    return (
+      <div
+        key={key}
+        className="space-y-2 rounded-md border border-[--color-border] bg-[--color-panel] px-2.5 py-2"
+      >
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
+          Cherry-Pick Details
+        </p>
+        <div className="space-y-1">
+          {renderHistoryRows(
+            [
+              { label: "Target Client", value: root.target_client_id },
+              { label: "Source Campaign", value: root.source_campaign_id },
+              { label: "Executed At", value: root.executed_at },
+              {
+                label: "Executed By",
+                value: formatActorLike(root.executed_by),
+              },
+              {
+                label: "Delivery Accepted",
+                value: nestedDelivery?.accepted === true ? "Yes" : "No",
+                tone: nestedDelivery?.accepted === true ? "success" : "danger",
+              },
+              { label: "Delivery Client", value: nestedDelivery?.client_id },
+              {
+                label: "Delivery Method",
+                value: nestedDelivery?.webhook_method,
+              },
+              {
+                label: "Delivery URL",
+                value:
+                  asRecord(nestedDelivery?.sent_payload_snapshot)
+                    ?.final_webhook_url ??
+                  nestedDelivery?.final_webhook_url ??
+                  nestedDelivery?.webhook_url,
+              },
+              {
+                label: "Delivery Error",
+                value: nestedDelivery?.error,
+                tone: "danger",
+              },
+            ],
+            key,
+          )}
+        </div>
+        {renderHistoryPayloadBlock(
+          "Delivery Request Snapshot",
+          nestedDelivery?.sent_payload_snapshot,
+          `${key}-request-snapshot`,
+        )}
+      </div>
+    );
+  }
+
+  return null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -557,12 +841,14 @@ export function PayloadPreview({
   campaignPlugins,
   clients,
   onOpenClient,
+  onCherryPick,
 }: {
   lead: Lead;
   allLeads: Lead[];
   campaignPlugins?: Campaign["plugins"];
   clients?: Client[];
   onOpenClient?: (clientId: string) => void;
+  onCherryPick?: (lead: Lead) => void;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -741,6 +1027,10 @@ export function PayloadPreview({
     (k) => localPayload[k] !== (originalPayloadRef.current[k] ?? ""),
   );
 
+  const mappedFieldNames = new Set(
+    (selectedLead.mapped_fields ?? []).map((mf) => mf.field),
+  );
+
   return (
     <>
       <Button
@@ -832,6 +1122,35 @@ export function PayloadPreview({
                 },
                 activeTab === "history",
               )}
+              {(() => {
+                const isSold =
+                  currentLead.sold === true ||
+                  currentLead.sold_status === "sold";
+                const hasManualEditsFromHistory = (
+                  currentLead.edit_history ?? []
+                ).some((e) => {
+                  if (!e.field.startsWith("payload.")) return false;
+                  return !mappedFieldNames.has(e.field.slice(8));
+                });
+                if (
+                  !onCherryPick ||
+                  isSold ||
+                  currentLead.cherry_picked === true ||
+                  currentLead.cherry_pickable === false ||
+                  !hasManualEditsFromHistory
+                )
+                  return null;
+                return (
+                  <button
+                    type="button"
+                    onClick={() => onCherryPick(currentLead)}
+                    className="ml-auto mb-1 flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-semibold text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 border border-emerald-300 dark:border-emerald-700 transition-colors"
+                  >
+                    <Cherry size={12} />
+                    Cherry Pick
+                  </button>
+                );
+              })()}
             </div>
           }
           <div className="h-[540px] overflow-y-auto">
@@ -1425,18 +1744,38 @@ export function PayloadPreview({
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {/* Value mappings applied at intake by logic rules */}
-                      {(currentLead.mapped_fields?.length ?? 0) > 0 && (
-                        <div className="rounded-lg border border-violet-200 bg-violet-50 p-3 dark:border-violet-800 dark:bg-violet-900/20">
-                          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-violet-700 dark:text-violet-300">
-                            Value Mappings
-                          </p>
-                          <div className="space-y-1.5">
-                            {currentLead.mapped_fields!.map((mf, i) => (
-                              <div
-                                key={i}
-                                className="flex flex-col gap-0.5 rounded bg-[--color-bg-muted] px-2 py-1.5 text-xs"
-                              >
+                      {(currentLead.mapped_fields?.length ?? 0) > 0 &&
+                        currentLead.mapped_fields!.map((mf, i) => (
+                          <div
+                            key={`mapped-field-${i}`}
+                            className="rounded-lg border border-[--color-border] bg-[--color-panel]"
+                          >
+                            <div className="flex w-full flex-wrap items-center justify-between gap-2 p-3 text-left">
+                              <div className="flex items-center gap-2">
+                                <Badge tone="info">Value Mapped</Badge>
+                                <span className="text-xs text-[--color-text-muted]">
+                                  by{" "}
+                                  <span className="font-medium text-[--color-text]">
+                                    Intake Mapping
+                                  </span>
+                                </span>
+                              </div>
+                              <span className="ml-auto flex items-center gap-1.5 text-xs text-[--color-text-muted]">
+                                {mf.mapped_at
+                                  ? new Intl.DateTimeFormat(undefined, {
+                                      year: "numeric",
+                                      month: "short",
+                                      day: "2-digit",
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                      second: "2-digit",
+                                      timeZoneName: "short",
+                                    }).format(new Date(mf.mapped_at))
+                                  : "—"}
+                              </span>
+                            </div>
+                            <div className="border-t border-[--color-border] px-3 pb-3 pt-2">
+                              <div className="flex flex-col gap-0.5 rounded bg-[--color-bg-muted] px-2 py-1.5 text-xs">
                                 <span className="font-semibold text-[--color-text-strong]">
                                   {normalizeFieldLabel(mf.field)}{" "}
                                   <span className="font-mono font-normal text-[--color-text-muted]">
@@ -1452,24 +1791,10 @@ export function PayloadPreview({
                                     {mf.mapped_value}
                                   </span>
                                 </span>
-                                <span className="text-[10px] text-[--color-text-muted] opacity-70">
-                                  {mf.mapped_at
-                                    ? new Intl.DateTimeFormat(undefined, {
-                                        year: "numeric",
-                                        month: "short",
-                                        day: "2-digit",
-                                        hour: "2-digit",
-                                        minute: "2-digit",
-                                        second: "2-digit",
-                                        timeZoneName: "short",
-                                      }).format(new Date(mf.mapped_at))
-                                    : "—"}
-                                </span>
                               </div>
-                            ))}
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        ))}
                       {auditItems
                         .filter((item) => {
                           const mappedFields = currentLead.mapped_fields ?? [];
@@ -1577,6 +1902,16 @@ export function PayloadPreview({
                                           {item.changes.map((change, i) => {
                                             const isPluginsEvent =
                                               item.action === "plugins_updated";
+                                            const structured =
+                                              renderStructuredLeadHistoryChange(
+                                                change.field,
+                                                change.from,
+                                                change.to,
+                                                `${item.log_id}-${i}`,
+                                              );
+                                            if (structured) {
+                                              return structured;
+                                            }
                                             const pluginDisplayNames: Record<
                                               string,
                                               string

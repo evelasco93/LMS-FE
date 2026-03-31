@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -458,7 +459,13 @@ function IpqsIcon({ size = 44 }: { size?: number }) {
   );
 }
 
-function IpqsCard({ plugin }: { plugin?: PluginView | null }) {
+function IpqsCard({
+  plugin,
+  prefill,
+}: {
+  plugin?: PluginView | null;
+  prefill?: { phone?: string; email?: string; ip?: string; autoOpen?: boolean };
+}) {
   const [flipped, setFlipped] = useState(false);
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -478,6 +485,14 @@ function IpqsCard({ plugin }: { plugin?: PluginView | null }) {
   const [resultOpen, setResultOpen] = useState(false);
 
   const credentialsId = plugin?.credentials_id ?? null;
+
+  useEffect(() => {
+    if (!prefill) return;
+    if (prefill.phone) setPhone(prefill.phone);
+    if (prefill.email) setEmail(prefill.email);
+    if (prefill.ip) setIpAddress(prefill.ip);
+    if (prefill.autoOpen) setFlipped(true);
+  }, [prefill?.autoOpen, prefill?.email, prefill?.ip, prefill?.phone]);
 
   const handleCheck = async () => {
     const p = phone.trim();
@@ -803,6 +818,8 @@ function formatRawValue(value: unknown): React.ReactNode {
 // ─── ToolsView ─────────────────────────────────────────────────────────────────
 
 export function ToolsView() {
+  const searchParams = useSearchParams();
+
   const { data: pluginSettings = [] } = useSWR<PluginView[]>(
     "tools-plugin-settings",
     async () => {
@@ -819,6 +836,18 @@ export function ToolsView() {
   const tfPlugin = pluginSettings.find((p) => p.provider === "trusted_form");
   const ipqsPlugin = pluginSettings.find((p) => p.provider === "ipqs");
 
+  const ipqsPhone = searchParams?.get("ipqs_phone") ?? "";
+  const ipqsEmail = searchParams?.get("ipqs_email") ?? "";
+  const ipqsIp = searchParams?.get("ipqs_ip") ?? "";
+  const toolParam = searchParams?.get("tool") ?? "";
+
+  const ipqsPrefill = {
+    phone: ipqsPhone || undefined,
+    email: ipqsEmail || undefined,
+    ip: ipqsIp || undefined,
+    autoOpen: toolParam === "ipqs" || Boolean(ipqsPhone || ipqsEmail || ipqsIp),
+  };
+
   return (
     <motion.section
       key="tools-content"
@@ -831,7 +860,7 @@ export function ToolsView() {
       {/* Cards grid */}
       <div className="flex flex-wrap gap-6">
         <TrustedFormCard plugin={tfPlugin} />
-        <IpqsCard plugin={ipqsPlugin} />
+        <IpqsCard plugin={ipqsPlugin} prefill={ipqsPrefill} />
       </div>
     </motion.section>
   );

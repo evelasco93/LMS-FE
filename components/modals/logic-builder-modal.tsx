@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { ChevronDown, Plus, Trash2 } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { Button } from "@/components/button";
@@ -97,6 +98,7 @@ interface DraftCondition {
 }
 
 interface DraftGroup {
+  _key: number;
   conditions: DraftCondition[];
 }
 
@@ -311,8 +313,9 @@ export function LogicBuilderModal({
   const [name, setName] = useState("");
   const [action, setAction] = useState<"pass" | "fail">("pass");
   const [groups, setGroups] = useState<DraftGroup[]>([
-    { conditions: [{ ...EMPTY_CONDITION }] },
+    { _key: 0, conditions: [{ ...EMPTY_CONDITION }] },
   ]);
+  const keyCounter = useRef(1);
 
   // Sync from rule when modal opens
   useEffect(() => {
@@ -320,8 +323,11 @@ export function LogicBuilderModal({
     if (rule) {
       setName(rule.name);
       setAction(rule.action);
+      const nextKey = rule.groups.length;
+      keyCounter.current = nextKey;
       setGroups(
-        rule.groups.map((g) => ({
+        rule.groups.map((g, i) => ({
+          _key: i,
           conditions: g.conditions.map((c) => ({
             field_name: c.field_name,
             operator: c.operator,
@@ -332,14 +338,17 @@ export function LogicBuilderModal({
     } else {
       setName("");
       setAction("pass");
-      setGroups([{ conditions: [{ ...EMPTY_CONDITION }] }]);
+      keyCounter.current = 1;
+      setGroups([{ _key: 0, conditions: [{ ...EMPTY_CONDITION }] }]);
     }
   }, [isOpen, rule]);
 
   // ─── Group/condition helpers ─────────────────────────────────────────────
 
-  const addGroup = () =>
-    setGroups((g) => [...g, { conditions: [{ ...EMPTY_CONDITION }] }]);
+  const addGroup = () => {
+    const newKey = keyCounter.current++;
+    setGroups((g) => [...g, { _key: newKey, conditions: [{ ...EMPTY_CONDITION }] }]);
+  };
 
   const removeGroup = (gi: number) =>
     setGroups((g) => g.filter((_, i) => i !== gi));
@@ -446,6 +455,7 @@ export function LogicBuilderModal({
       isOpen={isOpen}
       onClose={onClose}
       width={700}
+      bodyClassName="px-5 py-4 overflow-y-auto max-h-[70vh]"
     >
       <div className="space-y-5">
         {/* Rule name */}
@@ -494,9 +504,25 @@ export function LogicBuilderModal({
 
         {/* Groups */}
         <div className="space-y-3">
+          <AnimatePresence initial={false}>
           {groups.map((group, gi) => (
+            <motion.div
+              key={group._key}
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8, scale: 0.97 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+            >
+              {gi > 0 && (
+                <div className="flex items-center gap-2 py-1 mb-3">
+                  <div className="flex-1 border-t border-dashed border-[--color-border]" />
+                  <span className="text-[10px] font-bold tracking-widest text-[--color-text-muted] bg-[--color-bg-muted] border border-[--color-border] rounded px-2 py-0.5">
+                    OR
+                  </span>
+                  <div className="flex-1 border-t border-dashed border-[--color-border]" />
+                </div>
+              )}
             <div
-              key={gi}
               className="rounded-xl border border-[--color-border] border-l-[3px] border-l-red-400 pl-4 pr-3 py-3 space-y-2"
             >
               {/* Group header */}
@@ -604,7 +630,9 @@ export function LogicBuilderModal({
                 Add condition
               </button>
             </div>
+            </motion.div>
           ))}
+          </AnimatePresence>
 
           {/* Add group (OR) */}
           <button

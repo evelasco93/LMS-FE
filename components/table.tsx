@@ -3,7 +3,6 @@ import clsx from "clsx";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   BadgeCheck,
-  Briefcase,
   CalendarDays,
   CheckCircle2,
   Clock3,
@@ -11,9 +10,11 @@ import {
   Hash,
   ListChecks,
   Mail,
+  Megaphone,
   Phone,
   ShieldCheck,
   User,
+  Users,
   Wrench,
 } from "lucide-react";
 
@@ -35,8 +36,8 @@ function getHeaderIcon(label: string, key: string): React.ReactNode | null {
     return <User size={12} />;
   if (normalized.includes("email")) return <Mail size={12} />;
   if (normalized.includes("phone")) return <Phone size={12} />;
-  if (normalized.includes("campaign") || normalized.includes("affiliate"))
-    return <Briefcase size={12} />;
+  if (normalized.includes("campaign")) return <Megaphone size={12} />;
+  if (normalized.includes("affiliate")) return <Users size={12} />;
   if (normalized.includes("status") || normalized.includes("mode"))
     return <BadgeCheck size={12} />;
   if (normalized.includes("duplicate")) return <CheckCircle2 size={12} />;
@@ -68,7 +69,7 @@ export function Table<T extends Record<string, any>>({
   rowAnimation = "stagger",
 }: TableProps<T>) {
   return (
-    <div className="panel overflow-hidden">
+    <div className="panel overflow-x-auto">
       <table className="min-w-full border-collapse text-sm">
         <thead className="bg-[--color-bg-muted] text-left text-xs uppercase tracking-wide text-[--color-text-muted]">
           <tr>
@@ -127,7 +128,7 @@ export function Table<T extends Record<string, any>>({
                 {columns.map((col) => (
                   <td
                     key={String(col.key)}
-                    className="px-4 py-3 text-[--color-text]"
+                    className="whitespace-nowrap px-4 py-3 text-[--color-text]"
                   >
                     {col.render
                       ? col.render(row)

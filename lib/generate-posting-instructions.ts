@@ -140,12 +140,9 @@ export async function generatePostingInstructions({
     (a, b) => (a.order ?? 0) - (b.order ?? 0),
   );
 
-  const submitUrlLive =
+  const submitUrl =
     (campaign as any).submit_url ??
     "https://iq8bhm0nf6.execute-api.us-east-1.amazonaws.com/dev/v2/leads";
-  const submitUrlTest =
-    (campaign as any).submit_url_test ??
-    "https://iq8bhm0nf6.execute-api.us-east-1.amazonaws.com/dev/v2/leads/test";
 
   const exampleJson = JSON.stringify(
     buildExamplePayload(campaign.id, link.campaign_key, sortedFields),
@@ -538,26 +535,17 @@ export async function generatePostingInstructions({
           e(
             Text,
             { style: s.testBannerBody },
-            "This campaign is currently in TEST mode. Use the Test Endpoint below until testing is complete.",
+            "This affiliate is currently in TEST mode. Leads sent will be treated as test traffic automatically. No separate test endpoint is needed.",
           ),
         ),
 
       e(EndpointRow, {
-        label: "LIVE",
-        url: submitUrlLive,
+        label: "POST",
+        url: submitUrl,
         color: C.green600,
         note: isCampaignTest
-          ? "For live lead submissions once testing is complete."
+          ? "Test leads are auto-detected when your affiliate status is TEST."
           : undefined,
-      }),
-      e(EndpointRow, {
-        label: "TEST",
-        url: submitUrlTest,
-        color: C.blue500,
-        note: isCampaignTest
-          ? "This is the active endpoint until your testing is complete."
-          : undefined,
-        highlightNote: isCampaignTest,
       }),
 
       // ── Request Structure ──
@@ -688,12 +676,15 @@ export async function generatePostingInstructions({
         },
       }),
       e(ResponseBox, {
-        title: "Campaign in TEST mode (posting to LIVE endpoint)",
+        title: "Test traffic auto-detected",
         color: C.amber500,
         json: {
-          success: false,
-          message: "Lead rejected",
-          error: `Campaign is in test mode; send to ${submitUrlTest}`,
+          result: "passed",
+          message: "Test lead accepted",
+          data: {
+            lead_id: "LDABC12347",
+            message: "Test lead accepted – no delivery",
+          },
         },
       }),
 
@@ -709,11 +700,11 @@ export async function generatePostingInstructions({
           },
           {
             q: "I get a 404 or connection error.",
-            a: "Confirm you are posting to the correct endpoint. Use the TEST endpoint during integration and the LIVE endpoint only once your campaign has been promoted.",
+            a: "Confirm you are posting to the correct endpoint URL. There is a single unified endpoint for both test and live traffic.",
           },
           {
             q: "My leads are accepted but not appearing in live reporting.",
-            a: "Your campaign or affiliate status may still be in TEST mode. Leads submitted in test mode are not forwarded.",
+            a: "Your affiliate status may still be in TEST mode. Leads from TEST affiliates are not forwarded to clients. Contact your campaign manager to promote your status to LIVE.",
           },
           {
             q: "I receive required field validation errors.",

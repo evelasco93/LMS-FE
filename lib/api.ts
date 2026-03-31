@@ -2,6 +2,7 @@ import { API_BASE_URL } from "./constants";
 import { getIdToken, refreshSession, forceSignOut } from "./auth";
 import type {
   Affiliate,
+  AffiliateSoldPixelConfig,
   AffiliateStatus,
   ApiResponse,
   AuditQueryResponse,
@@ -17,6 +18,10 @@ import type {
   PluginSettingRecord,
   PluginView,
   Lead,
+  LogicCatalogSet,
+  LogicCatalogVersion,
+  SourceAffiliatePixelInfo,
+  TagDefinitionRecord,
   PaginatedResponse,
   IntakeLogItem,
   TableColumnConfig,
@@ -196,7 +201,10 @@ export async function deleteCampaign(id: string, permanent?: boolean) {
 }
 
 // Campaigns
-export async function createCampaign(payload: { name: string }) {
+export async function createCampaign(payload: {
+  name: string;
+  tags?: string[];
+}) {
   const url = `${API_BASE_URL}/campaigns`;
   return request<ApiResponse<Campaign>>(url, {
     method: "POST",
@@ -204,7 +212,10 @@ export async function createCampaign(payload: { name: string }) {
   });
 }
 
-export async function updateCampaign(id: string, payload: { name: string }) {
+export async function updateCampaign(
+  id: string,
+  payload: { name: string; default_cherry_pickable?: boolean },
+) {
   const url = `${API_BASE_URL}/campaigns/${id}`;
   return request<ApiResponse<Campaign>>(url, {
     method: "PUT",
@@ -326,6 +337,45 @@ export async function setCampaignAffiliateLeadCap(
   });
 }
 
+export async function setCampaignTags(campaignId: string, tags: string[]) {
+  const url = `${API_BASE_URL}/campaigns/${campaignId}/tags`;
+  return request<ApiResponse<Campaign>>(url, {
+    method: "PUT",
+    body: JSON.stringify({ tags }),
+  });
+}
+
+export async function setCampaignAffiliateValidationBypass(
+  campaignId: string,
+  affiliateId: string,
+  validationBypass: {
+    trusted_form_claim?: boolean;
+    duplicate_check?: boolean;
+    ipqs_phone?: boolean;
+    ipqs_email?: boolean;
+    ipqs_ip?: boolean;
+    all?: boolean;
+  },
+) {
+  const url = `${API_BASE_URL}/campaigns/${campaignId}/affiliates/${affiliateId}/validation-bypass`;
+  return request<ApiResponse<Campaign>>(url, {
+    method: "PUT",
+    body: JSON.stringify({ validation_bypass: validationBypass }),
+  });
+}
+
+export async function setCampaignAffiliateSoldPixelConfig(
+  campaignId: string,
+  affiliateId: string,
+  payload: AffiliateSoldPixelConfig,
+) {
+  const url = `${API_BASE_URL}/campaigns/${campaignId}/affiliates/${affiliateId}/pixel`;
+  return request<ApiResponse<Campaign>>(url, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function setCampaignClientDeliveryConfig(
   campaignId: string,
   clientId: string,
@@ -383,6 +433,7 @@ export async function listLeads(params?: {
   campaign_id?: string;
   test?: boolean;
   includeDeleted?: boolean;
+  include_trace?: boolean;
   limit?: number;
   lastEvaluatedKey?: string;
 }) {
@@ -563,8 +614,64 @@ export async function deletePluginSetting(provider: string, permanent = false) {
   });
 }
 
+// ── Tag Definitions (/tenant-config/tag-definitions) ──────────────────────
+
+export async function listTagDefinitions(params?: {
+  includeDeleted?: boolean;
+}) {
+  const url = buildUrl("/tenant-config/tag-definitions", params);
+  return request<{
+    success: boolean;
+    data: { items: TagDefinitionRecord[]; count: number };
+  }>(url);
+}
+
+export async function createTagDefinition(payload: {
+  label: string;
+  color?: string;
+}) {
+  const url = buildUrl("/tenant-config/tag-definitions");
+  return request<ApiResponse<TagDefinitionRecord>>(url, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateTagDefinition(
+  id: string,
+  payload: {
+    label?: string;
+    color?: string;
+  },
+) {
+  const url = buildUrl(
+    `/tenant-config/tag-definitions/${encodeURIComponent(id)}`,
+  );
+  return request<ApiResponse<TagDefinitionRecord>>(url, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteTagDefinition(id: string, permanent = false) {
+  const url = buildUrl(
+    `/tenant-config/tag-definitions/${encodeURIComponent(id)}`,
+    permanent ? { permanent: "true" } : undefined,
+  );
+  return request<{ success: boolean; message?: string }>(url, {
+    method: "DELETE",
+  });
+}
+
 export async function getLeadById(id: string) {
-  const url = `${API_BASE_URL}/leads/${id}`;
+  const url = buildUrl(`/leads/${id}`);
+  return request<ApiResponse<Lead>>(url);
+}
+
+export async function getLeadByIdWithTrace(id: string, includeTrace = true) {
+  const url = buildUrl(`/leads/${id}`, {
+    include_trace: includeTrace,
+  });
   return request<ApiResponse<Lead>>(url);
 }
 
@@ -783,6 +890,7 @@ type CatalogFieldInput = {
 export async function createCriteriaCatalogSet(payload: {
   name: string;
   description?: string;
+  tags?: Record<string, string>;
   fields?: CatalogFieldInput[];
 }) {
   return request<{ success: boolean; data: { set: CriteriaCatalogSet } }>(
@@ -805,9 +913,21 @@ export async function updateCriteriaCatalogSet(
   );
 }
 
-export async function deactivateCriteriaCatalogSet(setId: string) {
+export async function deleteCriteriaCatalogSet(setId: string) {
   return request<{ success: boolean }>(
     buildUrl(`/campaigns/criteria-catalog/${encodeURIComponent(setId)}`),
+    { method: "DELETE" },
+  );
+}
+
+export async function deleteCriteriaCatalogVersion(
+  setId: string,
+  version: number,
+) {
+  return request<{ success: boolean }>(
+    buildUrl(
+      `/campaigns/criteria-catalog/${encodeURIComponent(setId)}/versions/${version}`,
+    ),
     { method: "DELETE" },
   );
 }
@@ -822,6 +942,98 @@ export async function applyCriteriaCatalog(
       `/campaigns/${encodeURIComponent(campaignId)}/criteria/apply-catalog`,
     ),
     { method: "POST", body: JSON.stringify({ criteria_set_id, version }) },
+  );
+}
+
+export async function listLogicCatalog() {
+  return request<{ success: boolean; data: { items: LogicCatalogSet[] } }>(
+    buildUrl("/campaigns/logic-catalog"),
+  );
+}
+
+export async function getLogicCatalogSet(setId: string) {
+  return request<{
+    success: boolean;
+    data: { set: LogicCatalogSet; versions: LogicCatalogVersion[] };
+  }>(buildUrl(`/campaigns/logic-catalog/${encodeURIComponent(setId)}`));
+}
+
+export async function getLogicCatalogVersion(setId: string, version: number) {
+  return request<{ success: boolean; data: LogicCatalogVersion }>(
+    buildUrl(
+      `/campaigns/logic-catalog/${encodeURIComponent(setId)}/versions/${version}`,
+    ),
+  );
+}
+
+type LogicCatalogRuleInput = {
+  name: string;
+  action: "pass" | "fail";
+  enabled?: boolean;
+  groups: {
+    conditions: {
+      field_name: string;
+      operator: string;
+      value?: string | string[];
+    }[];
+  }[];
+};
+
+export async function createLogicCatalogSet(payload: {
+  name: string;
+  description?: string;
+  tags?: Record<string, string>;
+  rules?: LogicCatalogRuleInput[];
+}) {
+  return request<{ success: boolean; data: { set: LogicCatalogSet } }>(
+    buildUrl("/campaigns/logic-catalog"),
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+export async function updateLogicCatalogSet(
+  setId: string,
+  payload: {
+    name?: string;
+    description?: string;
+    rules: LogicCatalogRuleInput[];
+  },
+) {
+  return request<{ success: boolean; data: { set: LogicCatalogSet } }>(
+    buildUrl(`/campaigns/logic-catalog/${encodeURIComponent(setId)}`),
+    { method: "PUT", body: JSON.stringify(payload) },
+  );
+}
+
+export async function deleteLogicCatalogSet(setId: string) {
+  return request<{ success: boolean }>(
+    buildUrl(`/campaigns/logic-catalog/${encodeURIComponent(setId)}`),
+    { method: "DELETE" },
+  );
+}
+
+export async function deleteLogicCatalogVersion(
+  setId: string,
+  version: number,
+) {
+  return request<{ success: boolean }>(
+    buildUrl(
+      `/campaigns/logic-catalog/${encodeURIComponent(setId)}/versions/${version}`,
+    ),
+    { method: "DELETE" },
+  );
+}
+
+export async function applyLogicCatalog(
+  campaignId: string,
+  logic_set_id: string,
+  version: number,
+) {
+  return request<{ success: boolean; data: unknown }>(
+    buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/logic/apply-catalog`,
+    ),
+    { method: "POST", body: JSON.stringify({ logic_set_id, version }) },
   );
 }
 
@@ -936,6 +1148,291 @@ export async function deleteLogicRule(campaignId: string, ruleId: string) {
   });
 }
 
+// ─── Affiliate Logic Rule Overrides ──────────────────────────────────────────
+
+type LogicRulePayload = {
+  name: string;
+  action: "pass" | "fail";
+  enabled?: boolean;
+  groups: {
+    conditions: {
+      field_name: string;
+      operator: string;
+      value?: string | string[];
+    }[];
+  }[];
+};
+
+type LogicRuleUpdatePayload = Partial<LogicRulePayload>;
+
+export async function listAffiliateLogicRules(
+  campaignId: string,
+  affiliateId: string,
+) {
+  return request<{ success: boolean; data: LogicRule[] }>(
+    buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/affiliates/${encodeURIComponent(affiliateId)}/logic-rules`,
+    ),
+  );
+}
+
+export async function createAffiliateLogicRule(
+  campaignId: string,
+  affiliateId: string,
+  payload: LogicRulePayload,
+) {
+  return request<{ success: boolean; data: LogicRule }>(
+    buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/affiliates/${encodeURIComponent(affiliateId)}/logic-rules`,
+    ),
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+export async function updateAffiliateLogicRule(
+  campaignId: string,
+  affiliateId: string,
+  ruleId: string,
+  payload: LogicRuleUpdatePayload,
+) {
+  return request<{ success: boolean; data: LogicRule }>(
+    buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/affiliates/${encodeURIComponent(affiliateId)}/logic-rules/${encodeURIComponent(ruleId)}`,
+    ),
+    { method: "PUT", body: JSON.stringify(payload) },
+  );
+}
+
+export async function deleteAffiliateLogicRule(
+  campaignId: string,
+  affiliateId: string,
+  ruleId: string,
+) {
+  return request<{ success: boolean; data: { id: string } }>(
+    buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/affiliates/${encodeURIComponent(affiliateId)}/logic-rules/${encodeURIComponent(ruleId)}`,
+    ),
+    { method: "DELETE" },
+  );
+}
+
+// ── Per-Affiliate Pixel Criteria ──────────────────────────────────────────────
+
+export async function listAffiliatePixelCriteria(
+  campaignId: string,
+  affiliateId: string,
+) {
+  return request<{ success: boolean; data: LogicRule[] }>(
+    buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/affiliates/${encodeURIComponent(affiliateId)}/pixel-criteria`,
+    ),
+  );
+}
+
+export async function createAffiliatePixelCriterion(
+  campaignId: string,
+  affiliateId: string,
+  payload: LogicRulePayload,
+) {
+  return request<{ success: boolean; data: LogicRule }>(
+    buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/affiliates/${encodeURIComponent(affiliateId)}/pixel-criteria`,
+    ),
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+export async function updateAffiliatePixelCriterion(
+  campaignId: string,
+  affiliateId: string,
+  ruleId: string,
+  payload: LogicRuleUpdatePayload,
+) {
+  return request<{ success: boolean; data: LogicRule }>(
+    buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/affiliates/${encodeURIComponent(affiliateId)}/pixel-criteria/${encodeURIComponent(ruleId)}`,
+    ),
+    { method: "PUT", body: JSON.stringify(payload) },
+  );
+}
+
+export async function deleteAffiliatePixelCriterion(
+  campaignId: string,
+  affiliateId: string,
+  ruleId: string,
+) {
+  return request<{ success: boolean; data: { id: string } }>(
+    buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/affiliates/${encodeURIComponent(affiliateId)}/pixel-criteria/${encodeURIComponent(ruleId)}`,
+    ),
+    { method: "DELETE" },
+  );
+}
+
+export async function applyLogicCatalogToAffiliate(
+  campaignId: string,
+  affiliateId: string,
+  logic_set_id: string,
+  version: number,
+) {
+  return request<{ success: boolean; data: LogicRule[] }>(
+    buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/affiliates/${encodeURIComponent(affiliateId)}/logic/apply-catalog`,
+    ),
+    { method: "POST", body: JSON.stringify({ logic_set_id, version }) },
+  );
+}
+
+// ── Per-Affiliate Sold Criteria ─────────────────────────────────────────────
+
+export async function listAffiliateSoldCriteria(
+  campaignId: string,
+  affiliateId: string,
+) {
+  return request<{ success: boolean; data: LogicRule[] }>(
+    buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/affiliates/${encodeURIComponent(affiliateId)}/sold-criteria`,
+    ),
+  );
+}
+
+export async function createAffiliateSoldCriterion(
+  campaignId: string,
+  affiliateId: string,
+  payload: LogicRulePayload,
+) {
+  return request<{ success: boolean; data: LogicRule }>(
+    buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/affiliates/${encodeURIComponent(affiliateId)}/sold-criteria`,
+    ),
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+export async function updateAffiliateSoldCriterion(
+  campaignId: string,
+  affiliateId: string,
+  ruleId: string,
+  payload: LogicRuleUpdatePayload,
+) {
+  return request<{ success: boolean; data: LogicRule }>(
+    buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/affiliates/${encodeURIComponent(affiliateId)}/sold-criteria/${encodeURIComponent(ruleId)}`,
+    ),
+    { method: "PUT", body: JSON.stringify(payload) },
+  );
+}
+
+export async function deleteAffiliateSoldCriterion(
+  campaignId: string,
+  affiliateId: string,
+  ruleId: string,
+) {
+  return request<{ success: boolean; data: { id: string } }>(
+    buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/affiliates/${encodeURIComponent(affiliateId)}/sold-criteria/${encodeURIComponent(ruleId)}`,
+    ),
+    { method: "DELETE" },
+  );
+}
+
+// ─── Affiliate Cherry-Pick Override ──────────────────────────────────────────
+
+export async function updateAffiliateCherryPickOverride(
+  campaignId: string,
+  affiliateId: string,
+  value: boolean | null,
+) {
+  return request<ApiResponse<Campaign>>(
+    buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/affiliates/${encodeURIComponent(affiliateId)}/cherry-pick-override`,
+    ),
+    { method: "PUT", body: JSON.stringify({ value }) },
+  );
+}
+
+// ─── Client Logic Rule Overrides ─────────────────────────────────────────────
+
+export async function listClientLogicRules(
+  campaignId: string,
+  clientId: string,
+) {
+  return request<{ success: boolean; data: LogicRule[] }>(
+    buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/clients/${encodeURIComponent(clientId)}/logic-rules`,
+    ),
+  );
+}
+
+export async function createClientLogicRule(
+  campaignId: string,
+  clientId: string,
+  payload: LogicRulePayload,
+) {
+  return request<{ success: boolean; data: LogicRule }>(
+    buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/clients/${encodeURIComponent(clientId)}/logic-rules`,
+    ),
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+export async function updateClientLogicRule(
+  campaignId: string,
+  clientId: string,
+  ruleId: string,
+  payload: LogicRuleUpdatePayload,
+) {
+  return request<{ success: boolean; data: LogicRule }>(
+    buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/clients/${encodeURIComponent(clientId)}/logic-rules/${encodeURIComponent(ruleId)}`,
+    ),
+    { method: "PUT", body: JSON.stringify(payload) },
+  );
+}
+
+export async function deleteClientLogicRule(
+  campaignId: string,
+  clientId: string,
+  ruleId: string,
+) {
+  return request<{ success: boolean; data: { id: string } }>(
+    buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/clients/${encodeURIComponent(clientId)}/logic-rules/${encodeURIComponent(ruleId)}`,
+    ),
+    { method: "DELETE" },
+  );
+}
+
+export async function applyLogicCatalogToClient(
+  campaignId: string,
+  clientId: string,
+  logic_set_id: string,
+  version: number,
+) {
+  return request<{ success: boolean; data: LogicRule[] }>(
+    buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/clients/${encodeURIComponent(clientId)}/logic/apply-catalog`,
+    ),
+    { method: "POST", body: JSON.stringify({ logic_set_id, version }) },
+  );
+}
+
+export async function syncClientLogicToCampaign(
+  campaignId: string,
+  clientId: string,
+) {
+  return request<{
+    success: boolean;
+    data: { kept_rules: LogicRule[]; removed_count: number };
+  }>(
+    buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/clients/${encodeURIComponent(clientId)}/logic/sync-to-campaign`,
+    ),
+    { method: "POST" },
+  );
+}
+
 // ─── Audit Log ────────────────────────────────────────────────────────────────
 
 export async function getFullAuditLog(params?: {
@@ -996,11 +1493,14 @@ export async function getUserTablePreference(tableId: string) {
 
 export async function setUserTablePreference(
   tableId: string,
-  payload: { columns: TableColumnConfig[] },
+  payload: {
+    columns: TableColumnConfig[];
+    filters?: Array<{ field: string; value: unknown; operator?: string }>;
+  },
 ) {
   return request<{ success: boolean; data: UserTablePreference }>(
     buildUrl(`/users/preferences/${encodeURIComponent(tableId)}`),
-    { method: "PUT", body: JSON.stringify(payload) },
+    { method: "PUT", body: JSON.stringify({ config: payload }) },
   );
 }
 
@@ -1051,5 +1551,55 @@ export async function fetchPostingInstructionsPayload(
   }>(url, {
     method: "POST",
     body: JSON.stringify({ affiliate_id: affiliateId }),
+  });
+}
+
+// ─── Cherry-Pick ──────────────────────────────────────────────────────────────
+
+export async function listEligibleClients(leadId: string) {
+  return request<{
+    success: boolean;
+    data: {
+      clients: import("./types").EligibleClientEntry[];
+      source_affiliate_pixel?: SourceAffiliatePixelInfo;
+    };
+  }>(
+    buildUrl(
+      `/cherry-pick/eligible-clients?lead_id=${encodeURIComponent(leadId)}`,
+    ),
+  );
+}
+
+export async function updateLeadPickability(
+  leadId: string,
+  cherry_pickable: boolean,
+) {
+  return request<{ success: boolean; data: { lead: import("./types").Lead } }>(
+    buildUrl(`/cherry-pick/${encodeURIComponent(leadId)}/pickability`),
+    { method: "PATCH", body: JSON.stringify({ cherry_pickable }) },
+  );
+}
+
+export async function executeCherryPick(
+  leadId: string,
+  body: {
+    target_client_id: string;
+    campaign_id?: string;
+    fire_affiliate_pixel?: boolean;
+    skip_trusted_form_claim?: boolean;
+    skip_duplicate_check?: boolean;
+    skip_ipqs_phone?: boolean;
+    skip_ipqs_email?: boolean;
+    skip_ipqs_ip?: boolean;
+    payload_overrides?: Record<string, unknown>;
+    removed_payload_fields?: string[];
+  },
+) {
+  return request<{
+    success: boolean;
+    data: import("./types").CherryPickMeta;
+  }>(buildUrl(`/cherry-pick/${encodeURIComponent(leadId)}/execute`), {
+    method: "POST",
+    body: JSON.stringify(body),
   });
 }

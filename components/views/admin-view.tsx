@@ -2,7 +2,7 @@
 
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Activity,
   CalendarDays,
@@ -13,16 +13,20 @@ import {
   BadgeCheck,
   Building2,
   ChevronDown,
+  ChevronRight,
+  GitBranch,
   Hash,
   KeyRound,
   LayoutTemplate,
   Megaphone,
   Plug,
   PlusCircle,
+  Pencil,
   RefreshCw,
   Mail,
   Phone,
   ScrollText,
+  Tag,
   User,
   Search,
   Settings2,
@@ -57,22 +61,48 @@ import {
   listCredentials,
   listCredentialSchemas,
   listPluginSettings,
+  listCriteriaCatalog,
+  getCriteriaCatalogSet,
+  createCriteriaCatalogSet,
+  updateCriteriaCatalogSet,
+  deleteCriteriaCatalogSet,
+  deleteCriteriaCatalogVersion,
+  listLogicCatalog,
+  getLogicCatalogSet,
+  createLogicCatalogSet,
+  updateLogicCatalogSet,
+  deleteLogicCatalogSet,
+  deleteLogicCatalogVersion,
   getFullAuditLog,
   getIntakeLogs,
+  listClients,
+  listAffiliates,
+  listTagDefinitions,
+  createTagDefinition,
+  updateTagDefinition,
+  deleteTagDefinition,
 } from "@/lib/api";
 import { formatDate, inputClass, normalizeFieldLabel } from "@/lib/utils";
 import { AuditPopover, HoverTooltip } from "@/components/shared-ui";
 import { getCurrentUser } from "@/lib/auth";
 import type {
+  AuditChange,
   Campaign,
   CampaignDetailTab,
+  Client,
+  Affiliate,
   CognitoUser,
   CredentialRecord,
   CredentialSchemaRecord,
   PluginView,
+  CriteriaCatalogSet,
+  CriteriaCatalogVersion,
+  LogicCatalogSet,
+  LogicCatalogVersion,
   AuditLogItem,
   AuditActor,
   IntakeLogItem,
+  TagDefinitionRecord,
 } from "@/lib/types";
 
 // ─── Helpers (shared with activity log) ──────────────────────────────────────
@@ -183,11 +213,29 @@ function getEntityTypeMeta(type: string) {
         label: "Integration",
         color: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
       };
+    case "user_table_preference":
+      return {
+        icon: <SlidersHorizontal size={s} />,
+        label: "Table Pref",
+        color: "bg-sky-500/10 text-sky-700 dark:text-sky-300",
+      };
     case "user":
       return {
         icon: <UserCog size={s} />,
         label: "User",
         color: "bg-rose-500/10 text-rose-600 dark:text-rose-400",
+      };
+    case "criteria_catalog":
+      return {
+        icon: <LayoutTemplate size={s} />,
+        label: "Criteria Catalog",
+        color: "bg-teal-500/10 text-teal-600 dark:text-teal-400",
+      };
+    case "logic_catalog":
+      return {
+        icon: <GitBranch size={s} />,
+        label: "Logic Catalog",
+        color: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400",
       };
     default:
       return {
@@ -213,6 +261,308 @@ function formatLogDate(value?: string): string {
     hour12: true,
   }).format(date);
   return `${d} · ${t}`;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function formatAuditDetailValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "number") return String(value);
+  if (typeof value === "string") {
+    const maybeDate = new Date(value);
+    if (!Number.isNaN(maybeDate.getTime()) && value.includes("T")) {
+      return formatLogDate(value);
+    }
+    return value;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function formatActorLike(value: unknown): string {
+  const actor = asRecord(value);
+  if (!actor) return "System";
+  return (
+    (typeof actor.full_name === "string" && actor.full_name) ||
+    (typeof actor.email === "string" && actor.email) ||
+    (typeof actor.username === "string" && actor.username) ||
+    "Unknown"
+  );
+}
+
+function summarizeTablePreferenceConfig(value: unknown): string | null {
+  const cfg = asRecord(value);
+  if (!cfg) return null;
+
+  const columns = Array.isArray(cfg.columns)
+    ? (cfg.columns as Array<{ visible?: boolean }>).filter(
+        (c) => c && typeof c === "object",
+      )
+    : [];
+  const visibleCount = columns.filter((c) => c.visible !== false).length;
+
+  const sortCount = Array.isArray(cfg.sort) ? cfg.sort.length : 0;
+  const filterCount = Array.isArray(cfg.filters) ? cfg.filters.length : 0;
+
+  return `${visibleCount}/${columns.length} columns visible, ${sortCount} sort rule${sortCount === 1 ? "" : "s"}, ${filterCount} filter setting${filterCount === 1 ? "" : "s"}`;
+}
+
+function renderAuditDetailRows(
+  rows: Array<{
+    label: string;
+    value: unknown;
+    tone?: "default" | "success" | "danger" | "warning";
+  }>,
+  keyPrefix: string,
+): React.ReactNode {
+  return rows
+    .filter(
+      (row) =>
+        row.value !== undefined && row.value !== null && row.value !== "",
+    )
+    .map((row, idx) => (
+      <div
+        key={`${keyPrefix}-row-${idx}`}
+        className="grid grid-cols-[9rem_1fr] items-start gap-2 text-[11px]"
+      >
+        <span className="truncate font-medium text-[--color-text]">
+          {row.label}
+        </span>
+        <span
+          className={
+            row.tone === "success"
+              ? "text-[--color-success]"
+              : row.tone === "danger"
+                ? "text-[--color-danger]"
+                : row.tone === "warning"
+                  ? "text-[--color-warning]"
+                  : "text-[--color-text-muted]"
+          }
+        >
+          {formatAuditDetailValue(row.value)}
+        </span>
+      </div>
+    ));
+}
+
+function renderAuditPayloadBlock(
+  label: string,
+  value: unknown,
+  key: string,
+): React.ReactNode | null {
+  if (value === undefined || value === null) return null;
+  return (
+    <div key={key} className="space-y-1">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
+        {label}
+      </p>
+      <pre className="max-h-40 overflow-auto rounded-md border border-[--color-border] bg-[--color-bg] p-2 text-[10px] leading-relaxed text-[--color-text]">
+        {JSON.stringify(value, null, 2)}
+      </pre>
+    </div>
+  );
+}
+
+function renderLeadStructuredAuditChange(
+  change: AuditChange,
+  key: string,
+): React.ReactNode | null {
+  const field = change.field.replace(/^payload\./, "").toLowerCase();
+  const root = asRecord(change.to) ?? asRecord(change.from);
+  if (!root) return null;
+
+  if (field === "affiliate_pixel_result") {
+    const success = root.success === true;
+    const errorMessage =
+      typeof root.error === "string" ? root.error.toLowerCase() : "";
+    const status = success
+      ? "Fired"
+      : errorMessage.includes("not fired") || errorMessage.includes("disabled")
+        ? "Not fired"
+        : "Failed";
+
+    return (
+      <div
+        key={key}
+        className="space-y-2 rounded-md border border-[--color-border] bg-[--color-panel] p-2.5"
+      >
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
+          Affiliate Pixel Result
+        </p>
+        <div className="space-y-1.5">
+          {renderAuditDetailRows(
+            [
+              {
+                label: "Status",
+                value: status,
+                tone: success
+                  ? "success"
+                  : status === "Not fired"
+                    ? "warning"
+                    : "danger",
+              },
+              { label: "Affiliate ID", value: root.affiliate_id },
+              { label: "Campaign ID", value: root.campaign_id },
+              { label: "Fired At", value: root.fired_at },
+              { label: "Method", value: root.webhook_method },
+              { label: "Configured URL", value: root.webhook_url },
+              { label: "Final URL", value: root.final_webhook_url },
+              { label: "HTTP Status", value: root.webhook_response_status },
+              { label: "Error", value: root.error, tone: "danger" },
+            ],
+            key,
+          )}
+        </div>
+        {renderAuditPayloadBlock(
+          "Query Params Sent",
+          root.sent_query_params,
+          `${key}-query`,
+        )}
+        {renderAuditPayloadBlock(
+          "Body Payload Sent",
+          root.sent_body_payload,
+          `${key}-body`,
+        )}
+        {renderAuditPayloadBlock(
+          "Request Snapshot",
+          root.sent_payload_snapshot,
+          `${key}-request-snapshot`,
+        )}
+        {renderAuditPayloadBlock(
+          "Webhook Response",
+          root.webhook_response_body,
+          `${key}-response`,
+        )}
+      </div>
+    );
+  }
+
+  if (field === "delivery_result") {
+    const accepted = root.accepted === true;
+    return (
+      <div
+        key={key}
+        className="space-y-2 rounded-md border border-[--color-border] bg-[--color-panel] p-2.5"
+      >
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
+          Delivery Result
+        </p>
+        <div className="space-y-1.5">
+          {renderAuditDetailRows(
+            [
+              {
+                label: "Accepted",
+                value: accepted ? "Yes" : "No",
+                tone: accepted ? "success" : "danger",
+              },
+              { label: "Client ID", value: root.client_id },
+              { label: "Delivered At", value: root.delivered_at },
+              { label: "Attempts", value: root.attempts },
+              { label: "Method", value: root.webhook_method },
+              { label: "Configured URL", value: root.webhook_url },
+              { label: "Final URL", value: root.final_webhook_url },
+              { label: "HTTP Status", value: root.webhook_response_status },
+              { label: "Acceptance Match", value: root.acceptance_match },
+              { label: "Error", value: root.error, tone: "danger" },
+            ],
+            key,
+          )}
+        </div>
+        {renderAuditPayloadBlock(
+          "Query Params Sent",
+          root.sent_query_params,
+          `${key}-query`,
+        )}
+        {renderAuditPayloadBlock(
+          "Body Payload Sent",
+          root.sent_body_payload,
+          `${key}-body`,
+        )}
+        {renderAuditPayloadBlock(
+          "Webhook Response",
+          root.webhook_response_body,
+          `${key}-response`,
+        )}
+      </div>
+    );
+  }
+
+  if (field === "cherry_pick_meta") {
+    const nestedDelivery = asRecord(root.delivery_result);
+    return (
+      <div
+        key={key}
+        className="space-y-2 rounded-md border border-[--color-border] bg-[--color-panel] p-2.5"
+      >
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
+          Cherry-Pick Details
+        </p>
+        <div className="space-y-1.5">
+          {renderAuditDetailRows(
+            [
+              { label: "Target Client", value: root.target_client_id },
+              { label: "Source Campaign", value: root.source_campaign_id },
+              { label: "Executed At", value: root.executed_at },
+              {
+                label: "Executed By",
+                value: formatActorLike(root.executed_by),
+              },
+              {
+                label: "Delivery Accepted",
+                value: nestedDelivery?.accepted === true ? "Yes" : "No",
+                tone: nestedDelivery?.accepted === true ? "success" : "danger",
+              },
+              { label: "Delivery Client", value: nestedDelivery?.client_id },
+              {
+                label: "Delivery Method",
+                value: nestedDelivery?.webhook_method,
+              },
+              {
+                label: "Delivery URL",
+                value:
+                  asRecord(nestedDelivery?.sent_payload_snapshot)
+                    ?.final_webhook_url ??
+                  nestedDelivery?.final_webhook_url ??
+                  nestedDelivery?.webhook_url,
+              },
+              {
+                label: "Delivery Error",
+                value: nestedDelivery?.error,
+                tone: "danger",
+              },
+            ],
+            key,
+          )}
+        </div>
+        {renderAuditPayloadBlock(
+          "Delivery Query Params",
+          nestedDelivery?.sent_query_params,
+          `${key}-query`,
+        )}
+        {renderAuditPayloadBlock(
+          "Delivery Body Payload",
+          nestedDelivery?.sent_body_payload,
+          `${key}-body`,
+        )}
+        {renderAuditPayloadBlock(
+          "Delivery Request Snapshot",
+          nestedDelivery?.sent_payload_snapshot,
+          `${key}-request-snapshot`,
+        )}
+      </div>
+    );
+  }
+
+  return null;
 }
 
 // ─── Intake log timezone helpers ──────────────────────────────────────────────
@@ -587,10 +937,13 @@ function IntakeLogDetailModal({
 // ─── Admin types ──────────────────────────────────────────────────────────────
 
 type AdminPrimaryTab = "settings" | "logs";
+type CatalogTabKey = "criteria" | "logic";
 type SettingsSectionKey =
   | "saved-credentials"
   | "schemas"
   | "plugin-settings"
+  | "catalogs"
+  | "tags"
   | "users";
 type LogsSectionKey = "activity" | "intake";
 
@@ -610,36 +963,44 @@ interface AdminViewProps {
 
 export function AdminView({
   role,
+  campaigns = [],
   onOpenCampaign,
   onOpenLead,
 }: AdminViewProps) {
   const currentUserEmail = getCurrentUser()?.email;
 
   const router = useRouter();
-  const searchParams = useSearchParams();
   const pathname = usePathname();
+
+  // Read initial URL params without useSearchParams (avoids Next.js router overhead)
+  const initParams =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search)
+      : new URLSearchParams();
 
   // ── URL-derived state ──────────────────────────────────────────────────────
   const VALID_SETTINGS_SECTIONS: SettingsSectionKey[] = [
     "saved-credentials",
     "schemas",
     "plugin-settings",
+    "catalogs",
+    "tags",
     "users",
   ];
   const VALID_LOGS_SECTIONS: LogsSectionKey[] = ["activity", "intake"];
 
-  const rawAdminTab = searchParams?.get("admin_tab");
+  const rawAdminTab = initParams.get("admin_tab");
   const initialAdminTab: AdminPrimaryTab =
     rawAdminTab === "logs" ? "logs" : "settings";
 
-  const rawSection = searchParams?.get("settings_section");
+  const rawSection = initParams.get("settings_section");
   const initialActiveSection: SettingsSectionKey = (
     VALID_SETTINGS_SECTIONS.includes(rawSection as SettingsSectionKey)
       ? rawSection
       : "saved-credentials"
   ) as SettingsSectionKey;
 
-  const rawLogsSection = searchParams?.get("logs_section");
+  const rawLogsSection = initParams.get("logs_section");
   const initialLogsSection: LogsSectionKey = (
     VALID_LOGS_SECTIONS.includes(rawLogsSection as LogsSectionKey)
       ? rawLogsSection
@@ -653,40 +1014,44 @@ export function AdminView({
   const [logsSection, setLogsSectionState] =
     useState<LogsSectionKey>(initialLogsSection);
   const [logsEntityType, setLogsEntityTypeState] = useState(
-    searchParams?.get("logs_entity") ?? "",
+    initParams.get("logs_entity") ?? "",
   );
   const [logsActorSub, setLogsActorSubState] = useState(
-    searchParams?.get("logs_actor") ?? "",
+    initParams.get("logs_actor") ?? "",
   );
   const [logsSort, setLogsSortState] = useState<"newest" | "oldest">(
-    (searchParams?.get("logs_sort") ?? "newest") as "newest" | "oldest",
+    (initParams.get("logs_sort") ?? "newest") as "newest" | "oldest",
   );
 
+  // Sync admin state on browser back / forward
   useEffect(() => {
-    const nextRawAdminTab = searchParams?.get("admin_tab");
-    const nextAdminTab: AdminPrimaryTab =
-      nextRawAdminTab === "logs" ? "logs" : "settings";
-    const nextRawSection = searchParams?.get("settings_section");
-    const nextActiveSection: SettingsSectionKey = (
-      VALID_SETTINGS_SECTIONS.includes(nextRawSection as SettingsSectionKey)
-        ? nextRawSection
-        : "saved-credentials"
-    ) as SettingsSectionKey;
-    const nextRawLogsSection = searchParams?.get("logs_section");
-    const nextLogsSection: LogsSectionKey = (
-      VALID_LOGS_SECTIONS.includes(nextRawLogsSection as LogsSectionKey)
-        ? nextRawLogsSection
-        : "activity"
-    ) as LogsSectionKey;
-    setAdminTabState(nextAdminTab);
-    setActiveSectionState(nextActiveSection);
-    setLogsSectionState(nextLogsSection);
-    setLogsEntityTypeState(searchParams?.get("logs_entity") ?? "");
-    setLogsActorSubState(searchParams?.get("logs_actor") ?? "");
-    setLogsSortState(
-      (searchParams?.get("logs_sort") ?? "newest") as "newest" | "oldest",
-    );
-  }, [searchParams]);
+    const onPop = () => {
+      const p = new URLSearchParams(window.location.search);
+      const nextRawAdminTab = p.get("admin_tab");
+      const nextAdminTab: AdminPrimaryTab =
+        nextRawAdminTab === "logs" ? "logs" : "settings";
+      const nextRawSection = p.get("settings_section");
+      const nextActiveSection: SettingsSectionKey = (
+        VALID_SETTINGS_SECTIONS.includes(nextRawSection as SettingsSectionKey)
+          ? nextRawSection
+          : "saved-credentials"
+      ) as SettingsSectionKey;
+      const nextRawLogsSection = p.get("logs_section");
+      const nextLogsSection: LogsSectionKey = (
+        VALID_LOGS_SECTIONS.includes(nextRawLogsSection as LogsSectionKey)
+          ? nextRawLogsSection
+          : "activity"
+      ) as LogsSectionKey;
+      setAdminTabState(nextAdminTab);
+      setActiveSectionState(nextActiveSection);
+      setLogsSectionState(nextLogsSection);
+      setLogsEntityTypeState(p.get("logs_entity") ?? "");
+      setLogsActorSubState(p.get("logs_actor") ?? "");
+      setLogsSortState((p.get("logs_sort") ?? "newest") as "newest" | "oldest");
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const setSettingsParams = (next: Record<string, string | undefined>) => {
     const params = new URLSearchParams(
@@ -773,6 +1138,9 @@ export function AdminView({
         return `?view=admin&admin_tab=settings&settings_section=schemas`;
       case "plugin_setting":
         return `?view=admin&admin_tab=settings&settings_section=plugin-settings`;
+      case "criteria_catalog":
+      case "logic_catalog":
+        return `?view=admin&admin_tab=settings&settings_section=catalogs`;
       default:
         return `?view=admin`;
     }
@@ -824,6 +1192,49 @@ export function AdminView({
   const [viewPluginTarget, setViewPluginTarget] = useState<PluginView | null>(
     null,
   );
+
+  // Catalogs state
+  const [catalogTab, setCatalogTab] = useState<CatalogTabKey>("criteria");
+  const [selectedCriteriaSetId, setSelectedCriteriaSetId] = useState<
+    string | null
+  >(null);
+  const [selectedLogicSetId, setSelectedLogicSetId] = useState<string | null>(
+    null,
+  );
+  const [catalogEditorOpen, setCatalogEditorOpen] = useState(false);
+  const [catalogEditorMode, setCatalogEditorMode] = useState<
+    "create" | "new-version"
+  >("create");
+  const [catalogEditorKind, setCatalogEditorKind] =
+    useState<CatalogTabKey>("criteria");
+  const [catalogEditorTargetId, setCatalogEditorTargetId] = useState<
+    string | null
+  >(null);
+  const [catalogEditorName, setCatalogEditorName] = useState("");
+  const [catalogEditorDescription, setCatalogEditorDescription] = useState("");
+  const [catalogEditorTags, setCatalogEditorTags] = useState<string[]>([]);
+  const [catalogEditorJson, setCatalogEditorJson] = useState("[]");
+  const [catalogEditorSaving, setCatalogEditorSaving] = useState(false);
+  const [catalogDeleteBusyKey, setCatalogDeleteBusyKey] = useState<
+    string | null
+  >(null);
+  const [catalogDeleteVersionBusyKey, setCatalogDeleteVersionBusyKey] =
+    useState<string | null>(null);
+  const [expandedCatalogVersions, setExpandedCatalogVersions] = useState<
+    Set<string>
+  >(new Set());
+
+  // Tag editor state
+  const [tagEditorOpen, setTagEditorOpen] = useState(false);
+  const [tagEditorMode, setTagEditorMode] = useState<"create" | "edit">(
+    "create",
+  );
+  const [tagEditorTarget, setTagEditorTarget] =
+    useState<TagDefinitionRecord | null>(null);
+  const [tagEditorLabel, setTagEditorLabel] = useState("");
+  const [tagEditorColor, setTagEditorColor] = useState("");
+  const [tagEditorSaving, setTagEditorSaving] = useState(false);
+  const [tagDeleteBusyKey, setTagDeleteBusyKey] = useState<string | null>(null);
 
   // Intake logs state
   const [intakeSearch, setIntakeSearch] = useState("");
@@ -947,6 +1358,126 @@ export function AdminView({
     },
   );
 
+  const shouldLoadCatalogs =
+    adminTab === "settings" && activeSection === "catalogs";
+
+  const {
+    data: criteriaCatalogSets = [],
+    isLoading: criteriaCatalogLoading,
+    mutate: refreshCriteriaCatalog,
+  } = useSWR<CriteriaCatalogSet[]>(
+    shouldLoadCatalogs ? "admin:criteria-catalog" : null,
+    async () => {
+      try {
+        const res = await listCriteriaCatalog();
+        return res?.data?.items ?? [];
+      } catch (err) {
+        console.warn("Criteria catalog not available", err);
+        return [] as CriteriaCatalogSet[];
+      }
+    },
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      revalidateIfStale: false,
+      keepPreviousData: true,
+    },
+  );
+
+  const {
+    data: logicCatalogSets = [],
+    isLoading: logicCatalogLoading,
+    mutate: refreshLogicCatalog,
+  } = useSWR<LogicCatalogSet[]>(
+    shouldLoadCatalogs ? "admin:logic-catalog" : null,
+    async () => {
+      try {
+        const res = await listLogicCatalog();
+        return res?.data?.items ?? [];
+      } catch (err) {
+        console.warn("Logic catalog not available", err);
+        return [] as LogicCatalogSet[];
+      }
+    },
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      revalidateIfStale: false,
+      keepPreviousData: true,
+    },
+  );
+
+  const shouldLoadTags =
+    adminTab === "settings" &&
+    (activeSection === "tags" || activeSection === "catalogs");
+
+  const {
+    data: tagDefinitions = [],
+    isLoading: tagDefinitionsLoading,
+    mutate: refreshTagDefinitions,
+  } = useSWR<TagDefinitionRecord[]>(
+    shouldLoadTags ? "admin:tag-definitions" : null,
+    async () => {
+      try {
+        const res = await listTagDefinitions();
+        return res?.data?.items ?? [];
+      } catch (err) {
+        console.warn("Tag definitions not available", err);
+        return [] as TagDefinitionRecord[];
+      }
+    },
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      revalidateIfStale: false,
+      keepPreviousData: true,
+    },
+  );
+
+  const {
+    data: criteriaCatalogDetail,
+    isLoading: criteriaCatalogDetailLoading,
+    mutate: refreshCriteriaCatalogDetail,
+  } = useSWR<
+    { set: CriteriaCatalogSet; versions: CriteriaCatalogVersion[] } | undefined
+  >(
+    shouldLoadCatalogs && selectedCriteriaSetId
+      ? `admin:criteria-catalog:${selectedCriteriaSetId}`
+      : null,
+    async () => {
+      const res = await getCriteriaCatalogSet(selectedCriteriaSetId!);
+      return res?.data;
+    },
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      revalidateIfStale: false,
+      keepPreviousData: true,
+    },
+  );
+
+  const {
+    data: logicCatalogDetail,
+    isLoading: logicCatalogDetailLoading,
+    mutate: refreshLogicCatalogDetail,
+  } = useSWR<
+    { set: LogicCatalogSet; versions: LogicCatalogVersion[] } | undefined
+  >(
+    shouldLoadCatalogs && selectedLogicSetId
+      ? `admin:logic-catalog:${selectedLogicSetId}`
+      : null,
+    async () => {
+      const res = await getLogicCatalogSet(selectedLogicSetId!);
+      return res?.data;
+    },
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      revalidateIfStale: false,
+      keepPreviousData: true,
+    },
+  );
+
   // Activity log SWR — always stable key; entity/actor filtering done client-side
   const {
     data: logsRaw = [],
@@ -994,6 +1525,44 @@ export function AdminView({
       revalidateIfStale: false,
       keepPreviousData: true,
       refreshInterval: 30_000,
+    },
+  );
+
+  // Clients SWR — for name lookup in activity log
+  const { data: allClients = [] } = useSWR<Client[]>(
+    "admin:all-clients",
+    async () => {
+      try {
+        const res = await listClients({ includeDeleted: true });
+        return res?.data?.items ?? [];
+      } catch {
+        return [] as Client[];
+      }
+    },
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      revalidateIfStale: false,
+      keepPreviousData: true,
+    },
+  );
+
+  // Affiliates SWR — for name lookup in activity log
+  const { data: allAffiliates = [] } = useSWR<Affiliate[]>(
+    "admin:all-affiliates",
+    async () => {
+      try {
+        const res = await listAffiliates({ includeDeleted: true });
+        return res?.data?.items ?? [];
+      } catch {
+        return [] as Affiliate[];
+      }
+    },
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      revalidateIfStale: false,
+      keepPreviousData: true,
     },
   );
 
@@ -1087,6 +1656,24 @@ export function AdminView({
     return map;
   }, [credentials]);
 
+  const campaignNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    campaigns.forEach((c) => map.set(c.id, c.name));
+    return map;
+  }, [campaigns]);
+
+  const clientNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    allClients.forEach((c) => map.set(c.id, c.name));
+    return map;
+  }, [allClients]);
+
+  const affiliateNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    allAffiliates.forEach((a) => map.set(a.id, a.name));
+    return map;
+  }, [allAffiliates]);
+
   const logsUniqueActors = useMemo(() => {
     const map = new Map<string, { sub: string; name: string }>();
     logsRaw.forEach((item) => {
@@ -1099,6 +1686,23 @@ export function AdminView({
     });
     return Array.from(map.values());
   }, [logsRaw]);
+
+  const criteriaCatalogVersions = useMemo(() => {
+    return [...(criteriaCatalogDetail?.versions ?? [])].sort(
+      (a, b) => b.version - a.version,
+    );
+  }, [criteriaCatalogDetail]);
+
+  const logicCatalogVersions = useMemo(() => {
+    return [...(logicCatalogDetail?.versions ?? [])].sort(
+      (a, b) => b.version - a.version,
+    );
+  }, [logicCatalogDetail]);
+
+  const showCriteriaCatalogLoading =
+    criteriaCatalogLoading && criteriaCatalogSets.length === 0;
+  const showLogicCatalogLoading =
+    logicCatalogLoading && logicCatalogSets.length === 0;
 
   const showSchemasLoading = schemasLoading && schemas.length === 0;
   const showPluginSettingsLoading =
@@ -1195,6 +1799,34 @@ export function AdminView({
     }
   }, [intakePage, intakeTotalPages]);
 
+  useEffect(() => {
+    if (!shouldLoadCatalogs) return;
+    if (criteriaCatalogSets.length === 0) {
+      setSelectedCriteriaSetId(null);
+      return;
+    }
+    if (
+      !selectedCriteriaSetId ||
+      !criteriaCatalogSets.some((set) => set.id === selectedCriteriaSetId)
+    ) {
+      setSelectedCriteriaSetId(criteriaCatalogSets[0].id);
+    }
+  }, [shouldLoadCatalogs, criteriaCatalogSets, selectedCriteriaSetId]);
+
+  useEffect(() => {
+    if (!shouldLoadCatalogs) return;
+    if (logicCatalogSets.length === 0) {
+      setSelectedLogicSetId(null);
+      return;
+    }
+    if (
+      !selectedLogicSetId ||
+      !logicCatalogSets.some((set) => set.id === selectedLogicSetId)
+    ) {
+      setSelectedLogicSetId(logicCatalogSets[0].id);
+    }
+  }, [shouldLoadCatalogs, logicCatalogSets, selectedLogicSetId]);
+
   // ── User handlers ────────────────────────────────────────────────────────────
 
   const filteredUsers = useMemo(() => {
@@ -1234,12 +1866,369 @@ export function AdminView({
     );
   };
 
+  const closeCatalogEditor = () => {
+    if (catalogEditorSaving) return;
+    setCatalogEditorOpen(false);
+    setCatalogEditorMode("create");
+    setCatalogEditorKind("criteria");
+    setCatalogEditorTargetId(null);
+    setCatalogEditorName("");
+    setCatalogEditorDescription("");
+    setCatalogEditorTags([]);
+    setCatalogEditorJson("[]");
+  };
+
+  const openCatalogCreate = (kind: CatalogTabKey) => {
+    setCatalogEditorKind(kind);
+    setCatalogEditorMode("create");
+    setCatalogEditorTargetId(null);
+    setCatalogEditorName("");
+    setCatalogEditorDescription("");
+    setCatalogEditorTags([]);
+    setCatalogEditorJson("[]");
+    setCatalogEditorOpen(true);
+  };
+
+  const openCatalogNewVersion = (kind: CatalogTabKey) => {
+    if (kind === "criteria") {
+      if (!criteriaCatalogDetail?.set) {
+        toast.error("Select a criteria catalog set first");
+        return;
+      }
+      const latestVersion = criteriaCatalogVersions[0];
+      setCatalogEditorKind("criteria");
+      setCatalogEditorMode("new-version");
+      setCatalogEditorTargetId(criteriaCatalogDetail.set.id);
+      setCatalogEditorName(criteriaCatalogDetail.set.name);
+      setCatalogEditorDescription(criteriaCatalogDetail.set.description ?? "");
+      setCatalogEditorJson(
+        JSON.stringify(latestVersion?.fields ?? [], null, 2),
+      );
+      setCatalogEditorOpen(true);
+      return;
+    }
+
+    if (!logicCatalogDetail?.set) {
+      toast.error("Select a logic catalog set first");
+      return;
+    }
+    const latestVersion = logicCatalogVersions[0];
+    setCatalogEditorKind("logic");
+    setCatalogEditorMode("new-version");
+    setCatalogEditorTargetId(logicCatalogDetail.set.id);
+    setCatalogEditorName(logicCatalogDetail.set.name);
+    setCatalogEditorDescription(logicCatalogDetail.set.description ?? "");
+    setCatalogEditorJson(JSON.stringify(latestVersion?.rules ?? [], null, 2));
+    setCatalogEditorOpen(true);
+  };
+
+  const toggleCatalogVersion = (versionId: string) => {
+    setExpandedCatalogVersions((prev) => {
+      const next = new Set(prev);
+      if (next.has(versionId)) next.delete(versionId);
+      else next.add(versionId);
+      return next;
+    });
+  };
+
+  const openCatalogEditVersion = (
+    kind: CatalogTabKey,
+    setId: string,
+    setName: string,
+    setDescription: string,
+    versionData: unknown[],
+  ) => {
+    setCatalogEditorKind(kind);
+    setCatalogEditorMode("new-version");
+    setCatalogEditorTargetId(setId);
+    setCatalogEditorName(setName);
+    setCatalogEditorDescription(setDescription);
+    setCatalogEditorJson(JSON.stringify(versionData, null, 2));
+    setCatalogEditorOpen(true);
+  };
+
+  const saveCatalogEditor = async () => {
+    const trimmedName = catalogEditorName.trim();
+    if (!trimmedName) {
+      toast.error("Name is required");
+      return;
+    }
+
+    let parsedJson: unknown;
+    try {
+      parsedJson = JSON.parse(catalogEditorJson || "[]");
+    } catch {
+      toast.error("JSON body is invalid");
+      return;
+    }
+
+    if (!Array.isArray(parsedJson)) {
+      toast.error("JSON body must be an array");
+      return;
+    }
+
+    const description = catalogEditorDescription.trim();
+
+    setCatalogEditorSaving(true);
+    try {
+      if (catalogEditorKind === "criteria") {
+        if (catalogEditorMode === "create") {
+          const res = await createCriteriaCatalogSet({
+            name: trimmedName,
+            ...(description ? { description } : {}),
+            ...(catalogEditorTags.length > 0
+              ? { tags: catalogEditorTags as any }
+              : {}),
+            fields: parsedJson as any,
+          });
+          if (!(res as any)?.success) {
+            throw new Error((res as any)?.message || "Failed to create set");
+          }
+          const createdId = (res as any)?.data?.set?.id as string | undefined;
+          await refreshCriteriaCatalog();
+          if (createdId) {
+            setSelectedCriteriaSetId(createdId);
+          }
+          toast.success("Criteria catalog set created");
+        } else {
+          if (!catalogEditorTargetId) {
+            throw new Error("Missing criteria catalog set id");
+          }
+          const res = await updateCriteriaCatalogSet(catalogEditorTargetId, {
+            name: trimmedName,
+            ...(description ? { description } : {}),
+            fields: parsedJson as any,
+          });
+          if (!(res as any)?.success) {
+            throw new Error(
+              (res as any)?.message || "Failed to create new version",
+            );
+          }
+          await Promise.all([
+            refreshCriteriaCatalog(),
+            refreshCriteriaCatalogDetail(),
+          ]);
+          toast.success("Criteria catalog version created");
+        }
+      } else {
+        if (catalogEditorMode === "create") {
+          const res = await createLogicCatalogSet({
+            name: trimmedName,
+            ...(description ? { description } : {}),
+            ...(catalogEditorTags.length > 0
+              ? { tags: catalogEditorTags as any }
+              : {}),
+            rules: parsedJson as any,
+          });
+          if (!(res as any)?.success) {
+            throw new Error((res as any)?.message || "Failed to create set");
+          }
+          const createdId = (res as any)?.data?.set?.id as string | undefined;
+          await refreshLogicCatalog();
+          if (createdId) {
+            setSelectedLogicSetId(createdId);
+          }
+          toast.success("Logic catalog set created");
+        } else {
+          if (!catalogEditorTargetId) {
+            throw new Error("Missing logic catalog set id");
+          }
+          const res = await updateLogicCatalogSet(catalogEditorTargetId, {
+            name: trimmedName,
+            ...(description ? { description } : {}),
+            rules: parsedJson as any,
+          });
+          if (!(res as any)?.success) {
+            throw new Error(
+              (res as any)?.message || "Failed to create new version",
+            );
+          }
+          await Promise.all([
+            refreshLogicCatalog(),
+            refreshLogicCatalogDetail(),
+          ]);
+          toast.success("Logic catalog version created");
+        }
+      }
+
+      closeCatalogEditor();
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to save catalog set");
+    } finally {
+      setCatalogEditorSaving(false);
+    }
+  };
+
+  const removeCatalogSet = async (kind: CatalogTabKey, setId: string) => {
+    const confirmed = window.confirm(
+      "Delete this catalog set and all of its versions?",
+    );
+    if (!confirmed) return;
+
+    const busyKey = `${kind}:set:${setId}`;
+    setCatalogDeleteBusyKey(busyKey);
+    try {
+      if (kind === "criteria") {
+        const res = await deleteCriteriaCatalogSet(setId);
+        if (!(res as any)?.success) {
+          throw new Error((res as any)?.message || "Failed to delete set");
+        }
+        await refreshCriteriaCatalog();
+        if (selectedCriteriaSetId === setId) {
+          setSelectedCriteriaSetId(null);
+        }
+        toast.success("Criteria catalog set deleted");
+      } else {
+        const res = await deleteLogicCatalogSet(setId);
+        if (!(res as any)?.success) {
+          throw new Error((res as any)?.message || "Failed to delete set");
+        }
+        await refreshLogicCatalog();
+        if (selectedLogicSetId === setId) {
+          setSelectedLogicSetId(null);
+        }
+        toast.success("Logic catalog set deleted");
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to delete catalog set");
+    } finally {
+      setCatalogDeleteBusyKey(null);
+    }
+  };
+
+  const removeCatalogVersion = async (
+    kind: CatalogTabKey,
+    setId: string,
+    version: number,
+  ) => {
+    const confirmed = window.confirm(
+      `Delete version ${version} from this catalog set?`,
+    );
+    if (!confirmed) return;
+
+    const busyKey = `${kind}:version:${setId}:${version}`;
+    setCatalogDeleteVersionBusyKey(busyKey);
+    try {
+      if (kind === "criteria") {
+        const res = await deleteCriteriaCatalogVersion(setId, version);
+        if (!(res as any)?.success) {
+          throw new Error((res as any)?.message || "Failed to delete version");
+        }
+        await Promise.all([
+          refreshCriteriaCatalog(),
+          refreshCriteriaCatalogDetail(),
+        ]);
+        toast.success(`Criteria version ${version} deleted`);
+      } else {
+        const res = await deleteLogicCatalogVersion(setId, version);
+        if (!(res as any)?.success) {
+          throw new Error((res as any)?.message || "Failed to delete version");
+        }
+        await Promise.all([refreshLogicCatalog(), refreshLogicCatalogDetail()]);
+        toast.success(`Logic version ${version} deleted`);
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to delete catalog version");
+    } finally {
+      setCatalogDeleteVersionBusyKey(null);
+    }
+  };
+
+  // ── Tag CRUD handlers ────────────────────────────────────────────────────────
+
+  const closeTagEditor = () => {
+    if (tagEditorSaving) return;
+    setTagEditorOpen(false);
+    setTagEditorMode("create");
+    setTagEditorTarget(null);
+    setTagEditorLabel("");
+    setTagEditorColor("");
+  };
+
+  const openTagCreate = () => {
+    setTagEditorMode("create");
+    setTagEditorTarget(null);
+    setTagEditorLabel("");
+    setTagEditorColor("");
+    setTagEditorOpen(true);
+  };
+
+  const openTagEdit = (def: TagDefinitionRecord) => {
+    setTagEditorMode("edit");
+    setTagEditorTarget(def);
+    setTagEditorLabel(def.label);
+    setTagEditorColor(def.color ?? "");
+    setTagEditorOpen(true);
+  };
+
+  const saveTagEditor = async () => {
+    const trimmedLabel = tagEditorLabel.trim();
+    if (!trimmedLabel) {
+      toast.error("Tag label is required");
+      return;
+    }
+
+    setTagEditorSaving(true);
+    try {
+      if (tagEditorMode === "create") {
+        const res = await createTagDefinition({
+          label: trimmedLabel,
+          ...(tagEditorColor && { color: tagEditorColor }),
+        });
+        if (!(res as any)?.success) {
+          throw new Error((res as any)?.message || "Failed to create tag");
+        }
+        toast.success(`Tag "${trimmedLabel}" created`);
+      } else if (tagEditorTarget) {
+        const res = await updateTagDefinition(tagEditorTarget.id, {
+          label: trimmedLabel,
+          color: tagEditorColor || undefined,
+        });
+        if (!(res as any)?.success) {
+          throw new Error((res as any)?.message || "Failed to update tag");
+        }
+        toast.success(`Tag "${trimmedLabel}" updated`);
+      }
+      await refreshTagDefinitions();
+      closeTagEditor();
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to save tag");
+    } finally {
+      setTagEditorSaving(false);
+    }
+  };
+
+  const removeTagDefinition = async (def: TagDefinitionRecord) => {
+    const confirmed = window.confirm(
+      `Delete tag definition "${def.label}"? This cannot be undone.`,
+    );
+    if (!confirmed) return;
+
+    setTagDeleteBusyKey(def.id);
+    try {
+      const res = await deleteTagDefinition(def.id, true);
+      if (!(res as any)?.success) {
+        throw new Error(
+          (res as any)?.message || "Failed to delete tag definition",
+        );
+      }
+      await refreshTagDefinitions();
+      toast.success(`Tag "${def.label}" deleted`);
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to delete tag definition");
+    } finally {
+      setTagDeleteBusyKey(null);
+    }
+  };
+
+  const showTagsLoading = tagDefinitionsLoading && tagDefinitions.length === 0;
+
   // ── Render helpers ───────────────────────────────────────────────────────────
 
   const settingsNavItems: {
     key: SettingsSectionKey;
     label: string;
-    group: "integrations" | "users";
+    group: "integrations" | "global" | "users";
     indent?: boolean;
     icon?: React.ReactNode;
   }[] = [
@@ -1261,6 +2250,18 @@ export function AdminView({
       label: "Integrations",
       group: "integrations",
       icon: <Plug size={14} />,
+    },
+    {
+      key: "catalogs",
+      label: "Catalogs",
+      group: "global",
+      icon: <GitBranch size={14} />,
+    },
+    {
+      key: "tags",
+      label: "Tags",
+      group: "global",
+      icon: <Tag size={14} />,
     },
     {
       key: "users",
@@ -1325,6 +2326,7 @@ export function AdminView({
   const integrationItems = settingsNavItems.filter(
     (i) => i.group === "integrations",
   );
+  const globalItems = settingsNavItems.filter((i) => i.group === "global");
   const userItems = settingsNavItems.filter((i) => i.group === "users");
 
   // ── Render ───────────────────────────────────────────────────────────────────
@@ -1387,6 +2389,17 @@ export function AdminView({
                 {integrationItems.map((item) => (
                   <SettingsNavBtn key={item.key} item={item} />
                 ))}
+                {globalItems.length > 0 && (
+                  <>
+                    <div className="mx-1 my-1.5 border-t border-[--color-border]" />
+                    <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-[--color-text-muted]">
+                      Global
+                    </p>
+                    {globalItems.map((item) => (
+                      <SettingsNavBtn key={item.key} item={item} />
+                    ))}
+                  </>
+                )}
                 {userItems.length > 0 && (
                   <>
                     <div className="mx-1 my-1.5 border-t border-[--color-border]" />
@@ -1754,6 +2767,690 @@ export function AdminView({
               </motion.div>
             )}
 
+            {/* ── Catalogs ── */}
+            {adminTab === "settings" && activeSection === "catalogs" && (
+              <motion.div
+                key="catalogs"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.15, ease: "easeOut" }}
+                className="space-y-4"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm text-[--color-text-muted]">
+                    Manage reusable criteria and logic catalog sets and their
+                    versions.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      disabled={
+                        catalogTab === "criteria"
+                          ? !criteriaCatalogDetail?.set
+                          : !logicCatalogDetail?.set
+                      }
+                      onClick={() => openCatalogNewVersion(catalogTab)}
+                    >
+                      New Version
+                    </Button>
+                    <Button
+                      iconLeft={<PlusCircle size={16} />}
+                      onClick={() => openCatalogCreate(catalogTab)}
+                    >
+                      Create Set
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 p-1 rounded-xl border border-[--color-border] bg-[--color-panel] w-fit">
+                  <button
+                    type="button"
+                    onClick={() => setCatalogTab("criteria")}
+                    className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-medium transition-colors ${
+                      catalogTab === "criteria"
+                        ? "bg-[--color-primary] text-white shadow-sm"
+                        : "text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg-muted]"
+                    }`}
+                  >
+                    <LayoutTemplate size={14} />
+                    Criteria
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCatalogTab("logic")}
+                    className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-medium transition-colors ${
+                      catalogTab === "logic"
+                        ? "bg-[--color-primary] text-white shadow-sm"
+                        : "text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg-muted]"
+                    }`}
+                  >
+                    <GitBranch size={14} />
+                    Logic
+                  </button>
+                </div>
+
+                <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] items-start">
+                  <div className="space-y-3">
+                    {catalogTab === "criteria" ? (
+                      <Table
+                        columns={[
+                          {
+                            key: "name",
+                            label: "Set",
+                            render: (set) => (
+                              <span className="font-medium text-[--color-text-strong]">
+                                {set.name}
+                              </span>
+                            ),
+                          },
+                          {
+                            key: "latest_version",
+                            label: "Latest",
+                            render: (set) => (
+                              <Badge tone="info">v{set.latest_version}</Badge>
+                            ),
+                          },
+                          {
+                            key: "updated_at",
+                            label: "Updated",
+                            render: (set) =>
+                              set.updated_at ? formatDate(set.updated_at) : "—",
+                          },
+                          {
+                            key: "actions",
+                            label: "Actions",
+                            render: (set) => {
+                              const isSelected =
+                                selectedCriteriaSetId === set.id;
+                              return (
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant={isSelected ? "primary" : "outline"}
+                                    onClick={() =>
+                                      setSelectedCriteriaSetId(set.id)
+                                    }
+                                  >
+                                    {isSelected ? "Selected" : "Open"}
+                                  </Button>
+                                </div>
+                              );
+                            },
+                          },
+                        ]}
+                        data={criteriaCatalogSets}
+                        emptyLabel={
+                          showCriteriaCatalogLoading
+                            ? "Loading criteria catalogs…"
+                            : "No criteria catalog sets yet."
+                        }
+                      />
+                    ) : (
+                      <Table
+                        columns={[
+                          {
+                            key: "name",
+                            label: "Set",
+                            render: (set) => (
+                              <span className="font-medium text-[--color-text-strong]">
+                                {set.name}
+                              </span>
+                            ),
+                          },
+                          {
+                            key: "latest_version",
+                            label: "Latest",
+                            render: (set) => (
+                              <Badge tone="info">v{set.latest_version}</Badge>
+                            ),
+                          },
+                          {
+                            key: "updated_at",
+                            label: "Updated",
+                            render: (set) =>
+                              set.updated_at ? formatDate(set.updated_at) : "—",
+                          },
+                          {
+                            key: "actions",
+                            label: "Actions",
+                            render: (set) => {
+                              const isSelected = selectedLogicSetId === set.id;
+                              return (
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant={isSelected ? "primary" : "outline"}
+                                    onClick={() =>
+                                      setSelectedLogicSetId(set.id)
+                                    }
+                                  >
+                                    {isSelected ? "Selected" : "Open"}
+                                  </Button>
+                                </div>
+                              );
+                            },
+                          },
+                        ]}
+                        data={logicCatalogSets}
+                        emptyLabel={
+                          showLogicCatalogLoading
+                            ? "Loading logic catalogs…"
+                            : "No logic catalog sets yet."
+                        }
+                      />
+                    )}
+                  </div>
+
+                  <div className="rounded-xl border border-[--color-border] bg-[--color-panel] p-4 space-y-3">
+                    {catalogTab === "criteria" ? (
+                      criteriaCatalogDetailLoading && selectedCriteriaSetId ? (
+                        <p className="text-sm text-[--color-text-muted]">
+                          Loading criteria set details…
+                        </p>
+                      ) : !criteriaCatalogDetail?.set ? (
+                        <p className="text-sm text-[--color-text-muted]">
+                          Select a criteria catalog set to view versions.
+                        </p>
+                      ) : (
+                        <>
+                          <div>
+                            <p className="text-xs uppercase tracking-wider text-[--color-text-muted]">
+                              Criteria Set
+                            </p>
+                            <p className="font-semibold text-[--color-text-strong]">
+                              {criteriaCatalogDetail.set.name}
+                            </p>
+                            <p className="text-xs text-[--color-text-muted] mt-1">
+                              {criteriaCatalogDetail.set.description ||
+                                "No description"}
+                            </p>
+                          </div>
+                          <div className="space-y-2">
+                            <p className="text-xs uppercase tracking-wider text-[--color-text-muted]">
+                              Versions
+                            </p>
+                            {criteriaCatalogVersions.length === 0 ? (
+                              <p className="text-sm text-[--color-text-muted]">
+                                No versions found.
+                              </p>
+                            ) : (
+                              <div className="space-y-2 max-h-[460px] overflow-auto pr-1">
+                                {criteriaCatalogVersions.map((version) => {
+                                  const deleteKey = `criteria:version:${criteriaCatalogDetail.set.id}:${version.version}`;
+                                  const isBusy =
+                                    catalogDeleteVersionBusyKey === deleteKey;
+                                  const isExpanded =
+                                    expandedCatalogVersions.has(version.id);
+                                  const inUse =
+                                    version.campaigns_using.length > 0;
+                                  return (
+                                    <div
+                                      key={version.id}
+                                      className="rounded-lg border border-[--color-border] bg-[--color-bg-muted] overflow-hidden"
+                                    >
+                                      <button
+                                        type="button"
+                                        className="flex w-full items-center justify-between gap-2 p-3 text-left hover:bg-[--color-bg-subtle] transition-colors"
+                                        onClick={() =>
+                                          toggleCatalogVersion(version.id)
+                                        }
+                                      >
+                                        <div className="flex items-center gap-2">
+                                          <ChevronRight
+                                            size={14}
+                                            className={`text-[--color-text-muted] transition-transform ${isExpanded ? "rotate-90" : ""}`}
+                                          />
+                                          <div>
+                                            <p className="font-medium text-[--color-text-strong]">
+                                              v{version.version}
+                                            </p>
+                                            <p className="text-xs text-[--color-text-muted]">
+                                              {version.fields.length} fields •{" "}
+                                              {version.campaigns_using.length}{" "}
+                                              campaigns
+                                            </p>
+                                          </div>
+                                        </div>
+                                        <div
+                                          className="flex items-center gap-1.5"
+                                          onClick={(e) => e.stopPropagation()}
+                                        >
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() =>
+                                              openCatalogEditVersion(
+                                                "criteria",
+                                                criteriaCatalogDetail.set.id,
+                                                criteriaCatalogDetail.set.name,
+                                                criteriaCatalogDetail.set
+                                                  .description ?? "",
+                                                version.fields,
+                                              )
+                                            }
+                                          >
+                                            <Pencil
+                                              size={13}
+                                              className="mr-1 inline-block"
+                                            />
+                                            Edit
+                                          </Button>
+                                          <Button
+                                            size="sm"
+                                            variant="danger"
+                                            disabled={isBusy || inUse}
+                                            title={
+                                              inUse
+                                                ? "Cannot delete a version in use by campaigns"
+                                                : undefined
+                                            }
+                                            onClick={() =>
+                                              removeCatalogVersion(
+                                                "criteria",
+                                                criteriaCatalogDetail.set.id,
+                                                version.version,
+                                              )
+                                            }
+                                          >
+                                            {isBusy ? "Deleting…" : "Delete"}
+                                          </Button>
+                                        </div>
+                                      </button>
+
+                                      <AnimatePresence initial={false}>
+                                        {isExpanded && (
+                                          <motion.div
+                                            initial={{ height: 0, opacity: 0 }}
+                                            animate={{
+                                              height: "auto",
+                                              opacity: 1,
+                                            }}
+                                            exit={{ height: 0, opacity: 0 }}
+                                            transition={{ duration: 0.2 }}
+                                            className="overflow-hidden"
+                                          >
+                                            <div className="border-t border-[--color-border] px-3 pb-3 pt-2">
+                                              {version.fields.length === 0 ? (
+                                                <p className="text-xs text-[--color-text-muted]">
+                                                  No fields.
+                                                </p>
+                                              ) : (
+                                                <table className="w-full text-xs">
+                                                  <thead>
+                                                    <tr className="text-[--color-text-muted] text-left">
+                                                      <th className="pb-1 pr-2 font-medium">
+                                                        Field
+                                                      </th>
+                                                      <th className="pb-1 pr-2 font-medium">
+                                                        Name
+                                                      </th>
+                                                      <th className="pb-1 pr-2 font-medium">
+                                                        Type
+                                                      </th>
+                                                      <th className="pb-1 font-medium">
+                                                        Req
+                                                      </th>
+                                                    </tr>
+                                                  </thead>
+                                                  <tbody>
+                                                    {version.fields.map(
+                                                      (f, i) => (
+                                                        <tr
+                                                          key={
+                                                            f.field_name ?? i
+                                                          }
+                                                          className="border-t border-[--color-border]/50"
+                                                        >
+                                                          <td className="py-1 pr-2 text-[--color-text-strong]">
+                                                            {f.field_label}
+                                                          </td>
+                                                          <td className="py-1 pr-2 font-mono text-[--color-text-muted]">
+                                                            {f.field_name}
+                                                          </td>
+                                                          <td className="py-1 pr-2">
+                                                            {f.data_type}
+                                                          </td>
+                                                          <td className="py-1">
+                                                            {f.required
+                                                              ? "Yes"
+                                                              : "No"}
+                                                          </td>
+                                                        </tr>
+                                                      ),
+                                                    )}
+                                                  </tbody>
+                                                </table>
+                                              )}
+                                              {inUse && (
+                                                <p className="mt-2 text-xs text-amber-500">
+                                                  In use by{" "}
+                                                  {
+                                                    version.campaigns_using
+                                                      .length
+                                                  }{" "}
+                                                  campaign
+                                                  {version.campaigns_using
+                                                    .length === 1
+                                                    ? ""
+                                                    : "s"}
+                                                </p>
+                                              )}
+                                            </div>
+                                          </motion.div>
+                                        )}
+                                      </AnimatePresence>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        </>
+                      )
+                    ) : logicCatalogDetailLoading && selectedLogicSetId ? (
+                      <p className="text-sm text-[--color-text-muted]">
+                        Loading logic set details…
+                      </p>
+                    ) : !logicCatalogDetail?.set ? (
+                      <p className="text-sm text-[--color-text-muted]">
+                        Select a logic catalog set to view versions.
+                      </p>
+                    ) : (
+                      <>
+                        <div>
+                          <p className="text-xs uppercase tracking-wider text-[--color-text-muted]">
+                            Logic Set
+                          </p>
+                          <p className="font-semibold text-[--color-text-strong]">
+                            {logicCatalogDetail.set.name}
+                          </p>
+                          <p className="text-xs text-[--color-text-muted] mt-1">
+                            {logicCatalogDetail.set.description ||
+                              "No description"}
+                          </p>
+                        </div>
+                        <div className="space-y-2">
+                          <p className="text-xs uppercase tracking-wider text-[--color-text-muted]">
+                            Versions
+                          </p>
+                          {logicCatalogVersions.length === 0 ? (
+                            <p className="text-sm text-[--color-text-muted]">
+                              No versions found.
+                            </p>
+                          ) : (
+                            <div className="space-y-2 max-h-[460px] overflow-auto pr-1">
+                              {logicCatalogVersions.map((version) => {
+                                const deleteKey = `logic:version:${logicCatalogDetail.set.id}:${version.version}`;
+                                const isBusy =
+                                  catalogDeleteVersionBusyKey === deleteKey;
+                                const isExpanded = expandedCatalogVersions.has(
+                                  version.id,
+                                );
+                                const inUse =
+                                  version.campaigns_using.length > 0;
+                                return (
+                                  <div
+                                    key={version.id}
+                                    className="rounded-lg border border-[--color-border] bg-[--color-bg-muted] overflow-hidden"
+                                  >
+                                    <button
+                                      type="button"
+                                      className="flex w-full items-center justify-between gap-2 p-3 text-left hover:bg-[--color-bg-subtle] transition-colors"
+                                      onClick={() =>
+                                        toggleCatalogVersion(version.id)
+                                      }
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <ChevronRight
+                                          size={14}
+                                          className={`text-[--color-text-muted] transition-transform ${isExpanded ? "rotate-90" : ""}`}
+                                        />
+                                        <div>
+                                          <p className="font-medium text-[--color-text-strong]">
+                                            v{version.version}
+                                          </p>
+                                          <p className="text-xs text-[--color-text-muted]">
+                                            {version.rules.length} rules •{" "}
+                                            {version.campaigns_using.length}{" "}
+                                            campaigns
+                                          </p>
+                                        </div>
+                                      </div>
+                                      <div
+                                        className="flex items-center gap-1.5"
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={() =>
+                                            openCatalogEditVersion(
+                                              "logic",
+                                              logicCatalogDetail.set.id,
+                                              logicCatalogDetail.set.name,
+                                              logicCatalogDetail.set
+                                                .description ?? "",
+                                              version.rules,
+                                            )
+                                          }
+                                        >
+                                          <Pencil
+                                            size={13}
+                                            className="mr-1 inline-block"
+                                          />
+                                          Edit
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="danger"
+                                          disabled={isBusy || inUse}
+                                          title={
+                                            inUse
+                                              ? "Cannot delete a version in use by campaigns"
+                                              : undefined
+                                          }
+                                          onClick={() =>
+                                            removeCatalogVersion(
+                                              "logic",
+                                              logicCatalogDetail.set.id,
+                                              version.version,
+                                            )
+                                          }
+                                        >
+                                          {isBusy ? "Deleting…" : "Delete"}
+                                        </Button>
+                                      </div>
+                                    </button>
+
+                                    <AnimatePresence initial={false}>
+                                      {isExpanded && (
+                                        <motion.div
+                                          initial={{ height: 0, opacity: 0 }}
+                                          animate={{
+                                            height: "auto",
+                                            opacity: 1,
+                                          }}
+                                          exit={{ height: 0, opacity: 0 }}
+                                          transition={{ duration: 0.2 }}
+                                          className="overflow-hidden"
+                                        >
+                                          <div className="border-t border-[--color-border] px-3 pb-3 pt-2">
+                                            {version.rules.length === 0 ? (
+                                              <p className="text-xs text-[--color-text-muted]">
+                                                No rules.
+                                              </p>
+                                            ) : (
+                                              <table className="w-full text-xs">
+                                                <thead>
+                                                  <tr className="text-[--color-text-muted] text-left">
+                                                    <th className="pb-1 pr-2 font-medium">
+                                                      Rule
+                                                    </th>
+                                                    <th className="pb-1 pr-2 font-medium">
+                                                      Action
+                                                    </th>
+                                                    <th className="pb-1 pr-2 font-medium">
+                                                      Groups
+                                                    </th>
+                                                    <th className="pb-1 font-medium">
+                                                      Enabled
+                                                    </th>
+                                                  </tr>
+                                                </thead>
+                                                <tbody>
+                                                  {version.rules.map((r) => (
+                                                    <tr
+                                                      key={r.id}
+                                                      className="border-t border-[--color-border]/50"
+                                                    >
+                                                      <td className="py-1 pr-2 text-[--color-text-strong]">
+                                                        {r.name}
+                                                      </td>
+                                                      <td className="py-1 pr-2">
+                                                        <Badge
+                                                          tone={
+                                                            r.action === "pass"
+                                                              ? "success"
+                                                              : "danger"
+                                                          }
+                                                        >
+                                                          {r.action}
+                                                        </Badge>
+                                                      </td>
+                                                      <td className="py-1 pr-2">
+                                                        {r.groups.length}
+                                                      </td>
+                                                      <td className="py-1">
+                                                        {r.enabled
+                                                          ? "Yes"
+                                                          : "No"}
+                                                      </td>
+                                                    </tr>
+                                                  ))}
+                                                </tbody>
+                                              </table>
+                                            )}
+                                            {inUse && (
+                                              <p className="mt-2 text-xs text-amber-500">
+                                                In use by{" "}
+                                                {version.campaigns_using.length}{" "}
+                                                campaign
+                                                {version.campaigns_using
+                                                  .length === 1
+                                                  ? ""
+                                                  : "s"}
+                                              </p>
+                                            )}
+                                          </div>
+                                        </motion.div>
+                                      )}
+                                    </AnimatePresence>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {/* ── Tags ── */}
+            {adminTab === "settings" && activeSection === "tags" && (
+              <motion.div
+                key="tags"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.15, ease: "easeOut" }}
+                className="space-y-4"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm text-[--color-text-muted]">
+                    Keyword tags for campaigns and catalogs. Add tags like
+                    &quot;rideshare&quot;, &quot;legal&quot;, etc.
+                  </p>
+                  <Button size="sm" onClick={openTagCreate}>
+                    <PlusCircle size={14} className="mr-1.5" />
+                    New Tag
+                  </Button>
+                </div>
+                {showTagsLoading ? (
+                  <p className="text-sm text-[--color-text-muted]">Loading…</p>
+                ) : tagDefinitions.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-[--color-border] bg-[--color-panel] p-12 text-center text-[--color-text-muted]">
+                    <p className="text-3xl mb-3">🏷️</p>
+                    <p className="font-medium text-[--color-text-strong]">
+                      No tags yet
+                    </p>
+                    <p className="mt-1 text-sm">
+                      Create keyword tags to categorize campaigns and catalogs.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {tagDefinitions
+                      .filter((d) => !d.is_deleted)
+                      .map((def) => {
+                        const deleting = tagDeleteBusyKey === def.id;
+                        return (
+                          <div
+                            key={def.id}
+                            className={`group inline-flex items-center gap-2 rounded-full border pl-3 pr-1.5 py-1.5 ${
+                              def.color
+                                ? ""
+                                : "border-[--color-border] bg-[--color-panel]"
+                            }`}
+                            style={
+                              def.color
+                                ? {
+                                    borderColor: def.color + "40",
+                                    backgroundColor: def.color + "15",
+                                  }
+                                : undefined
+                            }
+                          >
+                            <Tag
+                              size={12}
+                              style={
+                                def.color ? { color: def.color } : undefined
+                              }
+                              className={
+                                def.color ? "" : "text-[--color-text-muted]"
+                              }
+                            />
+                            <span className="text-sm font-medium text-[--color-text-strong]">
+                              {def.label}
+                            </span>
+                            <button
+                              type="button"
+                              className="rounded-full p-0.5 text-[--color-text-muted] opacity-0 group-hover:opacity-100 hover:bg-[--color-bg-muted] hover:text-[--color-text] transition-all"
+                              onClick={() => openTagEdit(def)}
+                              title="Edit"
+                            >
+                              <Pencil size={12} />
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded-full p-0.5 text-[--color-text-muted] opacity-0 group-hover:opacity-100 hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-900/30 transition-all"
+                              disabled={deleting}
+                              onClick={() => removeTagDefinition(def)}
+                              title="Delete"
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+              </motion.div>
+            )}
+
             {/* ── Users ── */}
             {adminTab === "settings" && activeSection === "users" && (
               <motion.div
@@ -2028,6 +3725,14 @@ export function AdminView({
                               { value: "credential", label: "Credential" },
                               { value: "credential_schema", label: "Schema" },
                               { value: "plugin_setting", label: "Integration" },
+                              {
+                                value: "criteria_catalog",
+                                label: "Criteria Catalog",
+                              },
+                              {
+                                value: "logic_catalog",
+                                label: "Logic Catalog",
+                              },
                               { value: "user", label: "User" },
                             ].map(({ value, label }) => {
                               const meta = value
@@ -2120,6 +3825,20 @@ export function AdminView({
                             item.entity_type === "credential"
                               ? credentialProviderMap.get(item.entity_id)
                               : undefined;
+                          const entityName = (() => {
+                            switch (item.entity_type) {
+                              case "campaign":
+                                return campaignNameMap.get(item.entity_id);
+                              case "client":
+                                return clientNameMap.get(item.entity_id);
+                              case "affiliate":
+                                return affiliateNameMap.get(item.entity_id);
+                              case "credential":
+                                return credentialIdMap.get(item.entity_id);
+                              default:
+                                return undefined;
+                            }
+                          })();
                           return (
                             <div key={item.log_id}>
                               <button
@@ -2155,7 +3874,8 @@ export function AdminView({
                                   {deletedEntityIds.has(item.entity_id) ? (
                                     <HoverTooltip message="This record has been deleted and is no longer accessible.">
                                       <span className="shrink-0 cursor-default font-mono text-[11px] text-[--color-text-muted] line-through opacity-50">
-                                        ({item.entity_id})
+                                        ({item.entity_id}
+                                        {entityName ? ` — ${entityName}` : ""})
                                       </span>
                                     </HoverTooltip>
                                   ) : (
@@ -2171,7 +3891,8 @@ export function AdminView({
                                       }}
                                       className="shrink-0 font-mono text-[11px] text-[--color-primary] hover:underline"
                                     >
-                                      ({item.entity_id})
+                                      ({item.entity_id}
+                                      {entityName ? ` — ${entityName}` : ""})
                                     </button>
                                   )}
                                 </span>
@@ -2202,6 +3923,12 @@ export function AdminView({
                                             c.field !== "rule_id",
                                         )
                                         .filter((change) => {
+                                          if (
+                                            item.entity_type ===
+                                            "user_table_preference"
+                                          ) {
+                                            return true;
+                                          }
                                           const fromObj =
                                             change.from !== null &&
                                             change.from !== undefined &&
@@ -2252,8 +3979,62 @@ export function AdminView({
                                       }
 
                                       return filtered.map((change, i) => {
+                                        if (
+                                          item.entity_type ===
+                                            "user_table_preference" &&
+                                          change.field === "config"
+                                        ) {
+                                          const fromSummary =
+                                            summarizeTablePreferenceConfig(
+                                              change.from,
+                                            );
+                                          const toSummary =
+                                            summarizeTablePreferenceConfig(
+                                              change.to,
+                                            );
+                                          return (
+                                            <div
+                                              key={`${item.log_id}-${i}`}
+                                              className="grid grid-cols-[11rem_1fr] items-start gap-2 text-[11px]"
+                                            >
+                                              <span className="truncate font-medium text-[--color-text]">
+                                                Config
+                                              </span>
+                                              <div className="space-y-1 text-[--color-text-muted]">
+                                                {fromSummary && (
+                                                  <div className="flex items-center gap-1.5">
+                                                    <span className="max-w-[180px] truncate line-through">
+                                                      {fromSummary}
+                                                    </span>
+                                                    <ArrowRight
+                                                      size={9}
+                                                      className="shrink-0"
+                                                    />
+                                                  </div>
+                                                )}
+                                                <span className="font-medium text-[--color-text]">
+                                                  {toSummary ??
+                                                    "Layout, sorting, or filters updated"}
+                                                </span>
+                                              </div>
+                                            </div>
+                                          );
+                                        }
+
                                         const fieldLower =
                                           change.field.toLowerCase();
+                                        const structuredLeadChange =
+                                          item.entity_type === "lead"
+                                            ? renderLeadStructuredAuditChange(
+                                                change,
+                                                `${item.log_id}-${i}`,
+                                              )
+                                            : null;
+
+                                        if (structuredLeadChange) {
+                                          return structuredLeadChange;
+                                        }
+
                                         const isCondition =
                                           fieldLower.includes("condition");
                                         const isAddedValue =
@@ -2835,6 +4616,347 @@ export function AdminView({
           refreshCreds();
         }}
       />
+
+      {/* ── Catalog editor modal ───────────────────────────────────────────── */}
+      <AnimatePresence>
+        {catalogEditorOpen && (
+          <>
+            <motion.div
+              key="catalog-editor-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[2px]"
+              onClick={closeCatalogEditor}
+            />
+            <motion.div
+              key="catalog-editor-modal"
+              initial={{ opacity: 0, scale: 0.97, y: -8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.97, y: -8 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none"
+            >
+              <div
+                className="pointer-events-auto relative w-full max-w-3xl rounded-2xl border border-[--color-border] bg-[--color-panel] shadow-2xl overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center gap-3 border-b border-[--color-border] px-5 py-4">
+                  <Badge tone="info">
+                    {catalogEditorKind === "criteria" ? "Criteria" : "Logic"}
+                  </Badge>
+                  <span className="text-base font-semibold text-[--color-text-strong]">
+                    {catalogEditorMode === "create"
+                      ? "Create Catalog Set"
+                      : "Create New Version"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={closeCatalogEditor}
+                    className="ml-auto shrink-0 rounded-lg p-1.5 text-[--color-text-muted] hover:bg-[--color-bg-muted] hover:text-[--color-text] transition-colors"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+
+                <div className="p-5 space-y-4">
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <label className="space-y-1.5">
+                      <span className="text-xs font-semibold uppercase tracking-wider text-[--color-text-muted]">
+                        Set Name
+                      </span>
+                      <input
+                        className={inputClass}
+                        value={catalogEditorName}
+                        onChange={(e) => setCatalogEditorName(e.target.value)}
+                        placeholder="Enter catalog set name"
+                      />
+                    </label>
+                    <label className="space-y-1.5">
+                      <span className="text-xs font-semibold uppercase tracking-wider text-[--color-text-muted]">
+                        Description
+                      </span>
+                      <input
+                        className={inputClass}
+                        value={catalogEditorDescription}
+                        onChange={(e) =>
+                          setCatalogEditorDescription(e.target.value)
+                        }
+                        placeholder="Optional description"
+                      />
+                    </label>
+                  </div>
+
+                  {catalogEditorMode === "create" &&
+                    tagDefinitions.filter((d) => !d.is_deleted).length > 0 && (
+                      <div className="space-y-2">
+                        <span className="text-xs font-semibold uppercase tracking-wider text-[--color-text-muted]">
+                          Tags
+                        </span>
+                        <div className="flex flex-wrap gap-2">
+                          {tagDefinitions
+                            .filter((d) => !d.is_deleted)
+                            .map((def) => {
+                              const active = catalogEditorTags.includes(
+                                def.label,
+                              );
+                              return (
+                                <button
+                                  key={def.id}
+                                  type="button"
+                                  onClick={() =>
+                                    setCatalogEditorTags((prev) =>
+                                      active
+                                        ? prev.filter((t) => t !== def.label)
+                                        : [...prev, def.label],
+                                    )
+                                  }
+                                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                                    active
+                                      ? def.color
+                                        ? ""
+                                        : "border-blue-500 bg-blue-500/10 text-blue-400"
+                                      : "border-[--color-border] text-[--color-text-muted] hover:border-[--color-text-muted]"
+                                  }`}
+                                  style={
+                                    active && def.color
+                                      ? {
+                                          borderColor: def.color,
+                                          backgroundColor: def.color + "18",
+                                          color: def.color,
+                                        }
+                                      : undefined
+                                  }
+                                >
+                                  <Tag size={12} />
+                                  {def.label}
+                                </button>
+                              );
+                            })}
+                        </div>
+                      </div>
+                    )}
+
+                  <label className="space-y-1.5 block">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-[--color-text-muted]">
+                      {catalogEditorKind === "criteria"
+                        ? "Fields JSON"
+                        : "Rules JSON"}
+                    </span>
+                    <textarea
+                      className={`${inputClass} min-h-[240px] font-mono text-xs leading-relaxed`}
+                      value={catalogEditorJson}
+                      onChange={(e) => setCatalogEditorJson(e.target.value)}
+                      spellCheck={false}
+                    />
+                    <p className="text-xs text-[--color-text-muted]">
+                      Provide a JSON array for
+                      {catalogEditorKind === "criteria"
+                        ? " criteria fields"
+                        : " logic rules"}
+                      .
+                    </p>
+                  </label>
+
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    <Button
+                      variant="outline"
+                      disabled={catalogEditorSaving}
+                      onClick={closeCatalogEditor}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      disabled={catalogEditorSaving}
+                      onClick={saveCatalogEditor}
+                    >
+                      {catalogEditorSaving ? "Saving…" : "Save"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* ── Tag editor modal ──────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {tagEditorOpen && (
+          <>
+            <motion.div
+              key="tag-editor-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[2px]"
+              onClick={closeTagEditor}
+            />
+            <motion.div
+              key="tag-editor-modal"
+              initial={{ opacity: 0, scale: 0.97, y: -8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.97, y: -8 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none"
+            >
+              <div
+                className="pointer-events-auto relative w-full max-w-lg rounded-2xl border border-[--color-border] bg-[--color-panel] shadow-2xl overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center gap-3 border-b border-[--color-border] px-5 py-4">
+                  <Tag size={16} className="text-[--color-text-muted]" />
+                  <span className="text-base font-semibold text-[--color-text-strong]">
+                    {tagEditorMode === "create" ? "New Tag" : "Edit Tag"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={closeTagEditor}
+                    className="ml-auto p-1 rounded-md hover:bg-[--color-bg-muted]"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+
+                <div className="space-y-4 p-5">
+                  <div>
+                    <label className="block text-xs font-medium text-[--color-text-muted] mb-1">
+                      Label
+                    </label>
+                    <input
+                      type="text"
+                      className={inputClass}
+                      placeholder="e.g. rideshare"
+                      value={tagEditorLabel}
+                      onChange={(e) => setTagEditorLabel(e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-[--color-text-muted] mb-2">
+                      Color
+                    </label>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {[
+                        "#ef4444",
+                        "#f97316",
+                        "#eab308",
+                        "#22c55e",
+                        "#06b6d4",
+                        "#3b82f6",
+                        "#8b5cf6",
+                        "#ec4899",
+                        "#6b7280",
+                      ].map((hex) => (
+                        <button
+                          key={hex}
+                          type="button"
+                          onClick={() =>
+                            setTagEditorColor(tagEditorColor === hex ? "" : hex)
+                          }
+                          className={`h-7 w-7 rounded-full border-2 transition-all ${
+                            tagEditorColor === hex
+                              ? "border-white scale-110 ring-2 ring-offset-1 ring-offset-[--color-panel]"
+                              : "border-transparent hover:scale-110"
+                          }`}
+                          style={{
+                            backgroundColor: hex,
+                            ...(tagEditorColor === hex
+                              ? { ringColor: hex }
+                              : {}),
+                          }}
+                          title={hex}
+                        />
+                      ))}
+                      <label
+                        className={`relative h-7 w-7 rounded-full border-2 cursor-pointer transition-all overflow-hidden ${
+                          tagEditorColor &&
+                          ![
+                            "#ef4444",
+                            "#f97316",
+                            "#eab308",
+                            "#22c55e",
+                            "#06b6d4",
+                            "#3b82f6",
+                            "#8b5cf6",
+                            "#ec4899",
+                            "#6b7280",
+                          ].includes(tagEditorColor)
+                            ? "border-white scale-110 ring-2 ring-offset-1 ring-offset-[--color-panel]"
+                            : "border-[--color-border] hover:scale-110"
+                        }`}
+                        style={{
+                          background:
+                            tagEditorColor &&
+                            ![
+                              "#ef4444",
+                              "#f97316",
+                              "#eab308",
+                              "#22c55e",
+                              "#06b6d4",
+                              "#3b82f6",
+                              "#8b5cf6",
+                              "#ec4899",
+                              "#6b7280",
+                            ].includes(tagEditorColor)
+                              ? tagEditorColor
+                              : "conic-gradient(red, yellow, lime, aqua, blue, magenta, red)",
+                        }}
+                        title="Custom color"
+                      >
+                        <input
+                          type="color"
+                          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                          value={tagEditorColor || "#3b82f6"}
+                          onChange={(e) => setTagEditorColor(e.target.value)}
+                        />
+                      </label>
+                    </div>
+                    {tagEditorColor && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <span
+                          className="inline-block h-4 w-4 rounded-full border border-[--color-border]"
+                          style={{ backgroundColor: tagEditorColor }}
+                        />
+                        <span className="text-xs text-[--color-text-muted]">
+                          <span
+                            style={{ color: tagEditorColor }}
+                            className="font-semibold"
+                          >
+                            {tagEditorColor}
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setTagEditorColor("")}
+                          className="ml-auto text-[10px] text-[--color-text-muted] hover:text-[--color-text] transition-colors"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    <Button
+                      variant="outline"
+                      disabled={tagEditorSaving}
+                      onClick={closeTagEditor}
+                    >
+                      Cancel
+                    </Button>
+                    <Button disabled={tagEditorSaving} onClick={saveTagEditor}>
+                      {tagEditorSaving ? "Saving…" : "Save"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* ── Intake log detail modal ───────────────────────────────────────────── */}
       <IntakeLogDetailModal

@@ -12,10 +12,12 @@ export type CampaignDetailTab =
   | "history";
 
 export type WebhookMethod = "POST" | "GET" | "PUT" | "PATCH";
+export type PixelParameterMode = "query" | "body";
 
 export interface WebhookFieldMapping {
   key: string;
   value_source: "field" | "static";
+  parameter_target?: PixelParameterMode;
   field_name?: string;
   static_value?: unknown;
 }
@@ -31,6 +33,48 @@ export interface ClientDeliveryConfig {
   headers?: Record<string, string>;
   payload_mapping: WebhookFieldMapping[];
   acceptance_rules: WebhookAcceptanceRule[];
+}
+
+export interface AffiliateSoldPixelConfig {
+  enabled: boolean;
+  url: string;
+  method: WebhookMethod;
+  headers?: Record<string, string>;
+  payload_mapping: WebhookFieldMapping[];
+  parameter_mode?: PixelParameterMode;
+}
+
+export interface CampaignValidationBypassConfig {
+  trusted_form_claim?: boolean;
+  duplicate_check?: boolean;
+  ipqs_phone?: boolean;
+  ipqs_email?: boolean;
+  ipqs_ip?: boolean;
+  all?: boolean;
+}
+
+export type ParticipantLogicMode = "pinned" | "inherit_campaign";
+
+export interface CampaignClientOverride {
+  criteria_set_id?: string;
+  criteria_set_version?: number;
+  logic_set_id?: string;
+  logic_set_version?: number;
+  logic_rules?: LogicRule[];
+  logic_mode?: ParticipantLogicMode;
+  validation_bypass?: CampaignValidationBypassConfig;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CampaignAffiliateOverride {
+  criteria_set_id?: string;
+  criteria_set_version?: number;
+  logic_set_id?: string;
+  logic_set_version?: number;
+  logic_rules?: LogicRule[];
+  logic_mode?: ParticipantLogicMode;
+  validation_bypass?: CampaignValidationBypassConfig;
+  metadata?: Record<string, unknown>;
 }
 
 export interface CampaignDistributionConfig {
@@ -111,10 +155,17 @@ export interface CampaignAffiliate {
   campaign_key: string;
   status?: CampaignParticipantStatus;
   added_at?: string;
+  sold_pixel_config?: AffiliateSoldPixelConfig;
+  /** Per-affiliate rules evaluated against lead payload before firing the sold pixel. */
+  pixel_criteria?: LogicRule[];
+  /** Per-affiliate rules that refine whether a lead counts as "sold" post-delivery. */
+  sold_criteria?: LogicRule[];
+  validation_bypass?: CampaignValidationBypassConfig;
   lead_cap?: number | null;
   leads_sent?: number;
   leads_remaining?: number | null;
   quota_completion_percent?: number | null;
+  cherry_pick_override?: boolean;
   history?: ParticipantHistoryEntry[];
 }
 
@@ -223,6 +274,13 @@ export interface Campaign {
   active?: boolean;
   criteria_set_id?: string | null;
   criteria_set_version?: number | null;
+  logic_set_id?: string | null;
+  logic_set_version?: number | null;
+  logic_version?: string | null;
+  tags?: string[];
+  client_overrides?: Record<string, CampaignClientOverride>;
+  affiliate_overrides?: Record<string, CampaignAffiliateOverride>;
+  default_cherry_pickable?: boolean;
 }
 
 export interface TrustedFormResult {
@@ -292,19 +350,113 @@ export interface Lead {
   }>;
   /** Whether this lead was sold to a client. */
   sold?: boolean;
+  /** True when campaign-level logic rules rejected the lead (client delivery may still occur). */
+  affiliate_logic_failed?: boolean;
+  /** True when the webhook accepted but sold_criteria rules failed, overriding sold to false. */
+  sold_criteria_failed?: boolean;
   /** Outcome of the delivery attempt. */
   sold_status?: "sold" | "not_sold" | "not_delivered";
   /** The client this lead was sold to, if any. */
   sold_to_client_id?: string;
   /** Full delivery result from the webhook attempt. */
   delivery_result?: LeadDeliveryResult;
+  /** Whether this lead is eligible to be cherry-picked by an operator. */
+  cherry_pickable?: boolean;
+  /** Whether this lead has already been cherry-picked. */
+  cherry_picked?: boolean;
+  /** Metadata recorded when a cherry-pick delivery is executed. */
+  cherry_pick_meta?: CherryPickMeta;
+  /** End-to-end intake/QA/routing decision trace. */
+  decision_trace?: LeadDecisionTrace;
+}
+
+export interface LeadDecisionTrace {
+  version: number;
+  intake?: {
+    original_source?: string;
+    order_number?: number;
+    order_number_normalized?: boolean;
+    captured_at: string;
+  };
+  qa?: {
+    duplicate_detected?: boolean;
+    pipeline_halted?: boolean;
+    halt_plugin?: string;
+    halt_reason?: string;
+    bypass_applied?: CampaignValidationBypassConfig;
+    evaluated_at: string;
+  };
+  routing?: {
+    distribution_enabled?: boolean;
+    eligible_client_ids?: string[];
+    selected_client_id?: string;
+    forced_single_client?: boolean;
+    evaluated_at: string;
+  };
+  final_decision?: {
+    accepted: boolean;
+    reason: string;
+    decided_at: string;
+  };
+}
+
+export interface CherryPickMeta {
+  target_client_id: string;
+  source_campaign_id: string;
+  delivery_result: LeadDeliveryResult;
+  executed_at: string;
+  executed_by?: RequestActor;
+}
+
+export interface EligibleClientEntry {
+  client_id: string;
+  client_name: string;
+  campaign_id: string;
+  campaign_name: string;
+  status: string;
+  delivery_url?: string;
+}
+
+export interface SourceAffiliatePixelInfo {
+  affiliate_id: string;
+  campaign_id: string;
+  campaign_key: string;
+  pixel_enabled: boolean;
+  pixel_url?: string;
+  pixel_method?: "POST" | "GET" | "PUT" | "PATCH";
+}
+
+export interface ResolvedWebhookPayloadEntry {
+  key: string;
+  parameter_target: "query" | "body";
+  value_source: "field" | "static";
+  field_name?: string;
+  static_value?: string;
+  value: unknown;
+}
+
+export interface LeadDeliveryPayloadSnapshot {
+  configured_webhook_url: string;
+  final_webhook_url: string;
+  webhook_method: "POST" | "GET" | "PUT" | "PATCH";
+  attempt: number;
+  headers: Record<string, string>;
+  query_params?: Record<string, unknown>;
+  body_payload?: Record<string, unknown>;
+  body_raw?: string;
+  effective_mapped_payload: ResolvedWebhookPayloadEntry[];
 }
 
 export interface LeadDeliveryResult {
   client_id: string;
   delivered_at: string;
+  attempts?: number;
   webhook_url: string;
+  final_webhook_url?: string;
   webhook_method: string;
+  sent_query_params?: Record<string, unknown>;
+  sent_body_payload?: Record<string, unknown>;
+  sent_payload_snapshot?: LeadDeliveryPayloadSnapshot;
   webhook_response_status?: number;
   webhook_response_body?: string;
   accepted: boolean;
@@ -435,6 +587,20 @@ export interface PluginView extends PluginSettingRecord {
   description?: string;
 }
 
+export interface TagDefinitionRecord {
+  id: string;
+  label: string;
+  color?: string;
+  is_deleted?: boolean;
+  active?: boolean;
+  deleted_at?: string | null;
+  deleted_by?: RequestActor | null;
+  created_at?: string;
+  updated_at?: string;
+  created_by?: RequestActor | null;
+  updated_by?: RequestActor | null;
+}
+
 export type UserRole = "admin" | "staff";
 
 export interface CognitoUser {
@@ -492,8 +658,8 @@ export interface CriteriaCatalogSet {
   record_type: "catalog_set";
   name: string;
   description?: string | null;
+  tags?: string[];
   latest_version: number;
-  active: boolean;
   created_at: string;
   updated_at: string;
   created_by?: AuditActor;
@@ -519,6 +685,31 @@ export interface CriteriaCatalogVersion {
     client_override?: boolean;
     affiliate_override?: boolean;
   }>;
+  campaigns_using: string[];
+  created_at: string;
+  created_by?: AuditActor;
+}
+
+export interface LogicCatalogSet {
+  id: string;
+  record_type: "logic_set";
+  name: string;
+  description?: string | null;
+  tags?: string[];
+  latest_version: number;
+  created_at: string;
+  updated_at: string;
+  created_by?: AuditActor;
+  updated_by?: AuditActor;
+}
+
+export interface LogicCatalogVersion {
+  id: string;
+  record_type: "logic_version";
+  logic_set_id: string;
+  version: number;
+  name: string;
+  rules: LogicRule[];
   campaigns_using: string[];
   created_at: string;
   created_by?: AuditActor;
@@ -634,8 +825,15 @@ export interface TableColumnConfig {
 }
 
 export interface UserTablePreference {
+  user_id?: string;
   table_id: string;
-  columns: TableColumnConfig[];
+  config?: {
+    columns?: TableColumnConfig[];
+    sort?: Array<{ field: string; direction: "asc" | "desc" }>;
+    filters?: Array<{ field: string; value: unknown; operator?: string }>;
+  };
+  // Backward-compatible fallback for older payload shapes.
+  columns?: TableColumnConfig[];
   created_at?: string;
   updated_at?: string;
 }

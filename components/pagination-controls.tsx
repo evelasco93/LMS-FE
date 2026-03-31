@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import ReactPaginate from "react-paginate";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
@@ -15,6 +15,7 @@ interface PaginationControlsProps {
   showingTo: number;
   itemLabel: string;
   pageSizeOptions?: number[];
+  leftActions?: React.ReactNode;
 }
 
 export function PaginationControls({
@@ -28,6 +29,7 @@ export function PaginationControls({
   showingTo,
   itemLabel,
   pageSizeOptions = [10, 25, 50, 100],
+  leftActions,
 }: PaginationControlsProps) {
   const [jumpValue, setJumpValue] = useState("");
 
@@ -38,6 +40,7 @@ export function PaginationControls({
       </p>
 
       <div className="flex flex-wrap items-center gap-2">
+        {leftActions}
         {/* Page-size selector */}
         <label className="flex items-center gap-1.5 text-xs text-[--color-text-muted]">
           Show

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useCallback, useMemo, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import useSWR from "swr";
 import { toast } from "sonner";
 import { LogOut, RefreshCcw } from "lucide-react";
@@ -26,6 +26,10 @@ import { ToolsView } from "@/components/views/tools-view";
 import { PayloadPreview } from "@/components/payload-preview";
 import { CampaignDetailModal } from "@/components/campaign-detail-modal";
 import { ClientDetailModal } from "@/components/modals/entity-modals";
+import {
+  CherryPickModal,
+  CherryPickHistoryModal,
+} from "@/components/modals/cherry-pick-modal";
 
 import {
   listLeads,
@@ -43,12 +47,20 @@ import {
   updateCampaignAffiliateStatus,
   updateCampaignPlugins,
   setCampaignAffiliateLeadCap,
+  setCampaignAffiliateSoldPixelConfig,
   setCampaignClientDeliveryConfig,
   setCampaignDistributionConfig,
   setClientWeight,
 } from "@/lib/api";
-import type { Affiliate, Campaign, Client, Lead } from "@/lib/types";
 import type {
+  Affiliate,
+  Campaign,
+  Client,
+  CriteriaField,
+  Lead,
+} from "@/lib/types";
+import type {
+  AffiliateSoldPixelConfig,
   CampaignDetailTab,
   CampaignParticipantStatus,
   ClientDeliveryConfig,
@@ -252,6 +264,9 @@ function DashboardContent({
   const [quickViewClientId, setQuickViewClientId] = useState<string | null>(
     null,
   );
+  const [cherryPickLead, setCherryPickLead] = useState<Lead | null>(null);
+  const [cherryPickHistoryLead, setCherryPickHistoryLead] =
+    useState<Lead | null>(null);
   const closeCampaignResetTimeoutRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
@@ -264,22 +279,56 @@ function DashboardContent({
     };
   }, []);
 
-  const router = useRouter();
-  const searchParams = useSearchParams();
   const pathname = usePathname();
 
-  const setQueryParams = (next: Record<string, string | undefined>) => {
-    const params = new URLSearchParams(searchParams?.toString() || "");
-    Object.entries(next).forEach(([key, value]) => {
-      if (value === undefined || value === "") {
-        params.delete(key);
-      } else {
-        params.set(key, value);
-      }
+  // ── Lightweight URL query-param state (no Next.js router overhead) ────────
+  const [queryState, setQueryState] = useState<Record<string, string>>(() => {
+    if (typeof window === "undefined") return {};
+    const obj: Record<string, string> = {};
+    new URLSearchParams(window.location.search).forEach((v, k) => {
+      obj[k] = v;
     });
-    const qs = params.toString();
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-  };
+    return obj;
+  });
+
+  const getParam = useCallback(
+    (key: string): string | null => queryState[key] ?? null,
+    [queryState],
+  );
+
+  const setQueryParams = useCallback(
+    (next: Record<string, string | undefined>) => {
+      setQueryState((prev) => {
+        const merged = { ...prev };
+        Object.entries(next).forEach(([k, v]) => {
+          if (v === undefined || v === "") delete merged[k];
+          else merged[k] = v;
+        });
+        const params = new URLSearchParams(merged);
+        const qs = params.toString();
+        window.history.replaceState(
+          window.history.state,
+          "",
+          qs ? `${pathname}?${qs}` : pathname,
+        );
+        return merged;
+      });
+    },
+    [pathname],
+  );
+
+  // Sync state on browser back / forward
+  useEffect(() => {
+    const onPop = () => {
+      const obj: Record<string, string> = {};
+      new URLSearchParams(window.location.search).forEach((v, k) => {
+        obj[k] = v;
+      });
+      setQueryState(obj);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   const {
     data: leads = [],
@@ -474,8 +523,7 @@ function DashboardContent({
   const role = currentUser?.role;
 
   const leadFiltersFromQuery = useMemo<LeadViewFilters>(() => {
-    const sort = (searchParams?.get("lead_sort") ??
-      "created_at") as LeadSortKey;
+    const sort = (getParam("lead_sort") ?? "created_at") as LeadSortKey;
     const validSort: LeadSortKey[] = [
       "created_at",
       "campaign",
@@ -487,7 +535,7 @@ function DashboardContent({
       "ipqs",
       "id",
     ];
-    const sortsRaw = searchParams?.get("lead_sorts") ?? "";
+    const sortsRaw = getParam("lead_sorts") ?? "";
     const parsedSorts = sortsRaw
       .split(",")
       .map((segment) => {
@@ -501,30 +549,25 @@ function DashboardContent({
     const fallbackPrimary = {
       key: validSort.includes(sort) ? sort : "created_at",
       dir:
-        searchParams?.get("lead_dir") === "asc"
-          ? ("asc" as const)
-          : ("desc" as const),
+        getParam("lead_dir") === "asc" ? ("asc" as const) : ("desc" as const),
     };
 
     return {
-      search: searchParams?.get("lead_search") ?? "",
-      campaignId: searchParams?.get("lead_campaign") ?? "all",
-      affiliateId: searchParams?.get("lead_affiliate") ?? "all",
-      mode:
-        (searchParams?.get("lead_mode") as LeadViewFilters["mode"]) || "all",
-      status:
-        (searchParams?.get("lead_status") as LeadViewFilters["status"]) ||
-        "all",
+      search: getParam("lead_search") ?? "",
+      campaignId: getParam("lead_campaign") ?? "all",
+      affiliateId: getParam("lead_affiliate") ?? "all",
+      mode: (getParam("lead_mode") as LeadViewFilters["mode"]) || "all",
+      status: (getParam("lead_status") as LeadViewFilters["status"]) || "all",
       sortBy: fallbackPrimary.key,
       sortDir: fallbackPrimary.dir,
       sorts: parsedSorts.length > 0 ? parsedSorts : [fallbackPrimary],
     };
-  }, [searchParams]);
+  }, [getParam]);
 
   // Effect 1: Sync active view from URL (does NOT depend on campaigns so that
   // SWR refreshes of campaign data don't re-trigger navigation logic).
   useEffect(() => {
-    const viewParam = searchParams?.get("view");
+    const viewParam = getParam("view");
     // Support legacy "settings" URL param — redirect to admin
     const resolvedView = viewParam === "settings" ? "admin" : viewParam;
     if (
@@ -548,26 +591,26 @@ function DashboardContent({
         setActive(resolvedView as NavKey);
       }
     }
-  }, [searchParams, role]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [getParam, role]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Effect 2: Open campaign detail modal from URL params. Depends on campaigns
   // so the modal opens once campaign data is available after a deep-link load.
   useEffect(() => {
-    const campaignParam = searchParams?.get("campaign");
+    const campaignParam = getParam("campaign");
     if (!campaignParam || campaigns.length === 0) return;
     const found = campaigns.find((c) => c.id === campaignParam);
     if (found) {
       // If the modal is already open for this campaign, only refresh the
       // campaign data — don't reset the tab/subTab from the URL, because the
       // tab is already being managed by onTabChange directly.  Without this
-      // guard, an SWR campaign refresh that fires before router.replace
-      // completes reads stale searchParams and resets the active tab.
+      // guard, an SWR campaign refresh that fires before the URL update
+      // completes reads stale params and resets the active tab.
       const alreadyOpen =
         campaignDetailOpen && selectedCampaign?.id === campaignParam;
       setSelectedCampaign(found);
       setCampaignDetailOpen(true);
       if (!alreadyOpen) {
-        const sectionParam = searchParams?.get("section");
+        const sectionParam = getParam("section");
         const nextTab: CampaignDetailTab =
           sectionParam === "clients" ||
           sectionParam === "affiliates" ||
@@ -577,7 +620,7 @@ function DashboardContent({
             ? (sectionParam as CampaignDetailTab)
             : "overview";
         setCampaignDetailTab(nextTab);
-        const subsectionParam = searchParams?.get("subsection");
+        const subsectionParam = getParam("subsection");
         setCampaignDetailSubTab(
           subsectionParam === "logic"
             ? "logic"
@@ -587,10 +630,10 @@ function DashboardContent({
                 ? "base-criteria"
                 : undefined,
         );
-        setFocusedAffiliateId(searchParams?.get("affiliate") || null);
+        setFocusedAffiliateId(getParam("affiliate") || null);
       }
     }
-  }, [campaigns, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [campaigns, getParam]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refreshCampaignsAndSelect = async (campaignId?: string) => {
     const data = await refreshCampaigns();
@@ -1035,6 +1078,26 @@ function DashboardContent({
     await refreshCampaignsAndSelect(campaignId);
   };
 
+  const onUpdateAffiliateSoldPixelConfig = async (
+    campaignId: string,
+    affiliateId: string,
+    payload: AffiliateSoldPixelConfig,
+  ) => {
+    const promise = setCampaignAffiliateSoldPixelConfig(
+      campaignId,
+      affiliateId,
+      payload,
+    );
+    await toast.promise(promise, {
+      loading: "Saving sold pixel config…",
+      success: payload.enabled
+        ? "Affiliate sold pixel enabled"
+        : "Affiliate sold pixel config saved",
+      error: (err) => err?.message || "Unable to update sold pixel config",
+    });
+    await refreshCampaignsAndSelect(campaignId);
+  };
+
   const onUpdateCampaignDistribution = async (
     campaignId: string,
     payload: {
@@ -1155,6 +1218,13 @@ function DashboardContent({
                 onOpenCampaign={openCampaign}
                 initialFilters={leadFiltersFromQuery}
                 onFiltersChange={onLeadFiltersChange}
+                onCherryPick={(lead) => {
+                  if (lead.cherry_picked) {
+                    setCherryPickHistoryLead(lead);
+                  } else {
+                    setCherryPickLead(lead);
+                  }
+                }}
                 renderPayloadPreview={(lead, allLeads) => (
                   <PayloadPreview
                     lead={lead}
@@ -1164,6 +1234,13 @@ function DashboardContent({
                     }
                     clients={clients}
                     onOpenClient={(clientId) => setQuickViewClientId(clientId)}
+                    onCherryPick={(lead) => {
+                      if (lead.cherry_picked) {
+                        setCherryPickHistoryLead(lead);
+                      } else {
+                        setCherryPickLead(lead);
+                      }
+                    }}
                   />
                 )}
               />
@@ -1332,6 +1409,7 @@ function DashboardContent({
         onUpdateName={onEditCampaignName}
         onRotateParticipantKey={onRotateCampaignParticipantKey}
         onUpdateAffiliateLeadCap={onUpdateAffiliateLeadCap}
+        onUpdateAffiliateSoldPixelConfig={onUpdateAffiliateSoldPixelConfig}
         onUpdateClientDeliveryConfig={onUpdateClientDeliveryConfig}
         onUpdateCampaignDistribution={onUpdateCampaignDistribution}
         onUpdateClientWeight={onUpdateCampaignClientWeight}
@@ -1340,6 +1418,25 @@ function DashboardContent({
         client={clients.find((c) => c.id === quickViewClientId) ?? null}
         isOpen={!!quickViewClientId}
         onClose={() => setQuickViewClientId(null)}
+      />
+      <CherryPickModal
+        isOpen={!!cherryPickLead}
+        lead={cherryPickLead}
+        criteriaFields={
+          (campaigns.find((c) => c.id === cherryPickLead?.campaign_id) as any)
+            ?.criteria_fields ?? []
+        }
+        onClose={() => setCherryPickLead(null)}
+        onSuccess={() => {
+          setCherryPickLead(null);
+          refreshLeads();
+        }}
+      />
+      <CherryPickHistoryModal
+        isOpen={!!cherryPickHistoryLead}
+        lead={cherryPickHistoryLead}
+        clients={clients}
+        onClose={() => setCherryPickHistoryLead(null)}
       />
     </div>
   );

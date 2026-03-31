@@ -16,6 +16,7 @@ import {
   Plug,
   PlusCircle,
   RefreshCw,
+  SlidersHorizontal,
   Target,
   UserCog,
   UserPlus,
@@ -86,6 +87,23 @@ function humanizeAuditValue(val: unknown): string {
     return val;
   }
   return String(val);
+}
+
+function summarizeTablePreferenceConfig(value: unknown): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const cfg = value as Record<string, unknown>;
+
+  const columns = Array.isArray(cfg.columns)
+    ? (cfg.columns as Array<{ visible?: boolean }>).filter(
+        (c) => c && typeof c === "object",
+      )
+    : [];
+  const visibleCount = columns.filter((c) => c.visible !== false).length;
+
+  const sortCount = Array.isArray(cfg.sort) ? cfg.sort.length : 0;
+  const filterCount = Array.isArray(cfg.filters) ? cfg.filters.length : 0;
+
+  return `${visibleCount}/${columns.length} columns visible, ${sortCount} sort rule${sortCount === 1 ? "" : "s"}, ${filterCount} filter setting${filterCount === 1 ? "" : "s"}`;
 }
 
 function diffDeliveryConfig(
@@ -308,6 +326,12 @@ function getEntityTypeMeta(type: string) {
         icon: <Plug size={s} />,
         label: "Integration",
         color: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
+      };
+    case "user_table_preference":
+      return {
+        icon: <SlidersHorizontal size={s} />,
+        label: "Table Pref",
+        color: "bg-sky-500/10 text-sky-700 dark:text-sky-300",
       };
     case "user":
       return {
@@ -1505,6 +1529,12 @@ export function SettingsView({ role }: SettingsViewProps) {
                                             )
                                           )
                                             return true;
+                                          if (
+                                            item.entity_type ===
+                                            "user_table_preference"
+                                          ) {
+                                            return true;
+                                          }
                                           const fromObj =
                                             change.from !== null &&
                                             change.from !== undefined &&
@@ -1568,6 +1598,48 @@ export function SettingsView({ role }: SettingsViewProps) {
                                         : null;
 
                                       return filtered.map((change, i) => {
+                                        if (
+                                          item.entity_type ===
+                                            "user_table_preference" &&
+                                          change.field === "config"
+                                        ) {
+                                          const fromSummary =
+                                            summarizeTablePreferenceConfig(
+                                              change.from,
+                                            );
+                                          const toSummary =
+                                            summarizeTablePreferenceConfig(
+                                              change.to,
+                                            );
+                                          return (
+                                            <div
+                                              key={`${item.log_id}-${i}`}
+                                              className="grid grid-cols-[11rem_1fr] items-start gap-2 text-[11px]"
+                                            >
+                                              <span className="truncate font-medium text-[--color-text]">
+                                                Config
+                                              </span>
+                                              <div className="space-y-1 text-[--color-text-muted]">
+                                                {fromSummary && (
+                                                  <div className="flex items-center gap-1.5">
+                                                    <span className="max-w-[180px] truncate line-through">
+                                                      {fromSummary}
+                                                    </span>
+                                                    <ArrowRight
+                                                      size={9}
+                                                      className="shrink-0"
+                                                    />
+                                                  </div>
+                                                )}
+                                                <span className="font-medium text-[--color-text]">
+                                                  {toSummary ??
+                                                    "Layout, sorting, or filters updated"}
+                                                </span>
+                                              </div>
+                                            </div>
+                                          );
+                                        }
+
                                         // ── Delivery config: show sub-diff ──
                                         if (
                                           change.field === "delivery_config" ||

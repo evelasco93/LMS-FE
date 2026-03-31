@@ -51,7 +51,10 @@ export function CampaignsView({
   const [campaignModal, setCampaignModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Campaign | null>(null);
 
-  const onCreateCampaign = async (payload: { name: string }) => {
+  const onCreateCampaign = async (payload: {
+    name: string;
+    tags?: string[];
+  }) => {
     await toast.promise(
       createCampaign(payload).then(() => onDataChanged()),
       {

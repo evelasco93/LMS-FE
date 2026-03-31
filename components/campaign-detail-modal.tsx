@@ -10,6 +10,8 @@ import {
   ChevronRight,
   Copy,
   FileText,
+  Flame,
+  Gauge,
   GitBranch,
   HandHeart,
   History,
@@ -22,6 +24,8 @@ import {
   Plug,
   Plus,
   RotateCcw,
+  Tag,
+  Upload,
   Trash2,
   Users,
   UserPlus,
@@ -69,11 +73,40 @@ import {
   getCriteriaCatalogSet,
   createCriteriaCatalogSet,
   updateCriteriaCatalogSet,
-  deactivateCriteriaCatalogSet,
+  updateLogicCatalogSet,
+  deleteCriteriaCatalogSet,
   applyCriteriaCatalog,
+  listLogicCatalog,
+  getLogicCatalogSet,
+  createLogicCatalogSet,
+  applyLogicCatalog,
+  listAffiliateLogicRules,
+  createAffiliateLogicRule,
+  updateAffiliateLogicRule,
+  deleteAffiliateLogicRule,
+  applyLogicCatalogToAffiliate,
+  listClientLogicRules,
+  createClientLogicRule,
+  updateClientLogicRule,
+  deleteClientLogicRule,
+  applyLogicCatalogToClient,
+  syncClientLogicToCampaign,
+  listAffiliatePixelCriteria,
+  createAffiliatePixelCriterion,
+  updateAffiliatePixelCriterion,
+  deleteAffiliatePixelCriterion,
+  listAffiliateSoldCriteria,
+  createAffiliateSoldCriterion,
+  updateAffiliateSoldCriterion,
+  deleteAffiliateSoldCriterion,
+  updateAffiliateCherryPickOverride,
+  updateCampaign,
+  listTagDefinitions,
+  setCampaignTags,
 } from "@/lib/api";
 import type {
   Affiliate,
+  AffiliateSoldPixelConfig,
   AuditLogItem,
   Campaign,
   ClientDeliveryConfig,
@@ -85,12 +118,16 @@ import type {
   CriteriaValueMapping,
   CriteriaCatalogSet,
   CriteriaCatalogVersion,
+  LogicCatalogSet,
+  LogicCatalogVersion,
   DistributionMode,
   Lead,
   LogicRule,
   PluginSettingRecord,
+  TagDefinitionRecord,
 } from "@/lib/types";
 import type {
+  CampaignAffiliate,
   CampaignClient,
   CampaignDetailTab,
   CampaignParticipantStatus,
@@ -254,9 +291,11 @@ function formatAuditFieldLabel(
           ? "Affiliate Status"
           : suffix === "campaign_key"
             ? "Affiliate Campaign Key"
-            : suffix === "lead_cap"
-              ? "Affiliate Lead Cap"
-              : `Affiliate ${normalizeFieldLabel(suffix)}`;
+            : suffix === "sold_pixel_config"
+              ? "Affiliate Sold Pixel Config"
+              : suffix === "lead_cap"
+                ? "Affiliate Lead Cap"
+                : `Affiliate ${normalizeFieldLabel(suffix)}`;
     return `${baseLabel} · ${affiliateName}`;
   }
 
@@ -430,6 +469,66 @@ function defaultDeliveryConfig(): ClientDeliveryConfig {
   };
 }
 
+function defaultAffiliatePixelConfig(): AffiliateSoldPixelConfig {
+  return {
+    enabled: false,
+    url: "",
+    method: "POST",
+    payload_mapping: [],
+  };
+}
+
+function normalizeDeliveryMappingRows(
+  rows: ClientDeliveryConfig["payload_mapping"] | undefined,
+): ClientDeliveryConfig["payload_mapping"] {
+  if (!rows?.length) return [];
+  return rows.map((row) => ({
+    ...row,
+    parameter_target: row.parameter_target ?? "body",
+  }));
+}
+
+function normalizePixelMappingRows(
+  rows: AffiliateSoldPixelConfig["payload_mapping"] | undefined,
+  fallbackMode: "query" | "body" = "query",
+): AffiliateSoldPixelConfig["payload_mapping"] {
+  if (!rows?.length) return [];
+  return rows.map((row) => ({
+    ...row,
+    parameter_target: row.parameter_target ?? fallbackMode,
+  }));
+}
+
+function formatLogicOperatorLabel(operator: string): string {
+  return operator
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function formatLogicConditionValue(value?: string | string[]): string {
+  if (Array.isArray(value)) {
+    return value.length > 0 ? value.join(", ") : "(empty)";
+  }
+  if (value === undefined || value === null || value === "") return "(empty)";
+  return String(value);
+}
+
+function toLogicCatalogRulesPayload(rules: LogicRule[]) {
+  return rules.map((rule) => ({
+    name: rule.name,
+    action: rule.action,
+    enabled: rule.enabled,
+    groups: rule.groups.map((group) => ({
+      conditions: group.conditions.map((condition) => ({
+        field_name: condition.field_name,
+        operator: condition.operator,
+        ...(condition.value !== undefined ? { value: condition.value } : {}),
+      })),
+    })),
+  }));
+}
+
 export function CampaignDetailModal({
   campaign,
   clients,
@@ -448,6 +547,7 @@ export function CampaignDetailModal({
   onUpdateName,
   onRotateParticipantKey,
   onUpdateAffiliateLeadCap,
+  onUpdateAffiliateSoldPixelConfig,
   onUpdateClientDeliveryConfig,
   onUpdateCampaignDistribution,
   onUpdateClientWeight,
@@ -513,6 +613,11 @@ export function CampaignDetailModal({
     affiliateId: string,
     leadCap: number | null,
   ) => Promise<void>;
+  onUpdateAffiliateSoldPixelConfig: (
+    campaignId: string,
+    affiliateId: string,
+    payload: AffiliateSoldPixelConfig,
+  ) => Promise<void>;
   onUpdateClientDeliveryConfig: (
     campaignId: string,
     clientId: string,
@@ -560,6 +665,9 @@ export function CampaignDetailModal({
     statusDraft: CampaignParticipantStatus;
   } | null>(null);
   const [confirmRotateKey, setConfirmRotateKey] = useState(false);
+  const [pixelConfigTab, setPixelConfigTab] = useState<
+    "pixel" | "pixel_criteria" | "sold_criteria"
+  >("pixel");
   const [generatingPdfForAffiliate, setGeneratingPdfForAffiliate] = useState<
     string | null
   >(null);
@@ -679,9 +787,14 @@ export function CampaignDetailModal({
     CatalogFieldDraft[]
   >([]);
   const [savingCatalog, setSavingCatalog] = useState(false);
-  const [confirmDeactivateSet, setConfirmDeactivateSet] =
+  const [catalogBulkImportOpen, setCatalogBulkImportOpen] = useState(false);
+  const [catalogBulkImportText, setCatalogBulkImportText] = useState("");
+  const [campaignBulkImportOpen, setCampaignBulkImportOpen] = useState(false);
+  const [campaignBulkImportText, setCampaignBulkImportText] = useState("");
+  const [campaignBulkImporting, setCampaignBulkImporting] = useState(false);
+  const [confirmDeleteSet, setConfirmDeleteSet] =
     useState<CriteriaCatalogSet | null>(null);
-  const [deactivating, setDeactivating] = useState(false);
+  const [deletingSet, setDeletingSet] = useState(false);
   // Set of "{setId}#v{version}" keys whose field list is expanded
   const [expandedVersionFields, setExpandedVersionFields] = useState<
     Set<string>
@@ -693,21 +806,127 @@ export function CampaignDetailModal({
   const [localCriteriaSetVersion, setLocalCriteriaSetVersion] = useState<
     number | null
   >(campaign?.criteria_set_version ?? null);
+  const [localCriteriaSetName, setLocalCriteriaSetName] = useState<
+    string | null
+  >(null);
+
+  // ── Logic Catalog states ─────────────────────────────────────────────────
+  const [logicCatalogOpen, setLogicCatalogOpen] = useState(false);
+  const [logicCatalogLoading, setLogicCatalogLoading] = useState(false);
+  const [logicCatalogSets, setLogicCatalogSets] = useState<LogicCatalogSet[]>(
+    [],
+  );
+  const [expandedLogicSetId, setExpandedLogicSetId] = useState<string | null>(
+    null,
+  );
+  const [logicSetVersionsMap, setLogicSetVersionsMap] = useState<
+    Record<string, LogicCatalogVersion[]>
+  >({});
+  const [loadingLogicVersionsFor, setLoadingLogicVersionsFor] = useState<
+    string | null
+  >(null);
+  const [applyingLogicCatalog, setApplyingLogicCatalog] = useState<
+    string | null
+  >(null);
+  const [expandedLogicVersionRules, setExpandedLogicVersionRules] = useState<
+    Set<string>
+  >(new Set());
+  const [expandedLogicRuleDetails, setExpandedLogicRuleDetails] = useState<
+    Set<string>
+  >(new Set());
+  const [saveLogicToSetOpen, setSaveLogicToSetOpen] = useState(false);
+  const [saveLogicToSetMode, setSaveLogicToSetMode] = useState<
+    "new_version" | "new_set"
+  >("new_set");
+  const [saveLogicToSetDraft, setSaveLogicToSetDraft] = useState({
+    name: "",
+    description: "",
+  });
+  const [savingLogicToSet, setSavingLogicToSet] = useState(false);
+  // Campaign tags edit state
+  const [editTagsOpen, setEditTagsOpen] = useState(false);
+  const [tagDefinitions, setTagDefinitions] = useState<TagDefinitionRecord[]>(
+    [],
+  );
+  const [tagDraft, setTagDraft] = useState<string[]>([]);
+  const [savingTags, setSavingTags] = useState(false);
+  const [localLogicSetId, setLocalLogicSetId] = useState<string | null>(
+    campaign?.logic_set_id ?? null,
+  );
+  const [localLogicSetVersion, setLocalLogicSetVersion] = useState<
+    number | null
+  >(campaign?.logic_set_version ?? null);
+  const [localLogicSetName, setLocalLogicSetName] = useState<string | null>(
+    null,
+  );
 
   // Sync applied-catalog state whenever a different campaign is opened.
   // (useState initializer only runs once on mount, so we need this effect.)
   useEffect(() => {
     setLocalCriteriaSetId(campaign?.criteria_set_id ?? null);
     setLocalCriteriaSetVersion(campaign?.criteria_set_version ?? null);
+    setLocalCriteriaSetName(null);
+    setLocalLogicSetId(campaign?.logic_set_id ?? null);
+    setLocalLogicSetVersion(campaign?.logic_set_version ?? null);
+    setLocalLogicSetName(null);
+    setSaveLogicToSetMode(campaign?.logic_set_id ? "new_version" : "new_set");
+    setTagDraft(campaign?.tags ?? []);
   }, [campaign?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Save-as-Set ────────────────────────────────────────────────────────────
-  const [saveAsSetOpen, setSaveAsSetOpen] = useState(false);
-  const [saveAsSetDraft, setSaveAsSetDraft] = useState({
-    name: "",
-    description: "",
-  });
-  const [savingAsSet, setSavingAsSet] = useState(false);
+  useEffect(() => {
+    if (!localCriteriaSetId || localCriteriaSetName) return;
+    let cancelled = false;
+    getCriteriaCatalogSet(localCriteriaSetId)
+      .then((res) => {
+        if (!cancelled && res.success) {
+          setLocalCriteriaSetName(res.data.set.name);
+        }
+      })
+      .catch(() => {
+        /* silent */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [localCriteriaSetId, localCriteriaSetName]);
+
+  useEffect(() => {
+    if (!localLogicSetId || localLogicSetName) return;
+    let cancelled = false;
+    getLogicCatalogSet(localLogicSetId)
+      .then((res) => {
+        if (!cancelled && res.success) {
+          setLocalLogicSetName(res.data.set.name);
+        }
+      })
+      .catch(() => {
+        /* silent */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [localLogicSetId, localLogicSetName]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    listTagDefinitions()
+      .then((res) => {
+        if (cancelled) return;
+        const items = res?.data?.items ?? [];
+        setTagDefinitions(items.filter((item) => !item.is_deleted));
+      })
+      .catch(() => {
+        if (!cancelled) setTagDefinitions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    setTagDraft(campaign?.tags ?? []);
+  }, [campaign?.id, campaign?.tags]);
 
   const [addFieldOpen, setAddFieldOpen] = useState(false);
   const [editFieldData, setEditFieldData] = useState<CriteriaField | null>(
@@ -763,6 +982,9 @@ export function CampaignDetailModal({
   >(campaign?.affiliates ?? []);
   const [affiliateCapDraft, setAffiliateCapDraft] = useState("");
   const [savingAffiliateCap, setSavingAffiliateCap] = useState(false);
+  const [affiliateCapModalId, setAffiliateCapModalId] = useState<string | null>(
+    null,
+  );
 
   const [deliveryClientId, setDeliveryClientId] = useState<string | null>(null);
   const [deliveryTab, setDeliveryTab] = useState<"request" | "response">(
@@ -772,20 +994,187 @@ export function CampaignDetailModal({
     defaultDeliveryConfig(),
   );
   const [savingDeliveryConfig, setSavingDeliveryConfig] = useState(false);
+  const [deliverySaveAttempted, setDeliverySaveAttempted] = useState(false);
   const deliveryHasUrl = deliveryDraft.url.trim().length > 0;
-  const deliveryHasMappings = deliveryDraft.payload_mapping.some(
-    (m) => m.key.trim().length > 0,
-  );
-  const deliveryHasValidationRule = deliveryDraft.acceptance_rules.some(
-    (r) => r.match_value.trim().length > 0,
-  );
+  const deliveryHasMappings =
+    deliveryDraft.payload_mapping.length > 0 &&
+    deliveryDraft.payload_mapping.every(
+      (m) =>
+        m.key.trim().length > 0 &&
+        (m.parameter_target === undefined ||
+          m.parameter_target === "query" ||
+          m.parameter_target === "body") &&
+        (m.value_source === "field"
+          ? (m.field_name ?? "").trim().length > 0
+          : String(m.static_value ?? "").trim().length > 0),
+    );
+  const deliveryHasValidationRule =
+    deliveryDraft.acceptance_rules.length > 0 &&
+    deliveryDraft.acceptance_rules.every(
+      (r) => r.match_value.trim().length > 0,
+    );
+  const deliveryInvalidUrl = deliverySaveAttempted && !deliveryHasUrl;
+  const deliveryInvalidMappings = deliverySaveAttempted && !deliveryHasMappings;
+  const deliveryInvalidRules =
+    deliverySaveAttempted && !deliveryHasValidationRule;
   const deliverySaveDisabledReason = !deliveryHasValidationRule
-    ? "Add at least one response validation rule before saving."
+    ? "Add at least one complete response validation rule before saving."
     : !deliveryHasUrl
       ? "Webhook URL is required."
       : !deliveryHasMappings
-        ? "Add at least one payload mapping before saving."
+        ? "Add at least one complete payload mapping before saving."
         : "";
+
+  const [pixelAffiliateId, setPixelAffiliateId] = useState<string | null>(null);
+  const [pixelDraft, setPixelDraft] = useState<AffiliateSoldPixelConfig>(
+    defaultAffiliatePixelConfig(),
+  );
+  const [savingPixelConfig, setSavingPixelConfig] = useState(false);
+  const [pixelSaveAttempted, setPixelSaveAttempted] = useState(false);
+  const pixelHasUrl = pixelDraft.url.trim().length > 0;
+  const pixelHasMappings =
+    pixelDraft.payload_mapping.length > 0 &&
+    pixelDraft.payload_mapping.every(
+      (m) =>
+        m.key.trim().length > 0 &&
+        (m.parameter_target === "query" || m.parameter_target === "body") &&
+        (m.value_source === "field"
+          ? (m.field_name ?? "").trim().length > 0
+          : String(m.static_value ?? "").trim().length > 0),
+    );
+  const pixelInvalidUrl = pixelSaveAttempted && !pixelHasUrl;
+  const pixelInvalidMappings = pixelSaveAttempted && !pixelHasMappings;
+  const pixelSaveDisabledReason = !pixelHasUrl
+    ? "Pixel URL is required."
+    : !pixelHasMappings
+      ? "Add at least one complete payload mapping before saving."
+      : "";
+
+  const pixelSaveBlockedByEnabledConfig =
+    pixelDraft.enabled && (!pixelHasUrl || !pixelHasMappings);
+  const pixelFinalSaveDisabledReason = pixelSaveBlockedByEnabledConfig
+    ? "Enabled pixels require URL and complete payload mappings."
+    : pixelSaveDisabledReason;
+
+  const [deliveryLogicIntroClientId, setDeliveryLogicIntroClientId] = useState<
+    string | null
+  >(null);
+  const [pixelLogicIntroAffiliateId, setPixelLogicIntroAffiliateId] = useState<
+    string | null
+  >(null);
+
+  // ── Per-affiliate pixel criteria manager ──────────────────────────────────
+  const [pixelCriteriaAffiliateId, setPixelCriteriaAffiliateId] = useState<
+    string | null
+  >(null);
+  const [pixelCriteriaRules, setPixelCriteriaRules] = useState<LogicRule[]>([]);
+  const [pixelCriteriaLoading, setPixelCriteriaLoading] = useState(false);
+  const [pixelCriteriaSaving, setPixelCriteriaSaving] = useState(false);
+  const [pixelCriteriaBuilderOpen, setPixelCriteriaBuilderOpen] =
+    useState(false);
+  const [pixelCriteriaEditingRule, setPixelCriteriaEditingRule] =
+    useState<LogicRule | null>(null);
+  const [pixelCriteriaDeletingRuleId, setPixelCriteriaDeletingRuleId] =
+    useState<string | null>(null);
+
+  // ── Per-affiliate sold criteria manager ───────────────────────────────────
+  const [soldCriteriaAffiliateId, setSoldCriteriaAffiliateId] = useState<
+    string | null
+  >(null);
+  const [soldCriteriaRules, setSoldCriteriaRules] = useState<LogicRule[]>([]);
+  const [soldCriteriaLoading, setSoldCriteriaLoading] = useState(false);
+  const [soldCriteriaSaving, setSoldCriteriaSaving] = useState(false);
+  const [soldCriteriaBuilderOpen, setSoldCriteriaBuilderOpen] = useState(false);
+  const [soldCriteriaEditingRule, setSoldCriteriaEditingRule] =
+    useState<LogicRule | null>(null);
+  const [soldCriteriaDeletingRuleId, setSoldCriteriaDeletingRuleId] = useState<
+    string | null
+  >(null);
+
+  // ── Per-participant logic rule manager ─────────────────────────────────────
+  const [participantLogicType, setParticipantLogicType] = useState<
+    "affiliate" | "client" | null
+  >(null);
+  const [participantLogicRules, setParticipantLogicRules] = useState<
+    LogicRule[]
+  >([]);
+  const [participantLogicLoading, setParticipantLogicLoading] = useState(false);
+  const [participantLogicSaving, setParticipantLogicSaving] = useState(false);
+  const [participantLogicBuilderOpen, setParticipantLogicBuilderOpen] =
+    useState(false);
+  const [participantLogicEditingRule, setParticipantLogicEditingRule] =
+    useState<LogicRule | null>(null);
+  const [participantLogicSetId, setParticipantLogicSetId] = useState<
+    string | null
+  >(null);
+  const [participantLogicSetVersion, setParticipantLogicSetVersion] = useState<
+    number | null
+  >(null);
+  const [participantLogicSetName, setParticipantLogicSetName] = useState<
+    string | null
+  >(null);
+  const [participantLogicBaseSetId, setParticipantLogicBaseSetId] = useState<
+    string | null
+  >(null);
+  const [participantLogicBaseSetVersion, setParticipantLogicBaseSetVersion] =
+    useState<number | null>(null);
+  const [participantLogicBaseSetName, setParticipantLogicBaseSetName] =
+    useState<string | null>(null);
+  const [participantLogicDeletingRuleId, setParticipantLogicDeletingRuleId] =
+    useState<string | null>(null);
+  const [participantLogicCatalogOpen, setParticipantLogicCatalogOpen] =
+    useState(false);
+  const [participantLogicCatalogLoading, setParticipantLogicCatalogLoading] =
+    useState(false);
+  const [participantLogicCatalogSets, setParticipantLogicCatalogSets] =
+    useState<LogicCatalogSet[]>([]);
+  const [
+    participantLogicApplyingCatalogId,
+    setParticipantLogicApplyingCatalogId,
+  ] = useState<string | null>(null);
+  // Expanded states for participant catalog (version-level browse)
+  const [participantExpandedSetId, setParticipantExpandedSetId] = useState<
+    string | null
+  >(null);
+  const [participantSetVersionsMap, setParticipantSetVersionsMap] = useState<
+    Record<string, LogicCatalogVersion[]>
+  >({});
+  const [participantLoadingVersionsFor, setParticipantLoadingVersionsFor] =
+    useState<string | null>(null);
+  const [participantExpandedVersionRules, setParticipantExpandedVersionRules] =
+    useState<Set<string>>(new Set());
+  const [participantExpandedRuleDetails, setParticipantExpandedRuleDetails] =
+    useState<Set<string>>(new Set());
+  // Save-to-catalog states for participant logic
+  const [saveParticipantLogicOpen, setSaveParticipantLogicOpen] =
+    useState(false);
+  const [saveParticipantLogicMode, setSaveParticipantLogicMode] = useState<
+    "new_version" | "new_set"
+  >("new_set");
+  const [saveParticipantLogicDraft, setSaveParticipantLogicDraft] = useState({
+    name: "",
+    description: "",
+  });
+  const [savingParticipantLogicToCatalog, setSavingParticipantLogicToCatalog] =
+    useState(false);
+  const [syncingClientLogicToCampaign, setSyncingClientLogicToCampaign] =
+    useState(false);
+  const [pinnedBaseLogicViewerOpen, setPinnedBaseLogicViewerOpen] =
+    useState(false);
+  const [pinnedBaseExpandedRules, setPinnedBaseExpandedRules] = useState<
+    Set<string>
+  >(new Set());
+  // Save-to-catalog states for criteria
+  const [saveCriteriaToSetOpen, setSaveCriteriaToSetOpen] = useState(false);
+  const [saveCriteriaToSetMode, setSaveCriteriaToSetMode] = useState<
+    "new_version" | "new_set"
+  >("new_set");
+  const [saveCriteriaToSetDraft, setSaveCriteriaToSetDraft] = useState({
+    name: "",
+    description: "",
+  });
+  const [savingCriteriaToSet, setSavingCriteriaToSet] = useState(false);
+  // ─────────────────────────────────────────────────────────────────────────
 
   const [routingMode, setRoutingMode] =
     useState<DistributionMode>("round_robin");
@@ -1048,6 +1437,11 @@ export function CampaignDetailModal({
         toast.success("Logic rule created.");
       }
       await refreshLogicRules();
+      // Manual rule edits de-sync the campaign from any applied logic catalog.
+      setLocalLogicSetId(null);
+      setLocalLogicSetVersion(null);
+      setLocalLogicSetName(null);
+      onCampaignUpdate?.({ logic_set_id: null, logic_set_version: null });
       setLogicBuilderOpen(false);
       setEditingRule(null);
     } catch (err: any) {
@@ -1068,6 +1462,10 @@ export function CampaignDetailModal({
       }
       toast.success("Logic rule deleted.");
       await refreshLogicRules();
+      setLocalLogicSetId(null);
+      setLocalLogicSetVersion(null);
+      setLocalLogicSetName(null);
+      onCampaignUpdate?.({ logic_set_id: null, logic_set_version: null });
     } catch (err: any) {
       toast.error(err?.message || "An error occurred.");
     } finally {
@@ -1086,8 +1484,960 @@ export function CampaignDetailModal({
         return;
       }
       await refreshLogicRules();
+      setLocalLogicSetId(null);
+      setLocalLogicSetVersion(null);
+      setLocalLogicSetName(null);
+      onCampaignUpdate?.({ logic_set_id: null, logic_set_version: null });
     } catch (err: any) {
       toast.error(err?.message || "An error occurred.");
+    }
+  };
+
+  // ── Pixel criteria handlers ────────────────────────────────────────────────
+
+  // Load pixel / sold criteria data when the pixel config modal opens on a criteria tab
+  useEffect(() => {
+    if (!pixelAffiliateId || !campaign?.id) return;
+    if (pixelConfigTab === "pixel_criteria") {
+      setPixelCriteriaAffiliateId(pixelAffiliateId);
+      setPixelCriteriaRules([]);
+      setPixelCriteriaLoading(true);
+      listAffiliatePixelCriteria(campaign.id, pixelAffiliateId)
+        .then((res) => setPixelCriteriaRules((res as any)?.data ?? []))
+        .catch(() => {})
+        .finally(() => setPixelCriteriaLoading(false));
+    } else if (pixelConfigTab === "sold_criteria") {
+      setSoldCriteriaAffiliateId(pixelAffiliateId);
+      setSoldCriteriaRules([]);
+      setSoldCriteriaLoading(true);
+      listAffiliateSoldCriteria(campaign.id, pixelAffiliateId)
+        .then((res) => setSoldCriteriaRules((res as any)?.data ?? []))
+        .catch(() => {})
+        .finally(() => setSoldCriteriaLoading(false));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pixelAffiliateId, pixelConfigTab]);
+
+  const refreshPixelCriteria = async (affiliateId: string) => {
+    if (!campaign?.id) return;
+    const res = await listAffiliatePixelCriteria(campaign.id, affiliateId);
+    const rules = (res as any)?.data ?? [];
+    setPixelCriteriaRules(rules);
+    setLocalAffiliateLinks((prev) =>
+      prev.map((l) =>
+        l.affiliate_id === affiliateId ? { ...l, pixel_criteria: rules } : l,
+      ),
+    );
+  };
+
+  const openPixelCriteriaManager = async (affiliateId: string) => {
+    setPixelCriteriaAffiliateId(affiliateId);
+    setPixelCriteriaRules([]);
+    setPixelCriteriaLoading(true);
+    if (!campaign?.id) return;
+    try {
+      const res = await listAffiliatePixelCriteria(campaign.id, affiliateId);
+      setPixelCriteriaRules((res as any)?.data ?? []);
+    } catch {
+      /* silent */
+    } finally {
+      setPixelCriteriaLoading(false);
+    }
+  };
+
+  const handleSavePixelCriteriaRule = async (draft: LogicRuleDraft) => {
+    if (!campaign?.id || !pixelCriteriaAffiliateId) return;
+    if (!draft.name.trim()) {
+      toast.warning("Rule name is required.");
+      return;
+    }
+    setPixelCriteriaSaving(true);
+    try {
+      if (pixelCriteriaEditingRule) {
+        const res = await updateAffiliatePixelCriterion(
+          campaign.id,
+          pixelCriteriaAffiliateId,
+          pixelCriteriaEditingRule.id,
+          draft,
+        );
+        if ((res as any)?.result === false) {
+          toast.error((res as any)?.message || "Failed to update rule.");
+          return;
+        }
+        toast.success("Pixel criteria rule updated.");
+      } else {
+        const res = await createAffiliatePixelCriterion(
+          campaign.id,
+          pixelCriteriaAffiliateId,
+          draft,
+        );
+        if ((res as any)?.result === false) {
+          toast.error((res as any)?.message || "Failed to create rule.");
+          return;
+        }
+        toast.success("Pixel criteria rule created.");
+      }
+      await refreshPixelCriteria(pixelCriteriaAffiliateId);
+      setPixelCriteriaBuilderOpen(false);
+      setPixelCriteriaEditingRule(null);
+    } catch (err: any) {
+      toast.error(err?.message || "An error occurred.");
+    } finally {
+      setPixelCriteriaSaving(false);
+    }
+  };
+
+  const handleDeletePixelCriteriaRule = async (ruleId: string) => {
+    if (!campaign?.id || !pixelCriteriaAffiliateId) return;
+    setPixelCriteriaDeletingRuleId(ruleId);
+    try {
+      const res = await deleteAffiliatePixelCriterion(
+        campaign.id,
+        pixelCriteriaAffiliateId,
+        ruleId,
+      );
+      if ((res as any)?.result === false) {
+        toast.error((res as any)?.message || "Failed to delete rule.");
+        return;
+      }
+      toast.success("Pixel criteria rule deleted.");
+      await refreshPixelCriteria(pixelCriteriaAffiliateId);
+    } catch (err: any) {
+      toast.error(err?.message || "An error occurred.");
+    } finally {
+      setPixelCriteriaDeletingRuleId(null);
+    }
+  };
+
+  const handleTogglePixelCriteriaRule = async (rule: LogicRule) => {
+    if (!campaign?.id || !pixelCriteriaAffiliateId) return;
+    try {
+      const res = await updateAffiliatePixelCriterion(
+        campaign.id,
+        pixelCriteriaAffiliateId,
+        rule.id,
+        { enabled: !rule.enabled },
+      );
+      if ((res as any)?.result === false) {
+        toast.error((res as any)?.message || "Failed to toggle rule.");
+        return;
+      }
+      await refreshPixelCriteria(pixelCriteriaAffiliateId);
+    } catch (err: any) {
+      toast.error(err?.message || "An error occurred.");
+    }
+  };
+
+  // ── Sold criteria handlers ─────────────────────────────────────────────────
+
+  const refreshSoldCriteria = async (affiliateId: string) => {
+    if (!campaign?.id) return;
+    const res = await listAffiliateSoldCriteria(campaign.id, affiliateId);
+    const rules = (res as any)?.data ?? [];
+    setSoldCriteriaRules(rules);
+    setLocalAffiliateLinks((prev) =>
+      prev.map((l) =>
+        l.affiliate_id === affiliateId ? { ...l, sold_criteria: rules } : l,
+      ),
+    );
+  };
+
+  const openSoldCriteriaManager = async (affiliateId: string) => {
+    setSoldCriteriaAffiliateId(affiliateId);
+    setSoldCriteriaRules([]);
+    setSoldCriteriaLoading(true);
+    if (!campaign?.id) return;
+    try {
+      const res = await listAffiliateSoldCriteria(campaign.id, affiliateId);
+      setSoldCriteriaRules((res as any)?.data ?? []);
+    } catch {
+      /* silent */
+    } finally {
+      setSoldCriteriaLoading(false);
+    }
+  };
+
+  const handleSaveSoldCriteriaRule = async (draft: LogicRuleDraft) => {
+    if (!campaign?.id || !soldCriteriaAffiliateId) return;
+    if (!draft.name.trim()) {
+      toast.warning("Rule name is required.");
+      return;
+    }
+    setSoldCriteriaSaving(true);
+    try {
+      if (soldCriteriaEditingRule) {
+        const res = await updateAffiliateSoldCriterion(
+          campaign.id,
+          soldCriteriaAffiliateId,
+          soldCriteriaEditingRule.id,
+          draft,
+        );
+        if ((res as any)?.result === false) {
+          toast.error((res as any)?.message || "Failed to update rule.");
+          return;
+        }
+        toast.success("Sold criteria rule updated.");
+      } else {
+        const res = await createAffiliateSoldCriterion(
+          campaign.id,
+          soldCriteriaAffiliateId,
+          draft,
+        );
+        if ((res as any)?.result === false) {
+          toast.error((res as any)?.message || "Failed to create rule.");
+          return;
+        }
+        toast.success("Sold criteria rule created.");
+      }
+      await refreshSoldCriteria(soldCriteriaAffiliateId);
+      setSoldCriteriaBuilderOpen(false);
+      setSoldCriteriaEditingRule(null);
+    } catch (err: any) {
+      toast.error(err?.message || "An error occurred.");
+    } finally {
+      setSoldCriteriaSaving(false);
+    }
+  };
+
+  const handleDeleteSoldCriteriaRule = async (ruleId: string) => {
+    if (!campaign?.id || !soldCriteriaAffiliateId) return;
+    setSoldCriteriaDeletingRuleId(ruleId);
+    try {
+      const res = await deleteAffiliateSoldCriterion(
+        campaign.id,
+        soldCriteriaAffiliateId,
+        ruleId,
+      );
+      if ((res as any)?.result === false) {
+        toast.error((res as any)?.message || "Failed to delete rule.");
+        return;
+      }
+      toast.success("Sold criteria rule deleted.");
+      await refreshSoldCriteria(soldCriteriaAffiliateId);
+    } catch (err: any) {
+      toast.error(err?.message || "An error occurred.");
+    } finally {
+      setSoldCriteriaDeletingRuleId(null);
+    }
+  };
+
+  const handleToggleSoldCriteriaRule = async (rule: LogicRule) => {
+    if (!campaign?.id || !soldCriteriaAffiliateId) return;
+    try {
+      const res = await updateAffiliateSoldCriterion(
+        campaign.id,
+        soldCriteriaAffiliateId,
+        rule.id,
+        { enabled: !rule.enabled },
+      );
+      if ((res as any)?.result === false) {
+        toast.error((res as any)?.message || "Failed to toggle rule.");
+        return;
+      }
+      await refreshSoldCriteria(soldCriteriaAffiliateId);
+    } catch (err: any) {
+      toast.error(err?.message || "An error occurred.");
+    }
+  };
+
+  // ── Per-participant logic rule handlers ───────────────────────────────────
+
+  const refreshParticipantLogicRules = async (
+    type: "affiliate" | "client",
+    participantId: string,
+  ) => {
+    if (!campaign?.id) return;
+    const res =
+      type === "affiliate"
+        ? await listAffiliateLogicRules(campaign.id, participantId)
+        : await listClientLogicRules(campaign.id, participantId);
+    setParticipantLogicRules((res as any)?.data ?? []);
+  };
+
+  const openAffiliateLogicManager = async (affiliateId: string) => {
+    setParticipantLogicType("affiliate");
+    setParticipantLogicRules([]);
+    setParticipantLogicCatalogOpen(false);
+    setParticipantLogicLoading(true);
+    setPixelLogicIntroAffiliateId(affiliateId);
+    setParticipantAction(null);
+    if (!campaign?.id) return;
+    try {
+      const res = await listAffiliateLogicRules(campaign.id, affiliateId);
+      setParticipantLogicRules((res as any)?.data ?? []);
+      const override = (campaign as any)?.affiliate_overrides?.[affiliateId];
+      setParticipantLogicSetId(override?.logic_set_id ?? null);
+      setParticipantLogicSetVersion(override?.logic_set_version ?? null);
+      setParticipantLogicSetName(null);
+      setParticipantLogicBaseSetId(override?.logic_set_id ?? null);
+      setParticipantLogicBaseSetVersion(override?.logic_set_version ?? null);
+      setParticipantLogicBaseSetName(null);
+      setSaveParticipantLogicMode(
+        override?.logic_set_id ? "new_version" : "new_set",
+      );
+      if (override?.logic_set_id && participantLogicCatalogSets.length > 0) {
+        const found = participantLogicCatalogSets.find(
+          (s) => s.id === override.logic_set_id,
+        );
+        if (found) {
+          setParticipantLogicSetName(found.name);
+          setParticipantLogicBaseSetName(found.name);
+        }
+      } else if (override?.logic_set_id) {
+        try {
+          const setRes = await getLogicCatalogSet(override.logic_set_id);
+          if (setRes.success) {
+            setParticipantLogicSetName(setRes.data.set.name);
+            setParticipantLogicBaseSetName(setRes.data.set.name);
+          }
+        } catch {
+          /* silent */
+        }
+      }
+    } catch {
+      /* silent */
+    } finally {
+      setParticipantLogicLoading(false);
+    }
+  };
+
+  const openClientLogicManager = async (clientId: string) => {
+    setParticipantLogicType("client");
+    setParticipantLogicRules([]);
+    setParticipantLogicCatalogOpen(false);
+    setParticipantLogicLoading(true);
+    setDeliveryLogicIntroClientId(clientId);
+    setParticipantAction(null);
+    if (!campaign?.id) return;
+    try {
+      const res = await listClientLogicRules(campaign.id, clientId);
+      setParticipantLogicRules((res as any)?.data ?? []);
+      const override = (campaign as any)?.client_overrides?.[clientId];
+      setParticipantLogicSetId(override?.logic_set_id ?? null);
+      setParticipantLogicSetVersion(override?.logic_set_version ?? null);
+      setParticipantLogicSetName(null);
+      setParticipantLogicBaseSetId(override?.logic_set_id ?? null);
+      setParticipantLogicBaseSetVersion(override?.logic_set_version ?? null);
+      setParticipantLogicBaseSetName(null);
+      setSaveParticipantLogicMode(
+        override?.logic_set_id ? "new_version" : "new_set",
+      );
+      if (override?.logic_set_id && participantLogicCatalogSets.length > 0) {
+        const found = participantLogicCatalogSets.find(
+          (s) => s.id === override.logic_set_id,
+        );
+        if (found) {
+          setParticipantLogicSetName(found.name);
+          setParticipantLogicBaseSetName(found.name);
+        }
+      } else if (override?.logic_set_id) {
+        try {
+          const setRes = await getLogicCatalogSet(override.logic_set_id);
+          if (setRes.success) {
+            setParticipantLogicSetName(setRes.data.set.name);
+            setParticipantLogicBaseSetName(setRes.data.set.name);
+          }
+        } catch {
+          /* silent */
+        }
+      }
+    } catch {
+      /* silent */
+    } finally {
+      setParticipantLogicLoading(false);
+    }
+  };
+
+  const handleSaveParticipantLogicRule = async (draft: LogicRuleDraft) => {
+    if (!campaign?.id) return;
+    const participantId =
+      participantLogicType === "affiliate"
+        ? pixelLogicIntroAffiliateId
+        : deliveryLogicIntroClientId;
+    if (!participantId) return;
+    if (!draft.name.trim()) {
+      toast.warning("Rule name is required.");
+      return;
+    }
+    setParticipantLogicSaving(true);
+    try {
+      if (participantLogicEditingRule) {
+        const res =
+          participantLogicType === "affiliate"
+            ? await updateAffiliateLogicRule(
+                campaign.id,
+                participantId,
+                participantLogicEditingRule.id,
+                draft,
+              )
+            : await updateClientLogicRule(
+                campaign.id,
+                participantId,
+                participantLogicEditingRule.id,
+                draft,
+              );
+        if ((res as any)?.result === false) {
+          toast.error((res as any)?.message || "Failed to update rule.");
+          return;
+        }
+        toast.success("Logic rule updated.");
+      } else {
+        const res =
+          participantLogicType === "affiliate"
+            ? await createAffiliateLogicRule(campaign.id, participantId, draft)
+            : await createClientLogicRule(campaign.id, participantId, draft);
+        if ((res as any)?.result === false) {
+          toast.error((res as any)?.message || "Failed to create rule.");
+          return;
+        }
+        toast.success("Logic rule created.");
+      }
+      await refreshParticipantLogicRules(participantLogicType!, participantId);
+      setParticipantLogicSetId(null);
+      setParticipantLogicSetVersion(null);
+      setParticipantLogicSetName(null);
+      setParticipantLogicBuilderOpen(false);
+      setParticipantLogicEditingRule(null);
+    } catch (err: any) {
+      toast.error(err?.message || "An error occurred.");
+    } finally {
+      setParticipantLogicSaving(false);
+    }
+  };
+
+  const handleDeleteParticipantLogicRule = async (ruleId: string) => {
+    if (!campaign?.id) return;
+    const participantId =
+      participantLogicType === "affiliate"
+        ? pixelLogicIntroAffiliateId
+        : deliveryLogicIntroClientId;
+    if (!participantId) return;
+    setParticipantLogicDeletingRuleId(ruleId);
+    try {
+      const res =
+        participantLogicType === "affiliate"
+          ? await deleteAffiliateLogicRule(campaign.id, participantId, ruleId)
+          : await deleteClientLogicRule(campaign.id, participantId, ruleId);
+      if ((res as any)?.result === false) {
+        toast.error((res as any)?.message || "Failed to delete rule.");
+        return;
+      }
+      toast.success("Logic rule deleted.");
+      await refreshParticipantLogicRules(participantLogicType!, participantId);
+      setParticipantLogicSetId(null);
+      setParticipantLogicSetVersion(null);
+      setParticipantLogicSetName(null);
+    } catch (err: any) {
+      toast.error(err?.message || "An error occurred.");
+    } finally {
+      setParticipantLogicDeletingRuleId(null);
+    }
+  };
+
+  const handleToggleParticipantLogicRule = async (rule: LogicRule) => {
+    if (!campaign?.id) return;
+    const participantId =
+      participantLogicType === "affiliate"
+        ? pixelLogicIntroAffiliateId
+        : deliveryLogicIntroClientId;
+    if (!participantId) return;
+    try {
+      const res =
+        participantLogicType === "affiliate"
+          ? await updateAffiliateLogicRule(
+              campaign.id,
+              participantId,
+              rule.id,
+              { enabled: !rule.enabled },
+            )
+          : await updateClientLogicRule(campaign.id, participantId, rule.id, {
+              enabled: !rule.enabled,
+            });
+      if ((res as any)?.result === false) {
+        toast.error((res as any)?.message || "Failed to toggle rule.");
+        return;
+      }
+      await refreshParticipantLogicRules(participantLogicType!, participantId);
+    } catch (err: any) {
+      toast.error(err?.message || "An error occurred.");
+    }
+  };
+
+  const openParticipantLogicCatalog = async () => {
+    setParticipantLogicCatalogOpen(true);
+    setParticipantExpandedSetId(null);
+    setParticipantExpandedVersionRules(new Set());
+    setParticipantExpandedRuleDetails(new Set());
+    setParticipantLogicCatalogLoading(true);
+    try {
+      const res = await listLogicCatalog();
+      if ((res as any).success) {
+        const items = (res as any).data.items ?? [];
+        setParticipantLogicCatalogSets(items);
+        if (participantLogicBaseSetId && !participantLogicBaseSetName) {
+          const current = items.find(
+            (item: LogicCatalogSet) => item.id === participantLogicBaseSetId,
+          );
+          if (current) {
+            setParticipantLogicSetName(current.name);
+            setParticipantLogicBaseSetName(current.name);
+          }
+        }
+      }
+    } catch {
+      toast.error("Failed to load logic catalog.");
+    } finally {
+      setParticipantLogicCatalogLoading(false);
+    }
+  };
+
+  const handleApplyParticipantLogicCatalog = async (
+    set: LogicCatalogSet,
+    version = set.latest_version,
+  ) => {
+    if (!campaign?.id) return;
+    const participantId =
+      participantLogicType === "affiliate"
+        ? pixelLogicIntroAffiliateId
+        : deliveryLogicIntroClientId;
+    if (!participantId) return;
+    const applyKey = `${set.id}#v${version}`;
+    setParticipantLogicApplyingCatalogId(applyKey);
+    try {
+      const res =
+        participantLogicType === "affiliate"
+          ? await applyLogicCatalogToAffiliate(
+              campaign.id,
+              participantId,
+              set.id,
+              version,
+            )
+          : await applyLogicCatalogToClient(
+              campaign.id,
+              participantId,
+              set.id,
+              version,
+            );
+      if ((res as any)?.result === false) {
+        toast.error((res as any)?.message || "Failed to apply catalog.");
+        return;
+      }
+      toast.success(`Applied "${set.name}" v${version}.`);
+      await refreshParticipantLogicRules(participantLogicType!, participantId);
+      setParticipantLogicSetId(set.id);
+      setParticipantLogicSetVersion(version);
+      setParticipantLogicSetName(set.name);
+      setParticipantLogicBaseSetId(set.id);
+      setParticipantLogicBaseSetVersion(version);
+      setParticipantLogicBaseSetName(set.name);
+      if (participantLogicType === "affiliate") {
+        onCampaignUpdate?.({
+          affiliate_overrides: {
+            ...((campaign as any)?.affiliate_overrides ?? {}),
+            [participantId]: {
+              ...((campaign as any)?.affiliate_overrides?.[participantId] ??
+                {}),
+              logic_set_id: set.id,
+              logic_set_version: version,
+            },
+          } as any,
+        });
+      } else {
+        onCampaignUpdate?.({
+          client_overrides: {
+            ...((campaign as any)?.client_overrides ?? {}),
+            [participantId]: {
+              ...((campaign as any)?.client_overrides?.[participantId] ?? {}),
+              logic_set_id: set.id,
+              logic_set_version: version,
+            },
+          } as any,
+        });
+      }
+      setParticipantLogicCatalogOpen(false);
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to apply catalog.");
+    } finally {
+      setParticipantLogicApplyingCatalogId(null);
+    }
+  };
+
+  const handleSyncClientLogicToCampaign = async () => {
+    if (!campaign?.id || !deliveryLogicIntroClientId) return;
+    setSyncingClientLogicToCampaign(true);
+    try {
+      const res = await syncClientLogicToCampaign(
+        campaign.id,
+        deliveryLogicIntroClientId,
+      );
+      if ((res as any)?.result === false) {
+        toast.error((res as any)?.message || "Failed to sync.");
+        return;
+      }
+      const data = (res as any)?.data ?? res?.data;
+      const removed = data?.removed_count ?? 0;
+      toast.success(
+        removed > 0
+          ? `Synced to campaign logic. ${removed} redundant extension${removed > 1 ? "s" : ""} removed.`
+          : "Synced to campaign logic.",
+      );
+      await refreshParticipantLogicRules("client", deliveryLogicIntroClientId);
+      // Update local override tracking to match campaign
+      setParticipantLogicSetId(campaign.logic_set_id ?? null);
+      setParticipantLogicSetVersion(campaign.logic_set_version ?? null);
+      setParticipantLogicBaseSetId(campaign.logic_set_id ?? null);
+      setParticipantLogicBaseSetVersion(campaign.logic_set_version ?? null);
+      if (campaign.logic_set_id) {
+        const setName =
+          logicCatalogSets.find((s) => s.id === campaign.logic_set_id)?.name ??
+          localLogicSetName;
+        setParticipantLogicSetName(setName ?? null);
+        setParticipantLogicBaseSetName(setName ?? null);
+      }
+      onCampaignUpdate?.({
+        client_overrides: {
+          ...((campaign as any)?.client_overrides ?? {}),
+          [deliveryLogicIntroClientId]: {
+            ...((campaign as any)?.client_overrides?.[
+              deliveryLogicIntroClientId
+            ] ?? {}),
+            logic_set_id: campaign.logic_set_id,
+            logic_set_version: campaign.logic_set_version,
+            logic_rules: data?.kept_rules ?? [],
+          },
+        } as any,
+      });
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to sync.");
+    } finally {
+      setSyncingClientLogicToCampaign(false);
+    }
+  };
+
+  const saveParticipantLogicToCatalog = async () => {
+    if (!campaign?.id) return;
+    const participantId =
+      participantLogicType === "affiliate"
+        ? pixelLogicIntroAffiliateId
+        : deliveryLogicIntroClientId;
+    if (!participantId) return;
+    if (
+      saveParticipantLogicMode === "new_set" &&
+      !saveParticipantLogicDraft.name.trim()
+    ) {
+      toast.warning("Set name is required when creating a new set.");
+      return;
+    }
+    if (
+      saveParticipantLogicMode === "new_version" &&
+      !participantLogicBaseSetId
+    ) {
+      toast.warning("No active logic catalog set to version.");
+      return;
+    }
+
+    setSavingParticipantLogicToCatalog(true);
+    try {
+      const rules = toLogicCatalogRulesPayload(participantLogicRules);
+      let targetSet: LogicCatalogSet;
+      let targetVersion = 1;
+
+      if (
+        saveParticipantLogicMode === "new_version" &&
+        participantLogicBaseSetId
+      ) {
+        const updateRes = await updateLogicCatalogSet(
+          participantLogicBaseSetId,
+          {
+            ...(saveParticipantLogicDraft.name.trim()
+              ? { name: saveParticipantLogicDraft.name.trim() }
+              : {}),
+            ...(saveParticipantLogicDraft.description.trim()
+              ? { description: saveParticipantLogicDraft.description.trim() }
+              : {}),
+            rules,
+          },
+        );
+        if (!updateRes.success) {
+          throw new Error("Failed to create new catalog version");
+        }
+        targetSet = updateRes.data.set;
+        targetVersion = targetSet.latest_version;
+      } else {
+        const createRes = await createLogicCatalogSet({
+          name: saveParticipantLogicDraft.name.trim(),
+          ...(saveParticipantLogicDraft.description.trim()
+            ? { description: saveParticipantLogicDraft.description.trim() }
+            : {}),
+          ...(rules.length > 0 ? { rules } : {}),
+        });
+        if (!createRes.success) {
+          throw new Error("Failed to create logic catalog set");
+        }
+        targetSet = createRes.data.set;
+        targetVersion = 1;
+      }
+
+      await handleApplyParticipantLogicCatalog(targetSet, targetVersion);
+      setSaveParticipantLogicOpen(false);
+      setSaveParticipantLogicDraft({ name: "", description: "" });
+      setSaveParticipantLogicMode(
+        participantLogicBaseSetId ? "new_version" : "new_set",
+      );
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to save logic catalog set.");
+    } finally {
+      setSavingParticipantLogicToCatalog(false);
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const openLogicCatalogModal = async () => {
+    setLogicCatalogOpen(true);
+    setExpandedLogicSetId(null);
+    setExpandedLogicVersionRules(new Set());
+    setExpandedLogicRuleDetails(new Set());
+    setLogicCatalogLoading(true);
+    try {
+      const res = await listLogicCatalog();
+      if (res.success) {
+        const items = res.data.items ?? [];
+        setLogicCatalogSets(items);
+        if (localLogicSetId && !localLogicSetName) {
+          const current = items.find((item) => item.id === localLogicSetId);
+          if (current) setLocalLogicSetName(current.name);
+        }
+      }
+    } catch {
+      toast.error("Failed to load logic catalog.");
+    } finally {
+      setLogicCatalogLoading(false);
+    }
+  };
+
+  const saveCurrentLogicToCatalog = async () => {
+    if (!campaign?.id) return;
+    if (saveLogicToSetMode === "new_set" && !saveLogicToSetDraft.name.trim()) {
+      toast.warning("Set name is required when creating a new set.");
+      return;
+    }
+    if (saveLogicToSetMode === "new_version" && !localLogicSetId) {
+      toast.warning("No active logic catalog set to version.");
+      return;
+    }
+
+    setSavingLogicToSet(true);
+    try {
+      const rules = toLogicCatalogRulesPayload(logicRules);
+      let targetSet: LogicCatalogSet;
+      let targetVersion = 1;
+
+      if (saveLogicToSetMode === "new_version" && localLogicSetId) {
+        const updateRes = await updateLogicCatalogSet(localLogicSetId, {
+          ...(saveLogicToSetDraft.name.trim()
+            ? { name: saveLogicToSetDraft.name.trim() }
+            : {}),
+          ...(saveLogicToSetDraft.description.trim()
+            ? { description: saveLogicToSetDraft.description.trim() }
+            : {}),
+          rules,
+        });
+        if (!updateRes.success) {
+          throw new Error("Failed to create new logic catalog version.");
+        }
+        targetSet = updateRes.data.set;
+        targetVersion = targetSet.latest_version;
+      } else {
+        const createRes = await createLogicCatalogSet({
+          name: saveLogicToSetDraft.name.trim(),
+          ...(saveLogicToSetDraft.description.trim()
+            ? { description: saveLogicToSetDraft.description.trim() }
+            : {}),
+          ...(rules.length > 0 ? { rules } : {}),
+        });
+        if (!createRes.success) {
+          throw new Error("Failed to create logic catalog set.");
+        }
+        targetSet = createRes.data.set;
+        targetVersion = 1;
+      }
+
+      await applyLogicCatalog(campaign.id, targetSet.id, targetVersion);
+      await refreshLogicRules();
+
+      setLocalLogicSetId(targetSet.id);
+      setLocalLogicSetVersion(targetVersion);
+      setLocalLogicSetName(targetSet.name);
+      onCampaignUpdate?.({
+        logic_set_id: targetSet.id,
+        logic_set_version: targetVersion,
+      });
+
+      toast.success(
+        `Saved to "${targetSet.name}" v${targetVersion} and applied.`,
+      );
+      setSaveLogicToSetOpen(false);
+      setSaveLogicToSetDraft({ name: "", description: "" });
+      setSaveLogicToSetMode("new_version");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to save logic catalog set.");
+    } finally {
+      setSavingLogicToSet(false);
+    }
+  };
+
+  const openTagEditor = () => {
+    setTagDraft(campaign?.tags ?? []);
+    setEditTagsOpen(true);
+  };
+
+  const saveCampaignTagDraft = async () => {
+    if (!campaign?.id) return;
+    const nextTags = [
+      ...new Set(tagDraft.map((t) => t.trim()).filter(Boolean)),
+    ];
+
+    setSavingTags(true);
+    try {
+      const res: any = await setCampaignTags(campaign.id, nextTags);
+      if (res?.success === false || res?.result === false) {
+        throw new Error(res?.message || "Failed to save campaign tags.");
+      }
+      onCampaignUpdate?.({ tags: nextTags });
+      setEditTagsOpen(false);
+      toast.success("Campaign tags updated.");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to save campaign tags.");
+    } finally {
+      setSavingTags(false);
+    }
+  };
+
+  const applyLogicCatalogVersion = async (
+    setId: string,
+    setName: string,
+    version: number,
+  ) => {
+    if (!campaign?.id) return;
+    const applyKey = `${setId}#v${version}`;
+    setApplyingLogicCatalog(applyKey);
+    try {
+      await applyLogicCatalog(campaign.id, setId, version);
+      await refreshLogicRules();
+      setLocalLogicSetId(setId);
+      setLocalLogicSetVersion(version);
+      setLocalLogicSetName(setName);
+      onCampaignUpdate?.({ logic_set_id: setId, logic_set_version: version });
+      toast.success(`Applied "${setName}" v${version}.`);
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to apply logic catalog version.");
+    } finally {
+      setApplyingLogicCatalog(null);
+    }
+  };
+
+  const openCriteriaCatalogModal = async () => {
+    setCatalogOpen(true);
+    setCatalogFormMode("browse");
+    setCatalogLoading(true);
+    try {
+      const res = await listCriteriaCatalog();
+      if (res.success) {
+        const items = res.data.items;
+        setCatalogSets(items);
+        if (localCriteriaSetId && !localCriteriaSetName) {
+          const current = items.find((item) => item.id === localCriteriaSetId);
+          if (current) setLocalCriteriaSetName(current.name);
+        }
+      }
+    } catch {
+      toast.error("Failed to load catalog.");
+    } finally {
+      setCatalogLoading(false);
+    }
+  };
+
+  const saveCurrentCriteriaToCatalog = async () => {
+    if (!campaign) return;
+    if (
+      saveCriteriaToSetMode === "new_set" &&
+      !saveCriteriaToSetDraft.name.trim()
+    ) {
+      toast.warning("Set name is required when creating a new set.");
+      return;
+    }
+    if (saveCriteriaToSetMode === "new_version" && !localCriteriaSetId) {
+      toast.warning("No active criteria catalog set to version.");
+      return;
+    }
+
+    const fields = criteriaFields.map((f) => ({
+      field_label: f.field_label,
+      field_name: f.field_name,
+      data_type: f.data_type,
+      required: f.required,
+      ...(f.description ? { description: f.description } : {}),
+      ...(f.options?.length ? { options: f.options } : {}),
+      ...(f.value_mappings?.length ? { value_mappings: f.value_mappings } : {}),
+      ...(f.state_mapping ? { state_mapping: f.state_mapping } : {}),
+    }));
+
+    setSavingCriteriaToSet(true);
+    try {
+      let targetSet: CriteriaCatalogSet;
+      let targetVersion = 1;
+
+      if (saveCriteriaToSetMode === "new_version" && localCriteriaSetId) {
+        const updateRes = await updateCriteriaCatalogSet(localCriteriaSetId, {
+          ...(saveCriteriaToSetDraft.name.trim()
+            ? { name: saveCriteriaToSetDraft.name.trim() }
+            : {}),
+          ...(saveCriteriaToSetDraft.description.trim()
+            ? { description: saveCriteriaToSetDraft.description.trim() }
+            : {}),
+          fields,
+        });
+        if (!updateRes.success) {
+          throw new Error("Failed to create new catalog version");
+        }
+        targetSet = updateRes.data.set;
+        targetVersion = targetSet.latest_version;
+      } else {
+        const createRes = await createCriteriaCatalogSet({
+          name: saveCriteriaToSetDraft.name.trim(),
+          ...(saveCriteriaToSetDraft.description.trim()
+            ? { description: saveCriteriaToSetDraft.description.trim() }
+            : {}),
+          fields,
+        });
+        if (!createRes.success) throw new Error("Failed to create set");
+        targetSet = createRes.data.set;
+        targetVersion = 1;
+      }
+
+      await applyCriteriaCatalog(campaign.id, targetSet.id, targetVersion);
+      setLocalCriteriaSetId(targetSet.id);
+      setLocalCriteriaSetVersion(targetVersion);
+      setLocalCriteriaSetName(targetSet.name);
+      onCampaignUpdate?.({
+        criteria_set_id: targetSet.id,
+        criteria_set_version: targetVersion,
+      });
+
+      toast.success(
+        saveCriteriaToSetMode === "new_version"
+          ? `Saved "${targetSet.name}" v${targetVersion} and applied.`
+          : `Saved as "${targetSet.name}" v1 and applied.`,
+      );
+      setSaveCriteriaToSetOpen(false);
+      setSaveCriteriaToSetDraft({ name: "", description: "" });
+      setSaveCriteriaToSetMode(localCriteriaSetId ? "new_version" : "new_set");
+      await refreshCriteria();
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to save criteria catalog.");
+    } finally {
+      setSavingCriteriaToSet(false);
     }
   };
 
@@ -1256,6 +2606,18 @@ export function CampaignDetailModal({
     );
   }, [participantAction, localAffiliateLinks]);
 
+  useEffect(() => {
+    if (!affiliateCapModalId) return;
+    const link = localAffiliateLinks.find(
+      (l) => l.affiliate_id === affiliateCapModalId,
+    );
+    setAffiliateCapDraft(
+      link?.lead_cap === null || link?.lead_cap === undefined
+        ? ""
+        : String(link.lead_cap),
+    );
+  }, [affiliateCapModalId, localAffiliateLinks]);
+
   // Mark integrations dirty whenever any plugin state changes after initial load.
   useEffect(() => {
     if (!pluginsInitRef.current) {
@@ -1346,9 +2708,21 @@ export function CampaignDetailModal({
   const affiliateLinkMap = new Map(
     affiliateLinks.map((ca) => [ca.affiliate_id, ca]),
   );
+  const affiliateById = new Map(
+    affiliates.map((affiliate) => [affiliate.id, affiliate]),
+  );
 
   const linkedClients = clients.filter((c) => clientLinkMap.has(c.id));
-  const linkedAffiliates = affiliates.filter((a) => affiliateLinkMap.has(a.id));
+  const linkedAffiliates = affiliateLinks.map(
+    (link) =>
+      affiliateById.get(link.affiliate_id) ?? {
+        id: link.affiliate_id,
+        name: `Unknown affiliate (${link.affiliate_id})`,
+        email: "",
+        phone: "",
+        status: "INACTIVE" as const,
+      },
+  );
 
   const availableClients = clients.filter(
     (c) => c.status === "ACTIVE" && !clientLinkMap.has(c.id),
@@ -1414,6 +2788,47 @@ export function CampaignDetailModal({
                 className="rounded p-0.5 text-[--color-text-muted] hover:text-[--color-primary] transition-colors"
               >
                 <Copy size={12} />
+              </button>
+            </span>
+            <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
+              {campaign.tags && campaign.tags.length > 0 ? (
+                campaign.tags.map((tag) => {
+                  const def = tagDefinitions.find((d) => d.label === tag);
+                  return (
+                    <span
+                      key={tag}
+                      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+                        def?.color
+                          ? ""
+                          : "border-[--color-border] bg-[--color-accent] text-[--color-text-muted]"
+                      }`}
+                      style={
+                        def?.color
+                          ? {
+                              borderColor: def.color + "40",
+                              backgroundColor: def.color + "15",
+                              color: def.color,
+                            }
+                          : undefined
+                      }
+                    >
+                      <Tag size={10} />
+                      {tag}
+                    </span>
+                  );
+                })
+              ) : (
+                <span className="text-[10px] text-[--color-text-muted]">
+                  No tags assigned.
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={openTagEditor}
+                className="inline-flex items-center gap-1 rounded-full border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-[10px] font-medium text-[--color-text-muted] transition-colors hover:bg-[--color-bg] hover:text-[--color-text]"
+              >
+                <Pencil size={10} />
+                Edit tags
               </button>
             </span>
           </div>
@@ -1590,18 +3005,29 @@ export function CampaignDetailModal({
                         <DisabledTooltip
                           inline
                           message={
-                            availableClients.length === 0
-                              ? clients.filter((c) => c.status === "ACTIVE")
-                                  .length === 0
-                                ? "There are no active clients to add to this campaign."
-                                : "All active clients are already linked to this campaign."
-                              : ""
+                            !campaign
+                              ? ""
+                              : !campaign.criteria_set_id
+                                ? "Campaign needs criteria before linking participants."
+                                : !campaign.logic_set_id
+                                  ? "Campaign needs logic rules before linking participants."
+                                  : availableClients.length === 0
+                                    ? clients.filter(
+                                        (c) => c.status === "ACTIVE",
+                                      ).length === 0
+                                      ? "There are no active clients to add to this campaign."
+                                      : "All active clients are already linked to this campaign."
+                                    : ""
                           }
                         >
                           <Button
                             size="sm"
                             iconLeft={<UserPlus size={14} />}
-                            disabled={availableClients.length === 0}
+                            disabled={
+                              availableClients.length === 0 ||
+                              !campaign?.criteria_set_id ||
+                              !campaign?.logic_set_id
+                            }
                             onClick={() => setLinkClientModalOpen(true)}
                           >
                             Add Client
@@ -1653,8 +3079,77 @@ export function CampaignDetailModal({
                                       }
                                       className="mt-1 text-left text-xs text-[--color-text-muted] hover:text-[--color-primary] hover:underline"
                                     >
-                                      Leads sent: {getClientLeadCount(link)}
+                                      Leads sold: {getClientLeadCount(link)}
                                     </button>
+                                    {(() => {
+                                      const clientOverride =
+                                        campaign?.client_overrides?.[c.id];
+                                      const clientRules =
+                                        clientOverride?.logic_rules ?? [];
+                                      const ruleCount = clientRules.length;
+                                      const campaignFieldNames = new Set(
+                                        logicRules.flatMap((r) =>
+                                          r.groups.flatMap((g) =>
+                                            g.conditions.map(
+                                              (cond) => cond.field_name,
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                      let hasOverride = false;
+                                      let hasExtension = false;
+                                      if (campaignFieldNames.size > 0) {
+                                        for (const rule of clientRules) {
+                                          for (const group of rule.groups) {
+                                            for (const cond of group.conditions) {
+                                              if (
+                                                campaignFieldNames.has(
+                                                  cond.field_name,
+                                                )
+                                              )
+                                                hasOverride = true;
+                                              else hasExtension = true;
+                                            }
+                                          }
+                                        }
+                                      }
+                                      return (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            openClientLogicManager(c.id)
+                                          }
+                                          className="mt-1 flex items-center gap-1.5 text-left text-xs text-[--color-text-muted] hover:text-[--color-primary] transition-colors group"
+                                          title="Manage logic rules for this client"
+                                        >
+                                          <GitBranch
+                                            size={11}
+                                            className="shrink-0 opacity-60 group-hover:opacity-100"
+                                          />
+                                          <span className="group-hover:underline">
+                                            {ruleCount > 0
+                                              ? `${ruleCount} logic rule${ruleCount !== 1 ? "s" : ""}`
+                                              : "Logic rules"}
+                                          </span>
+                                          {hasOverride && (
+                                            <span className="rounded px-1 py-px text-[10px] font-semibold bg-amber-500/15 text-amber-500 leading-tight">
+                                              override
+                                            </span>
+                                          )}
+                                          {hasExtension && (
+                                            <span className="rounded px-1 py-px text-[10px] font-semibold bg-blue-500/15 text-blue-400 leading-tight">
+                                              extension
+                                            </span>
+                                          )}
+                                          <span
+                                            className="rounded px-1 py-px text-[10px] font-semibold leading-tight bg-purple-500/15 text-purple-400"
+                                            title="Uses current campaign logic rules"
+                                          >
+                                            inherits
+                                          </span>
+                                        </button>
+                                      );
+                                    })()}
                                     <button
                                       type="button"
                                       onClick={() => {
@@ -1943,18 +3438,29 @@ export function CampaignDetailModal({
                         <DisabledTooltip
                           inline
                           message={
-                            availableAffiliates.length === 0
-                              ? affiliates.filter((a) => a.status === "ACTIVE")
-                                  .length === 0
-                                ? "There are no active affiliates to add to this campaign."
-                                : "All active affiliates are already linked to this campaign."
-                              : ""
+                            !campaign
+                              ? ""
+                              : !campaign.criteria_set_id
+                                ? "Campaign needs criteria before linking participants."
+                                : !campaign.logic_set_id
+                                  ? "Campaign needs logic rules before linking participants."
+                                  : availableAffiliates.length === 0
+                                    ? affiliates.filter(
+                                        (a) => a.status === "ACTIVE",
+                                      ).length === 0
+                                      ? "There are no active affiliates to add to this campaign."
+                                      : "All active affiliates are already linked to this campaign."
+                                    : ""
                           }
                         >
                           <Button
                             size="sm"
                             iconLeft={<UserPlus size={14} />}
-                            disabled={availableAffiliates.length === 0}
+                            disabled={
+                              availableAffiliates.length === 0 ||
+                              !campaign?.criteria_set_id ||
+                              !campaign?.logic_set_id
+                            }
                             onClick={() => setLinkAffiliateModalOpen(true)}
                           >
                             Add Affiliate
@@ -2059,14 +3565,6 @@ export function CampaignDetailModal({
                                               null;
                                             return (
                                               <>
-                                                <p className="text-xs text-[--color-text-muted]">
-                                                  Lead cap:{" "}
-                                                  <span className="font-medium text-[--color-text]">
-                                                    {cap === null
-                                                      ? "Uncapped"
-                                                      : cap}
-                                                  </span>
-                                                </p>
                                                 {cap !== null && (
                                                   <>
                                                     <p className="text-xs text-[--color-text-muted]">
@@ -2110,6 +3608,246 @@ export function CampaignDetailModal({
                                               </>
                                             );
                                           })()}
+                                        {isLiveAffiliate && (
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              setAffiliateCapModalId(a.id)
+                                            }
+                                            className="flex items-center gap-1.5 text-left text-xs text-[--color-text-muted] hover:text-[--color-primary] transition-colors group w-fit"
+                                            title="Configure lead cap"
+                                          >
+                                            <Gauge
+                                              size={11}
+                                              className="shrink-0 opacity-60 group-hover:opacity-100"
+                                            />
+                                            <span className="group-hover:underline">
+                                              Lead cap:{" "}
+                                              <span className="font-medium text-[--color-text] group-hover:text-[--color-primary]">
+                                                {(link?.lead_cap ?? null) ===
+                                                null
+                                                  ? "Uncapped"
+                                                  : link!.lead_cap}
+                                              </span>
+                                            </span>
+                                          </button>
+                                        )}
+                                        {(() => {
+                                          const affiliateOverride =
+                                            campaign?.affiliate_overrides?.[
+                                              a.id
+                                            ];
+                                          const affiliateRules =
+                                            affiliateOverride?.logic_rules ??
+                                            [];
+                                          const ruleCount =
+                                            affiliateRules.length;
+                                          const campaignFieldNames = new Set(
+                                            logicRules.flatMap((r) =>
+                                              r.groups.flatMap((g) =>
+                                                g.conditions.map(
+                                                  (cond) => cond.field_name,
+                                                ),
+                                              ),
+                                            ),
+                                          );
+                                          let hasOverride = false;
+                                          let hasExtension = false;
+                                          if (campaignFieldNames.size > 0) {
+                                            for (const rule of affiliateRules) {
+                                              for (const group of rule.groups) {
+                                                for (const cond of group.conditions) {
+                                                  if (
+                                                    campaignFieldNames.has(
+                                                      cond.field_name,
+                                                    )
+                                                  )
+                                                    hasOverride = true;
+                                                  else hasExtension = true;
+                                                }
+                                              }
+                                            }
+                                          }
+                                          return (
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                openAffiliateLogicManager(a.id)
+                                              }
+                                              className="flex items-center gap-1.5 text-left text-xs text-[--color-text-muted] hover:text-[--color-primary] transition-colors group w-fit"
+                                              title="Manage logic rules for this affiliate"
+                                            >
+                                              <GitBranch
+                                                size={11}
+                                                className="shrink-0 opacity-60 group-hover:opacity-100"
+                                              />
+                                              <span className="group-hover:underline">
+                                                {ruleCount > 0
+                                                  ? `${ruleCount} logic rule${ruleCount !== 1 ? "s" : ""}`
+                                                  : "Logic rules"}
+                                              </span>
+                                              {hasOverride && (
+                                                <span className="rounded px-1 py-px text-[10px] font-semibold bg-amber-500/15 text-amber-500 leading-tight">
+                                                  override
+                                                </span>
+                                              )}
+                                              {hasExtension && (
+                                                <span className="rounded px-1 py-px text-[10px] font-semibold bg-blue-500/15 text-blue-400 leading-tight">
+                                                  extension
+                                                </span>
+                                              )}
+                                              <span
+                                                className="rounded px-1 py-px text-[10px] font-semibold leading-tight bg-purple-500/15 text-purple-400"
+                                                title="Uses current campaign logic rules"
+                                              >
+                                                inherits
+                                              </span>
+                                            </button>
+                                          );
+                                        })()}
+                                        <div className="flex items-center gap-1.5 text-xs text-[--color-text-muted]">
+                                          <button
+                                            type="button"
+                                            title="Configure fire pixel"
+                                            onClick={() => {
+                                              const existing =
+                                                link?.sold_pixel_config;
+                                              setPixelDraft(
+                                                existing
+                                                  ? {
+                                                      enabled: Boolean(
+                                                        existing.enabled,
+                                                      ),
+                                                      url: existing.url ?? "",
+                                                      method:
+                                                        existing.method ??
+                                                        "POST",
+                                                      headers: existing.headers,
+                                                      payload_mapping:
+                                                        normalizePixelMappingRows(
+                                                          existing.payload_mapping,
+                                                          existing.parameter_mode ??
+                                                            "query",
+                                                        ),
+                                                    }
+                                                  : defaultAffiliatePixelConfig(),
+                                              );
+                                              setPixelSaveAttempted(false);
+                                              setPixelConfigTab("pixel");
+                                              setPixelAffiliateId(a.id);
+                                            }}
+                                            className="flex items-center gap-1.5 text-left text-xs text-[--color-text-muted] hover:text-[--color-primary] transition-colors group w-fit"
+                                          >
+                                            <Flame
+                                              size={11}
+                                              className="shrink-0 opacity-60 group-hover:opacity-100"
+                                            />
+                                            <span className="group-hover:underline">
+                                              Fire pixel:{" "}
+                                              <span
+                                                className={`font-medium group-hover:no-underline ${
+                                                  link?.sold_pixel_config
+                                                    ?.enabled
+                                                    ? "text-green-600"
+                                                    : "text-[--color-text-muted]"
+                                                }`}
+                                              >
+                                                {link?.sold_pixel_config
+                                                  ?.enabled
+                                                  ? "Enabled"
+                                                  : "Disabled"}
+                                              </span>
+                                            </span>
+                                          </button>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const existing =
+                                              link?.sold_pixel_config;
+                                            setPixelDraft(
+                                              existing
+                                                ? {
+                                                    enabled: Boolean(
+                                                      existing.enabled,
+                                                    ),
+                                                    url: existing.url ?? "",
+                                                    method:
+                                                      existing.method ?? "POST",
+                                                    headers: existing.headers,
+                                                    payload_mapping:
+                                                      normalizePixelMappingRows(
+                                                        existing.payload_mapping,
+                                                        existing.parameter_mode ??
+                                                          "query",
+                                                      ),
+                                                  }
+                                                : defaultAffiliatePixelConfig(),
+                                            );
+                                            setPixelSaveAttempted(false);
+                                            setPixelConfigTab("pixel_criteria");
+                                            setPixelAffiliateId(a.id);
+                                          }}
+                                          className="flex items-center gap-1.5 text-left text-xs text-[--color-text-muted] hover:text-[--color-primary] transition-colors group w-fit"
+                                          title="Manage pixel firing criteria for this affiliate"
+                                        >
+                                          <Gauge
+                                            size={11}
+                                            className="shrink-0 opacity-60 group-hover:opacity-100"
+                                          />
+                                          <span className="group-hover:underline">
+                                            Pixel criteria:{" "}
+                                            <span className="font-medium">
+                                              {link?.pixel_criteria?.length
+                                                ? `${link.pixel_criteria.length} rule${link.pixel_criteria.length === 1 ? "" : "s"}`
+                                                : "None"}
+                                            </span>
+                                          </span>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const existing =
+                                              link?.sold_pixel_config;
+                                            setPixelDraft(
+                                              existing
+                                                ? {
+                                                    enabled: Boolean(
+                                                      existing.enabled,
+                                                    ),
+                                                    url: existing.url ?? "",
+                                                    method:
+                                                      existing.method ?? "POST",
+                                                    headers: existing.headers,
+                                                    payload_mapping:
+                                                      normalizePixelMappingRows(
+                                                        existing.payload_mapping,
+                                                        existing.parameter_mode ??
+                                                          "query",
+                                                      ),
+                                                  }
+                                                : defaultAffiliatePixelConfig(),
+                                            );
+                                            setPixelSaveAttempted(false);
+                                            setPixelConfigTab("sold_criteria");
+                                            setPixelAffiliateId(a.id);
+                                          }}
+                                          className="flex items-center gap-1.5 text-left text-xs text-[--color-text-muted] hover:text-[--color-primary] transition-colors group w-fit"
+                                          title="Manage sold definition criteria for this affiliate"
+                                        >
+                                          <Check
+                                            size={11}
+                                            className="shrink-0 opacity-60 group-hover:opacity-100"
+                                          />
+                                          <span className="group-hover:underline">
+                                            Sold criteria:{" "}
+                                            <span className="font-medium">
+                                              {link?.sold_criteria?.length
+                                                ? `${link.sold_criteria.length} rule${link.sold_criteria.length === 1 ? "" : "s"}`
+                                                : "None"}
+                                            </span>
+                                          </span>
+                                        </button>
                                         {campaign && (
                                           <button
                                             type="button"
@@ -2967,267 +4705,234 @@ export function CampaignDetailModal({
                                                   <AnimatePresence
                                                     initial={false}
                                                   >
-                                                    {ipqsPhoneOpen && (
-                                                      <motion.div
-                                                        key="phone-criteria"
-                                                        initial={{
-                                                          height: 0,
-                                                        }}
-                                                        animate={{
-                                                          height: "auto",
-                                                        }}
-                                                        exit={{ height: 0 }}
-                                                        transition={{
-                                                          duration: 0.18,
-                                                        }}
-                                                        style={{
-                                                          overflow: "hidden",
-                                                        }}
-                                                      >
-                                                        <div className="px-3 pb-3 space-y-2.5 border-t border-[--color-border] pt-2.5">
-                                                          {/* valid */}
-                                                          <div className="flex flex-wrap items-center gap-3 text-xs">
-                                                            <input
-                                                              type="checkbox"
-                                                              className="h-3.5 w-3.5 accent-[--color-primary]"
-                                                              checked={
-                                                                ipqsConfig.phone
-                                                                  .criteria
-                                                                  .valid.enabled
-                                                              }
-                                                              onChange={(e) =>
-                                                                setIpqsConfig(
-                                                                  (p) => ({
-                                                                    ...p,
-                                                                    phone: {
-                                                                      ...p.phone,
-                                                                      criteria:
-                                                                        {
-                                                                          ...p
-                                                                            .phone
-                                                                            .criteria,
-                                                                          valid:
-                                                                            {
-                                                                              ...p
-                                                                                .phone
-                                                                                .criteria
-                                                                                .valid,
-                                                                              enabled:
-                                                                                e
-                                                                                  .target
-                                                                                  .checked,
-                                                                            },
-                                                                        },
-                                                                    },
-                                                                  }),
-                                                                )
-                                                              }
-                                                            />
-                                                            <span className="w-20 text-[--color-text-muted]">
-                                                              Valid
-                                                            </span>
-                                                          </div>
-                                                          {/* fraud_score */}
-                                                          <div className="flex flex-wrap items-center gap-3 text-xs">
-                                                            <input
-                                                              type="checkbox"
-                                                              className="h-3.5 w-3.5 accent-[--color-primary]"
-                                                              checked={
-                                                                ipqsConfig.phone
-                                                                  .criteria
-                                                                  .fraud_score
-                                                                  .enabled
-                                                              }
-                                                              onChange={(e) =>
-                                                                setIpqsConfig(
-                                                                  (p) => ({
-                                                                    ...p,
-                                                                    phone: {
-                                                                      ...p.phone,
-                                                                      criteria:
-                                                                        {
-                                                                          ...p
-                                                                            .phone
-                                                                            .criteria,
-                                                                          fraud_score:
-                                                                            {
-                                                                              ...p
-                                                                                .phone
-                                                                                .criteria
-                                                                                .fraud_score,
-                                                                              enabled:
-                                                                                e
-                                                                                  .target
-                                                                                  .checked,
-                                                                            },
-                                                                        },
-                                                                    },
-                                                                  }),
-                                                                )
-                                                              }
-                                                            />
-                                                            <span className="w-20 text-[--color-text-muted]">
-                                                              Fraud Score
-                                                            </span>
-                                                            {ipqsConfig.phone
-                                                              .criteria
-                                                              .fraud_score
-                                                              .enabled && (
-                                                              <>
-                                                                <select
-                                                                  className="rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
-                                                                  value={
-                                                                    ipqsConfig
-                                                                      .phone
-                                                                      .criteria
-                                                                      .fraud_score
-                                                                      .operator
-                                                                  }
-                                                                  onChange={(
-                                                                    e,
-                                                                  ) =>
-                                                                    setIpqsConfig(
-                                                                      (p) => ({
-                                                                        ...p,
-                                                                        phone: {
-                                                                          ...p.phone,
-                                                                          criteria:
-                                                                            {
-                                                                              ...p
-                                                                                .phone
-                                                                                .criteria,
-                                                                              fraud_score:
-                                                                                {
-                                                                                  ...p
-                                                                                    .phone
-                                                                                    .criteria
-                                                                                    .fraud_score,
-                                                                                  operator:
-                                                                                    e
-                                                                                      .target
-                                                                                      .value as
-                                                                                      | "lte"
-                                                                                      | "gte"
-                                                                                      | "eq",
-                                                                                },
-                                                                            },
-                                                                        },
-                                                                      }),
-                                                                    )
-                                                                  }
-                                                                >
-                                                                  <option value="lte">
-                                                                    ≤ (lte)
-                                                                  </option>
-                                                                  <option value="gte">
-                                                                    ≥ (gte)
-                                                                  </option>
-                                                                  <option value="eq">
-                                                                    = (eq)
-                                                                  </option>
-                                                                </select>
-                                                                <input
-                                                                  type="number"
-                                                                  min={0}
-                                                                  max={100}
-                                                                  className="w-16 rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
-                                                                  value={
-                                                                    ipqsConfig
-                                                                      .phone
-                                                                      .criteria
-                                                                      .fraud_score
-                                                                      .value
-                                                                  }
-                                                                  onChange={(
-                                                                    e,
-                                                                  ) =>
-                                                                    setIpqsConfig(
-                                                                      (p) => ({
-                                                                        ...p,
-                                                                        phone: {
-                                                                          ...p.phone,
-                                                                          criteria:
-                                                                            {
-                                                                              ...p
-                                                                                .phone
-                                                                                .criteria,
-                                                                              fraud_score:
-                                                                                {
-                                                                                  ...p
-                                                                                    .phone
-                                                                                    .criteria
-                                                                                    .fraud_score,
-                                                                                  value:
-                                                                                    Number(
-                                                                                      e
-                                                                                        .target
-                                                                                        .value,
-                                                                                    ),
-                                                                                },
-                                                                            },
-                                                                        },
-                                                                      }),
-                                                                    )
-                                                                  }
-                                                                />
-                                                              </>
-                                                            )}
-                                                          </div>
-                                                          {/* country */}
-                                                          <div className="flex flex-wrap items-center gap-3 text-xs">
-                                                            <input
-                                                              type="checkbox"
-                                                              className="h-3.5 w-3.5 accent-[--color-primary]"
-                                                              checked={
-                                                                ipqsConfig.phone
-                                                                  .criteria
-                                                                  .country
-                                                                  .enabled
-                                                              }
-                                                              onChange={(e) =>
-                                                                setIpqsConfig(
-                                                                  (p) => ({
-                                                                    ...p,
-                                                                    phone: {
-                                                                      ...p.phone,
-                                                                      criteria:
-                                                                        {
-                                                                          ...p
-                                                                            .phone
-                                                                            .criteria,
-                                                                          country:
-                                                                            {
-                                                                              ...p
-                                                                                .phone
-                                                                                .criteria
-                                                                                .country,
-                                                                              enabled:
-                                                                                e
-                                                                                  .target
-                                                                                  .checked,
-                                                                            },
-                                                                        },
-                                                                    },
-                                                                  }),
-                                                                )
-                                                              }
-                                                            />
-                                                            <span className="w-20 text-[--color-text-muted]">
-                                                              Country
-                                                            </span>
-                                                            {ipqsConfig.phone
-                                                              .criteria.country
-                                                              .enabled && (
+                                                    {ipqsPhoneOpen &&
+                                                      ipqsConfig.phone
+                                                        .enabled && (
+                                                        <motion.div
+                                                          key="phone-criteria"
+                                                          initial={{
+                                                            height: 0,
+                                                          }}
+                                                          animate={{
+                                                            height: "auto",
+                                                          }}
+                                                          exit={{ height: 0 }}
+                                                          transition={{
+                                                            duration: 0.18,
+                                                          }}
+                                                          style={{
+                                                            overflow: "hidden",
+                                                          }}
+                                                        >
+                                                          <div className="px-3 pb-3 space-y-2.5 border-t border-[--color-border] pt-2.5">
+                                                            {/* valid */}
+                                                            <div className="flex flex-wrap items-center gap-3 text-xs">
                                                               <input
-                                                                type="text"
-                                                                placeholder="US, CA, GB…"
-                                                                className="flex-1 min-w-0 rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
-                                                                value={
+                                                                type="checkbox"
+                                                                className="h-3.5 w-3.5 accent-[--color-primary]"
+                                                                checked={
+                                                                  ipqsConfig
+                                                                    .phone
+                                                                    .criteria
+                                                                    .valid
+                                                                    .enabled
+                                                                }
+                                                                onChange={(e) =>
+                                                                  setIpqsConfig(
+                                                                    (p) => ({
+                                                                      ...p,
+                                                                      phone: {
+                                                                        ...p.phone,
+                                                                        criteria:
+                                                                          {
+                                                                            ...p
+                                                                              .phone
+                                                                              .criteria,
+                                                                            valid:
+                                                                              {
+                                                                                ...p
+                                                                                  .phone
+                                                                                  .criteria
+                                                                                  .valid,
+                                                                                enabled:
+                                                                                  e
+                                                                                    .target
+                                                                                    .checked,
+                                                                              },
+                                                                          },
+                                                                      },
+                                                                    }),
+                                                                  )
+                                                                }
+                                                              />
+                                                              <span className="w-20 text-[--color-text-muted]">
+                                                                Valid
+                                                              </span>
+                                                            </div>
+                                                            {/* fraud_score */}
+                                                            <div className="flex flex-wrap items-center gap-3 text-xs">
+                                                              <input
+                                                                type="checkbox"
+                                                                className="h-3.5 w-3.5 accent-[--color-primary]"
+                                                                checked={
+                                                                  ipqsConfig
+                                                                    .phone
+                                                                    .criteria
+                                                                    .fraud_score
+                                                                    .enabled
+                                                                }
+                                                                onChange={(e) =>
+                                                                  setIpqsConfig(
+                                                                    (p) => ({
+                                                                      ...p,
+                                                                      phone: {
+                                                                        ...p.phone,
+                                                                        criteria:
+                                                                          {
+                                                                            ...p
+                                                                              .phone
+                                                                              .criteria,
+                                                                            fraud_score:
+                                                                              {
+                                                                                ...p
+                                                                                  .phone
+                                                                                  .criteria
+                                                                                  .fraud_score,
+                                                                                enabled:
+                                                                                  e
+                                                                                    .target
+                                                                                    .checked,
+                                                                              },
+                                                                          },
+                                                                      },
+                                                                    }),
+                                                                  )
+                                                                }
+                                                              />
+                                                              <span className="w-20 text-[--color-text-muted]">
+                                                                Fraud Score
+                                                              </span>
+                                                              {ipqsConfig.phone
+                                                                .criteria
+                                                                .fraud_score
+                                                                .enabled && (
+                                                                <>
+                                                                  <select
+                                                                    className="rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
+                                                                    value={
+                                                                      ipqsConfig
+                                                                        .phone
+                                                                        .criteria
+                                                                        .fraud_score
+                                                                        .operator
+                                                                    }
+                                                                    onChange={(
+                                                                      e,
+                                                                    ) =>
+                                                                      setIpqsConfig(
+                                                                        (
+                                                                          p,
+                                                                        ) => ({
+                                                                          ...p,
+                                                                          phone:
+                                                                            {
+                                                                              ...p.phone,
+                                                                              criteria:
+                                                                                {
+                                                                                  ...p
+                                                                                    .phone
+                                                                                    .criteria,
+                                                                                  fraud_score:
+                                                                                    {
+                                                                                      ...p
+                                                                                        .phone
+                                                                                        .criteria
+                                                                                        .fraud_score,
+                                                                                      operator:
+                                                                                        e
+                                                                                          .target
+                                                                                          .value as
+                                                                                          | "lte"
+                                                                                          | "gte"
+                                                                                          | "eq",
+                                                                                    },
+                                                                                },
+                                                                            },
+                                                                        }),
+                                                                      )
+                                                                    }
+                                                                  >
+                                                                    <option value="lte">
+                                                                      ≤ (lte)
+                                                                    </option>
+                                                                    <option value="gte">
+                                                                      ≥ (gte)
+                                                                    </option>
+                                                                    <option value="eq">
+                                                                      = (eq)
+                                                                    </option>
+                                                                  </select>
+                                                                  <input
+                                                                    type="number"
+                                                                    min={0}
+                                                                    max={100}
+                                                                    className="w-16 rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
+                                                                    value={
+                                                                      ipqsConfig
+                                                                        .phone
+                                                                        .criteria
+                                                                        .fraud_score
+                                                                        .value
+                                                                    }
+                                                                    onChange={(
+                                                                      e,
+                                                                    ) =>
+                                                                      setIpqsConfig(
+                                                                        (
+                                                                          p,
+                                                                        ) => ({
+                                                                          ...p,
+                                                                          phone:
+                                                                            {
+                                                                              ...p.phone,
+                                                                              criteria:
+                                                                                {
+                                                                                  ...p
+                                                                                    .phone
+                                                                                    .criteria,
+                                                                                  fraud_score:
+                                                                                    {
+                                                                                      ...p
+                                                                                        .phone
+                                                                                        .criteria
+                                                                                        .fraud_score,
+                                                                                      value:
+                                                                                        Number(
+                                                                                          e
+                                                                                            .target
+                                                                                            .value,
+                                                                                        ),
+                                                                                    },
+                                                                                },
+                                                                            },
+                                                                        }),
+                                                                      )
+                                                                    }
+                                                                  />
+                                                                </>
+                                                              )}
+                                                            </div>
+                                                            {/* country */}
+                                                            <div className="flex flex-wrap items-center gap-3 text-xs">
+                                                              <input
+                                                                type="checkbox"
+                                                                className="h-3.5 w-3.5 accent-[--color-primary]"
+                                                                checked={
                                                                   ipqsConfig
                                                                     .phone
                                                                     .criteria
                                                                     .country
-                                                                    .allowed
+                                                                    .enabled
                                                                 }
                                                                 onChange={(e) =>
                                                                   setIpqsConfig(
@@ -3246,10 +4951,10 @@ export function CampaignDetailModal({
                                                                                   .phone
                                                                                   .criteria
                                                                                   .country,
-                                                                                allowed:
+                                                                                enabled:
                                                                                   e
                                                                                     .target
-                                                                                    .value,
+                                                                                    .checked,
                                                                               },
                                                                           },
                                                                       },
@@ -3257,11 +4962,59 @@ export function CampaignDetailModal({
                                                                   )
                                                                 }
                                                               />
-                                                            )}
+                                                              <span className="w-20 text-[--color-text-muted]">
+                                                                Country
+                                                              </span>
+                                                              {ipqsConfig.phone
+                                                                .criteria
+                                                                .country
+                                                                .enabled && (
+                                                                <input
+                                                                  type="text"
+                                                                  placeholder="US, CA, GB…"
+                                                                  className="flex-1 min-w-0 rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
+                                                                  value={
+                                                                    ipqsConfig
+                                                                      .phone
+                                                                      .criteria
+                                                                      .country
+                                                                      .allowed
+                                                                  }
+                                                                  onChange={(
+                                                                    e,
+                                                                  ) =>
+                                                                    setIpqsConfig(
+                                                                      (p) => ({
+                                                                        ...p,
+                                                                        phone: {
+                                                                          ...p.phone,
+                                                                          criteria:
+                                                                            {
+                                                                              ...p
+                                                                                .phone
+                                                                                .criteria,
+                                                                              country:
+                                                                                {
+                                                                                  ...p
+                                                                                    .phone
+                                                                                    .criteria
+                                                                                    .country,
+                                                                                  allowed:
+                                                                                    e
+                                                                                      .target
+                                                                                      .value,
+                                                                                },
+                                                                            },
+                                                                        },
+                                                                      }),
+                                                                    )
+                                                                  }
+                                                                />
+                                                              )}
+                                                            </div>
                                                           </div>
-                                                        </div>
-                                                      </motion.div>
-                                                    )}
+                                                        </motion.div>
+                                                      )}
                                                   </AnimatePresence>
                                                 </div>
 
@@ -3318,215 +5071,226 @@ export function CampaignDetailModal({
                                                   <AnimatePresence
                                                     initial={false}
                                                   >
-                                                    {ipqsEmailOpen && (
-                                                      <motion.div
-                                                        key="email-criteria"
-                                                        initial={{
-                                                          height: 0,
-                                                        }}
-                                                        animate={{
-                                                          height: "auto",
-                                                        }}
-                                                        exit={{ height: 0 }}
-                                                        transition={{
-                                                          duration: 0.18,
-                                                        }}
-                                                        style={{
-                                                          overflow: "hidden",
-                                                        }}
-                                                      >
-                                                        <div className="px-3 pb-3 space-y-2.5 border-t border-[--color-border] pt-2.5">
-                                                          {/* valid */}
-                                                          <div className="flex flex-wrap items-center gap-3 text-xs">
-                                                            <input
-                                                              type="checkbox"
-                                                              className="h-3.5 w-3.5 accent-[--color-primary]"
-                                                              checked={
-                                                                ipqsConfig.email
-                                                                  .criteria
-                                                                  .valid.enabled
-                                                              }
-                                                              onChange={(e) =>
-                                                                setIpqsConfig(
-                                                                  (p) => ({
-                                                                    ...p,
-                                                                    email: {
-                                                                      ...p.email,
-                                                                      criteria:
-                                                                        {
-                                                                          ...p
-                                                                            .email
-                                                                            .criteria,
-                                                                          valid:
+                                                    {ipqsEmailOpen &&
+                                                      ipqsConfig.email
+                                                        .enabled && (
+                                                        <motion.div
+                                                          key="email-criteria"
+                                                          initial={{
+                                                            height: 0,
+                                                          }}
+                                                          animate={{
+                                                            height: "auto",
+                                                          }}
+                                                          exit={{ height: 0 }}
+                                                          transition={{
+                                                            duration: 0.18,
+                                                          }}
+                                                          style={{
+                                                            overflow: "hidden",
+                                                          }}
+                                                        >
+                                                          <div className="px-3 pb-3 space-y-2.5 border-t border-[--color-border] pt-2.5">
+                                                            {/* valid */}
+                                                            <div className="flex flex-wrap items-center gap-3 text-xs">
+                                                              <input
+                                                                type="checkbox"
+                                                                className="h-3.5 w-3.5 accent-[--color-primary]"
+                                                                checked={
+                                                                  ipqsConfig
+                                                                    .email
+                                                                    .criteria
+                                                                    .valid
+                                                                    .enabled
+                                                                }
+                                                                onChange={(e) =>
+                                                                  setIpqsConfig(
+                                                                    (p) => ({
+                                                                      ...p,
+                                                                      email: {
+                                                                        ...p.email,
+                                                                        criteria:
+                                                                          {
+                                                                            ...p
+                                                                              .email
+                                                                              .criteria,
+                                                                            valid:
+                                                                              {
+                                                                                ...p
+                                                                                  .email
+                                                                                  .criteria
+                                                                                  .valid,
+                                                                                enabled:
+                                                                                  e
+                                                                                    .target
+                                                                                    .checked,
+                                                                              },
+                                                                          },
+                                                                      },
+                                                                    }),
+                                                                  )
+                                                                }
+                                                              />
+                                                              <span className="w-20 text-[--color-text-muted]">
+                                                                Valid
+                                                              </span>
+                                                            </div>
+                                                            {/* fraud_score */}
+                                                            <div className="flex flex-wrap items-center gap-3 text-xs">
+                                                              <input
+                                                                type="checkbox"
+                                                                className="h-3.5 w-3.5 accent-[--color-primary]"
+                                                                checked={
+                                                                  ipqsConfig
+                                                                    .email
+                                                                    .criteria
+                                                                    .fraud_score
+                                                                    .enabled
+                                                                }
+                                                                onChange={(e) =>
+                                                                  setIpqsConfig(
+                                                                    (p) => ({
+                                                                      ...p,
+                                                                      email: {
+                                                                        ...p.email,
+                                                                        criteria:
+                                                                          {
+                                                                            ...p
+                                                                              .email
+                                                                              .criteria,
+                                                                            fraud_score:
+                                                                              {
+                                                                                ...p
+                                                                                  .email
+                                                                                  .criteria
+                                                                                  .fraud_score,
+                                                                                enabled:
+                                                                                  e
+                                                                                    .target
+                                                                                    .checked,
+                                                                              },
+                                                                          },
+                                                                      },
+                                                                    }),
+                                                                  )
+                                                                }
+                                                              />
+                                                              <span className="w-20 text-[--color-text-muted]">
+                                                                Fraud Score
+                                                              </span>
+                                                              {ipqsConfig.email
+                                                                .criteria
+                                                                .fraud_score
+                                                                .enabled && (
+                                                                <>
+                                                                  <select
+                                                                    className="rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
+                                                                    value={
+                                                                      ipqsConfig
+                                                                        .email
+                                                                        .criteria
+                                                                        .fraud_score
+                                                                        .operator
+                                                                    }
+                                                                    onChange={(
+                                                                      e,
+                                                                    ) =>
+                                                                      setIpqsConfig(
+                                                                        (
+                                                                          p,
+                                                                        ) => ({
+                                                                          ...p,
+                                                                          email:
                                                                             {
-                                                                              ...p
-                                                                                .email
-                                                                                .criteria
-                                                                                .valid,
-                                                                              enabled:
-                                                                                e
-                                                                                  .target
-                                                                                  .checked,
-                                                                            },
-                                                                        },
-                                                                    },
-                                                                  }),
-                                                                )
-                                                              }
-                                                            />
-                                                            <span className="w-20 text-[--color-text-muted]">
-                                                              Valid
-                                                            </span>
-                                                          </div>
-                                                          {/* fraud_score */}
-                                                          <div className="flex flex-wrap items-center gap-3 text-xs">
-                                                            <input
-                                                              type="checkbox"
-                                                              className="h-3.5 w-3.5 accent-[--color-primary]"
-                                                              checked={
-                                                                ipqsConfig.email
-                                                                  .criteria
-                                                                  .fraud_score
-                                                                  .enabled
-                                                              }
-                                                              onChange={(e) =>
-                                                                setIpqsConfig(
-                                                                  (p) => ({
-                                                                    ...p,
-                                                                    email: {
-                                                                      ...p.email,
-                                                                      criteria:
-                                                                        {
-                                                                          ...p
-                                                                            .email
-                                                                            .criteria,
-                                                                          fraud_score:
-                                                                            {
-                                                                              ...p
-                                                                                .email
-                                                                                .criteria
-                                                                                .fraud_score,
-                                                                              enabled:
-                                                                                e
-                                                                                  .target
-                                                                                  .checked,
-                                                                            },
-                                                                        },
-                                                                    },
-                                                                  }),
-                                                                )
-                                                              }
-                                                            />
-                                                            <span className="w-20 text-[--color-text-muted]">
-                                                              Fraud Score
-                                                            </span>
-                                                            {ipqsConfig.email
-                                                              .criteria
-                                                              .fraud_score
-                                                              .enabled && (
-                                                              <>
-                                                                <select
-                                                                  className="rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
-                                                                  value={
-                                                                    ipqsConfig
-                                                                      .email
-                                                                      .criteria
-                                                                      .fraud_score
-                                                                      .operator
-                                                                  }
-                                                                  onChange={(
-                                                                    e,
-                                                                  ) =>
-                                                                    setIpqsConfig(
-                                                                      (p) => ({
-                                                                        ...p,
-                                                                        email: {
-                                                                          ...p.email,
-                                                                          criteria:
-                                                                            {
-                                                                              ...p
-                                                                                .email
-                                                                                .criteria,
-                                                                              fraud_score:
+                                                                              ...p.email,
+                                                                              criteria:
                                                                                 {
                                                                                   ...p
                                                                                     .email
-                                                                                    .criteria
-                                                                                    .fraud_score,
-                                                                                  operator:
-                                                                                    e
-                                                                                      .target
-                                                                                      .value as
-                                                                                      | "lte"
-                                                                                      | "gte"
-                                                                                      | "eq",
+                                                                                    .criteria,
+                                                                                  fraud_score:
+                                                                                    {
+                                                                                      ...p
+                                                                                        .email
+                                                                                        .criteria
+                                                                                        .fraud_score,
+                                                                                      operator:
+                                                                                        e
+                                                                                          .target
+                                                                                          .value as
+                                                                                          | "lte"
+                                                                                          | "gte"
+                                                                                          | "eq",
+                                                                                    },
                                                                                 },
                                                                             },
-                                                                        },
-                                                                      }),
-                                                                    )
-                                                                  }
-                                                                >
-                                                                  <option value="lte">
-                                                                    ≤ (lte)
-                                                                  </option>
-                                                                  <option value="gte">
-                                                                    ≥ (gte)
-                                                                  </option>
-                                                                  <option value="eq">
-                                                                    = (eq)
-                                                                  </option>
-                                                                </select>
-                                                                <input
-                                                                  type="number"
-                                                                  min={0}
-                                                                  max={100}
-                                                                  className="w-16 rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
-                                                                  value={
-                                                                    ipqsConfig
-                                                                      .email
-                                                                      .criteria
-                                                                      .fraud_score
-                                                                      .value
-                                                                  }
-                                                                  onChange={(
-                                                                    e,
-                                                                  ) =>
-                                                                    setIpqsConfig(
-                                                                      (p) => ({
-                                                                        ...p,
-                                                                        email: {
-                                                                          ...p.email,
-                                                                          criteria:
+                                                                        }),
+                                                                      )
+                                                                    }
+                                                                  >
+                                                                    <option value="lte">
+                                                                      ≤ (lte)
+                                                                    </option>
+                                                                    <option value="gte">
+                                                                      ≥ (gte)
+                                                                    </option>
+                                                                    <option value="eq">
+                                                                      = (eq)
+                                                                    </option>
+                                                                  </select>
+                                                                  <input
+                                                                    type="number"
+                                                                    min={0}
+                                                                    max={100}
+                                                                    className="w-16 rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
+                                                                    value={
+                                                                      ipqsConfig
+                                                                        .email
+                                                                        .criteria
+                                                                        .fraud_score
+                                                                        .value
+                                                                    }
+                                                                    onChange={(
+                                                                      e,
+                                                                    ) =>
+                                                                      setIpqsConfig(
+                                                                        (
+                                                                          p,
+                                                                        ) => ({
+                                                                          ...p,
+                                                                          email:
                                                                             {
-                                                                              ...p
-                                                                                .email
-                                                                                .criteria,
-                                                                              fraud_score:
+                                                                              ...p.email,
+                                                                              criteria:
                                                                                 {
                                                                                   ...p
                                                                                     .email
-                                                                                    .criteria
-                                                                                    .fraud_score,
-                                                                                  value:
-                                                                                    Number(
-                                                                                      e
-                                                                                        .target
-                                                                                        .value,
-                                                                                    ),
+                                                                                    .criteria,
+                                                                                  fraud_score:
+                                                                                    {
+                                                                                      ...p
+                                                                                        .email
+                                                                                        .criteria
+                                                                                        .fraud_score,
+                                                                                      value:
+                                                                                        Number(
+                                                                                          e
+                                                                                            .target
+                                                                                            .value,
+                                                                                        ),
+                                                                                    },
                                                                                 },
                                                                             },
-                                                                        },
-                                                                      }),
-                                                                    )
-                                                                  }
-                                                                />
-                                                              </>
-                                                            )}
+                                                                        }),
+                                                                      )
+                                                                    }
+                                                                  />
+                                                                </>
+                                                              )}
+                                                            </div>
                                                           </div>
-                                                        </div>
-                                                      </motion.div>
-                                                    )}
+                                                        </motion.div>
+                                                      )}
                                                   </AnimatePresence>
                                                 </div>
 
@@ -3581,225 +5345,185 @@ export function CampaignDetailModal({
                                                   <AnimatePresence
                                                     initial={false}
                                                   >
-                                                    {ipqsIpOpen && (
-                                                      <motion.div
-                                                        key="ip-criteria"
-                                                        initial={{
-                                                          height: 0,
-                                                        }}
-                                                        animate={{
-                                                          height: "auto",
-                                                        }}
-                                                        exit={{ height: 0 }}
-                                                        transition={{
-                                                          duration: 0.18,
-                                                        }}
-                                                        style={{
-                                                          overflow: "hidden",
-                                                        }}
-                                                      >
-                                                        <div className="px-3 pb-3 space-y-2.5 border-t border-[--color-border] pt-2.5">
-                                                          {/* fraud_score */}
-                                                          <div className="flex flex-wrap items-center gap-3 text-xs">
-                                                            <input
-                                                              type="checkbox"
-                                                              className="h-3.5 w-3.5 accent-[--color-primary]"
-                                                              checked={
-                                                                ipqsConfig.ip
-                                                                  .criteria
-                                                                  .fraud_score
-                                                                  .enabled
-                                                              }
-                                                              onChange={(e) =>
-                                                                setIpqsConfig(
-                                                                  (p) => ({
-                                                                    ...p,
-                                                                    ip: {
-                                                                      ...p.ip,
-                                                                      criteria:
-                                                                        {
-                                                                          ...p
-                                                                            .ip
-                                                                            .criteria,
-                                                                          fraud_score:
-                                                                            {
-                                                                              ...p
-                                                                                .ip
-                                                                                .criteria
-                                                                                .fraud_score,
-                                                                              enabled:
-                                                                                e
-                                                                                  .target
-                                                                                  .checked,
-                                                                            },
-                                                                        },
-                                                                    },
-                                                                  }),
-                                                                )
-                                                              }
-                                                            />
-                                                            <span className="w-20 text-[--color-text-muted]">
-                                                              Fraud Score
-                                                            </span>
-                                                            {ipqsConfig.ip
-                                                              .criteria
-                                                              .fraud_score
-                                                              .enabled && (
-                                                              <>
-                                                                <select
-                                                                  className="rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
-                                                                  value={
-                                                                    ipqsConfig
-                                                                      .ip
-                                                                      .criteria
-                                                                      .fraud_score
-                                                                      .operator
-                                                                  }
-                                                                  onChange={(
-                                                                    e,
-                                                                  ) =>
-                                                                    setIpqsConfig(
-                                                                      (p) => ({
-                                                                        ...p,
-                                                                        ip: {
-                                                                          ...p.ip,
-                                                                          criteria:
-                                                                            {
-                                                                              ...p
-                                                                                .ip
-                                                                                .criteria,
-                                                                              fraud_score:
-                                                                                {
-                                                                                  ...p
-                                                                                    .ip
-                                                                                    .criteria
-                                                                                    .fraud_score,
-                                                                                  operator:
-                                                                                    e
-                                                                                      .target
-                                                                                      .value as
-                                                                                      | "lte"
-                                                                                      | "gte"
-                                                                                      | "eq",
-                                                                                },
-                                                                            },
-                                                                        },
-                                                                      }),
-                                                                    )
-                                                                  }
-                                                                >
-                                                                  <option value="lte">
-                                                                    ≤ (lte)
-                                                                  </option>
-                                                                  <option value="gte">
-                                                                    ≥ (gte)
-                                                                  </option>
-                                                                  <option value="eq">
-                                                                    = (eq)
-                                                                  </option>
-                                                                </select>
-                                                                <input
-                                                                  type="number"
-                                                                  min={0}
-                                                                  max={100}
-                                                                  className="w-16 rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
-                                                                  value={
-                                                                    ipqsConfig
-                                                                      .ip
-                                                                      .criteria
-                                                                      .fraud_score
-                                                                      .value
-                                                                  }
-                                                                  onChange={(
-                                                                    e,
-                                                                  ) =>
-                                                                    setIpqsConfig(
-                                                                      (p) => ({
-                                                                        ...p,
-                                                                        ip: {
-                                                                          ...p.ip,
-                                                                          criteria:
-                                                                            {
-                                                                              ...p
-                                                                                .ip
-                                                                                .criteria,
-                                                                              fraud_score:
-                                                                                {
-                                                                                  ...p
-                                                                                    .ip
-                                                                                    .criteria
-                                                                                    .fraud_score,
-                                                                                  value:
-                                                                                    Number(
+                                                    {ipqsIpOpen &&
+                                                      ipqsConfig.ip.enabled && (
+                                                        <motion.div
+                                                          key="ip-criteria"
+                                                          initial={{
+                                                            height: 0,
+                                                          }}
+                                                          animate={{
+                                                            height: "auto",
+                                                          }}
+                                                          exit={{ height: 0 }}
+                                                          transition={{
+                                                            duration: 0.18,
+                                                          }}
+                                                          style={{
+                                                            overflow: "hidden",
+                                                          }}
+                                                        >
+                                                          <div className="px-3 pb-3 space-y-2.5 border-t border-[--color-border] pt-2.5">
+                                                            {/* fraud_score */}
+                                                            <div className="flex flex-wrap items-center gap-3 text-xs">
+                                                              <input
+                                                                type="checkbox"
+                                                                className="h-3.5 w-3.5 accent-[--color-primary]"
+                                                                checked={
+                                                                  ipqsConfig.ip
+                                                                    .criteria
+                                                                    .fraud_score
+                                                                    .enabled
+                                                                }
+                                                                onChange={(e) =>
+                                                                  setIpqsConfig(
+                                                                    (p) => ({
+                                                                      ...p,
+                                                                      ip: {
+                                                                        ...p.ip,
+                                                                        criteria:
+                                                                          {
+                                                                            ...p
+                                                                              .ip
+                                                                              .criteria,
+                                                                            fraud_score:
+                                                                              {
+                                                                                ...p
+                                                                                  .ip
+                                                                                  .criteria
+                                                                                  .fraud_score,
+                                                                                enabled:
+                                                                                  e
+                                                                                    .target
+                                                                                    .checked,
+                                                                              },
+                                                                          },
+                                                                      },
+                                                                    }),
+                                                                  )
+                                                                }
+                                                              />
+                                                              <span className="w-20 text-[--color-text-muted]">
+                                                                Fraud Score
+                                                              </span>
+                                                              {ipqsConfig.ip
+                                                                .criteria
+                                                                .fraud_score
+                                                                .enabled && (
+                                                                <>
+                                                                  <select
+                                                                    className="rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
+                                                                    value={
+                                                                      ipqsConfig
+                                                                        .ip
+                                                                        .criteria
+                                                                        .fraud_score
+                                                                        .operator
+                                                                    }
+                                                                    onChange={(
+                                                                      e,
+                                                                    ) =>
+                                                                      setIpqsConfig(
+                                                                        (
+                                                                          p,
+                                                                        ) => ({
+                                                                          ...p,
+                                                                          ip: {
+                                                                            ...p.ip,
+                                                                            criteria:
+                                                                              {
+                                                                                ...p
+                                                                                  .ip
+                                                                                  .criteria,
+                                                                                fraud_score:
+                                                                                  {
+                                                                                    ...p
+                                                                                      .ip
+                                                                                      .criteria
+                                                                                      .fraud_score,
+                                                                                    operator:
                                                                                       e
                                                                                         .target
-                                                                                        .value,
-                                                                                    ),
-                                                                                },
-                                                                            },
-                                                                        },
-                                                                      }),
-                                                                    )
-                                                                  }
-                                                                />
-                                                              </>
-                                                            )}
-                                                          </div>
-                                                          {/* country_code */}
-                                                          <div className="flex flex-wrap items-center gap-3 text-xs">
-                                                            <input
-                                                              type="checkbox"
-                                                              className="h-3.5 w-3.5 accent-[--color-primary]"
-                                                              checked={
-                                                                ipqsConfig.ip
-                                                                  .criteria
-                                                                  .country_code
-                                                                  .enabled
-                                                              }
-                                                              onChange={(e) =>
-                                                                setIpqsConfig(
-                                                                  (p) => ({
-                                                                    ...p,
-                                                                    ip: {
-                                                                      ...p.ip,
-                                                                      criteria:
-                                                                        {
-                                                                          ...p
-                                                                            .ip
-                                                                            .criteria,
-                                                                          country_code:
-                                                                            {
-                                                                              ...p
-                                                                                .ip
-                                                                                .criteria
-                                                                                .country_code,
-                                                                              enabled:
-                                                                                e
-                                                                                  .target
-                                                                                  .checked,
-                                                                            },
-                                                                        },
-                                                                    },
-                                                                  }),
-                                                                )
-                                                              }
-                                                            />
-                                                            <span className="w-20 text-[--color-text-muted]">
-                                                              Country
-                                                            </span>
-                                                            {ipqsConfig.ip
-                                                              .criteria
-                                                              .country_code
-                                                              .enabled && (
+                                                                                        .value as
+                                                                                        | "lte"
+                                                                                        | "gte"
+                                                                                        | "eq",
+                                                                                  },
+                                                                              },
+                                                                          },
+                                                                        }),
+                                                                      )
+                                                                    }
+                                                                  >
+                                                                    <option value="lte">
+                                                                      ≤ (lte)
+                                                                    </option>
+                                                                    <option value="gte">
+                                                                      ≥ (gte)
+                                                                    </option>
+                                                                    <option value="eq">
+                                                                      = (eq)
+                                                                    </option>
+                                                                  </select>
+                                                                  <input
+                                                                    type="number"
+                                                                    min={0}
+                                                                    max={100}
+                                                                    className="w-16 rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
+                                                                    value={
+                                                                      ipqsConfig
+                                                                        .ip
+                                                                        .criteria
+                                                                        .fraud_score
+                                                                        .value
+                                                                    }
+                                                                    onChange={(
+                                                                      e,
+                                                                    ) =>
+                                                                      setIpqsConfig(
+                                                                        (
+                                                                          p,
+                                                                        ) => ({
+                                                                          ...p,
+                                                                          ip: {
+                                                                            ...p.ip,
+                                                                            criteria:
+                                                                              {
+                                                                                ...p
+                                                                                  .ip
+                                                                                  .criteria,
+                                                                                fraud_score:
+                                                                                  {
+                                                                                    ...p
+                                                                                      .ip
+                                                                                      .criteria
+                                                                                      .fraud_score,
+                                                                                    value:
+                                                                                      Number(
+                                                                                        e
+                                                                                          .target
+                                                                                          .value,
+                                                                                      ),
+                                                                                  },
+                                                                              },
+                                                                          },
+                                                                        }),
+                                                                      )
+                                                                    }
+                                                                  />
+                                                                </>
+                                                              )}
+                                                            </div>
+                                                            {/* country_code */}
+                                                            <div className="flex flex-wrap items-center gap-3 text-xs">
                                                               <input
-                                                                type="text"
-                                                                placeholder="US, CA, GB…"
-                                                                className="flex-1 min-w-0 rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
-                                                                value={
+                                                                type="checkbox"
+                                                                className="h-3.5 w-3.5 accent-[--color-primary]"
+                                                                checked={
                                                                   ipqsConfig.ip
                                                                     .criteria
                                                                     .country_code
-                                                                    .allowed
+                                                                    .enabled
                                                                 }
                                                                 onChange={(e) =>
                                                                   setIpqsConfig(
@@ -3818,10 +5542,10 @@ export function CampaignDetailModal({
                                                                                   .ip
                                                                                   .criteria
                                                                                   .country_code,
-                                                                                allowed:
+                                                                                enabled:
                                                                                   e
                                                                                     .target
-                                                                                    .value,
+                                                                                    .checked,
                                                                               },
                                                                           },
                                                                       },
@@ -3829,61 +5553,22 @@ export function CampaignDetailModal({
                                                                   )
                                                                 }
                                                               />
-                                                            )}
-                                                          </div>
-                                                          {/* proxy */}
-                                                          <div className="flex flex-wrap items-center gap-3 text-xs">
-                                                            <input
-                                                              type="checkbox"
-                                                              className="h-3.5 w-3.5 accent-[--color-primary]"
-                                                              checked={
-                                                                ipqsConfig.ip
-                                                                  .criteria
-                                                                  .proxy.enabled
-                                                              }
-                                                              onChange={(e) =>
-                                                                setIpqsConfig(
-                                                                  (p) => ({
-                                                                    ...p,
-                                                                    ip: {
-                                                                      ...p.ip,
-                                                                      criteria:
-                                                                        {
-                                                                          ...p
-                                                                            .ip
-                                                                            .criteria,
-                                                                          proxy:
-                                                                            {
-                                                                              ...p
-                                                                                .ip
-                                                                                .criteria
-                                                                                .proxy,
-                                                                              enabled:
-                                                                                e
-                                                                                  .target
-                                                                                  .checked,
-                                                                            },
-                                                                        },
-                                                                    },
-                                                                  }),
-                                                                )
-                                                              }
-                                                            />
-                                                            <span className="w-20 text-[--color-text-muted]">
-                                                              Proxy
-                                                            </span>
-                                                            {ipqsConfig.ip
-                                                              .criteria.proxy
-                                                              .enabled && (
-                                                              <label className="flex items-center gap-1.5 text-[--color-text-muted]">
+                                                              <span className="w-20 text-[--color-text-muted]">
+                                                                Country
+                                                              </span>
+                                                              {ipqsConfig.ip
+                                                                .criteria
+                                                                .country_code
+                                                                .enabled && (
                                                                 <input
-                                                                  type="checkbox"
-                                                                  className="h-3.5 w-3.5 accent-[--color-primary]"
-                                                                  checked={
+                                                                  type="text"
+                                                                  placeholder="US, CA, GB…"
+                                                                  className="flex-1 min-w-0 rounded border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs"
+                                                                  value={
                                                                     ipqsConfig
                                                                       .ip
                                                                       .criteria
-                                                                      .proxy
+                                                                      .country_code
                                                                       .allowed
                                                                   }
                                                                   onChange={(
@@ -3899,16 +5584,16 @@ export function CampaignDetailModal({
                                                                               ...p
                                                                                 .ip
                                                                                 .criteria,
-                                                                              proxy:
+                                                                              country_code:
                                                                                 {
                                                                                   ...p
                                                                                     .ip
                                                                                     .criteria
-                                                                                    .proxy,
+                                                                                    .country_code,
                                                                                   allowed:
                                                                                     e
                                                                                       .target
-                                                                                      .checked,
+                                                                                      .value,
                                                                                 },
                                                                             },
                                                                         },
@@ -3916,100 +5601,192 @@ export function CampaignDetailModal({
                                                                     )
                                                                   }
                                                                 />
-                                                                Allow proxies
-                                                              </label>
-                                                            )}
-                                                          </div>
-                                                          {/* vpn */}
-                                                          <div className="flex flex-wrap items-center gap-3 text-xs">
-                                                            <input
-                                                              type="checkbox"
-                                                              className="h-3.5 w-3.5 accent-[--color-primary]"
-                                                              checked={
-                                                                ipqsConfig.ip
-                                                                  .criteria.vpn
-                                                                  .enabled
-                                                              }
-                                                              onChange={(e) =>
-                                                                setIpqsConfig(
-                                                                  (p) => ({
-                                                                    ...p,
-                                                                    ip: {
-                                                                      ...p.ip,
-                                                                      criteria:
-                                                                        {
-                                                                          ...p
-                                                                            .ip
-                                                                            .criteria,
-                                                                          vpn: {
+                                                              )}
+                                                            </div>
+                                                            {/* proxy */}
+                                                            <div className="flex flex-wrap items-center gap-3 text-xs">
+                                                              <input
+                                                                type="checkbox"
+                                                                className="h-3.5 w-3.5 accent-[--color-primary]"
+                                                                checked={
+                                                                  ipqsConfig.ip
+                                                                    .criteria
+                                                                    .proxy
+                                                                    .enabled
+                                                                }
+                                                                onChange={(e) =>
+                                                                  setIpqsConfig(
+                                                                    (p) => ({
+                                                                      ...p,
+                                                                      ip: {
+                                                                        ...p.ip,
+                                                                        criteria:
+                                                                          {
                                                                             ...p
                                                                               .ip
-                                                                              .criteria
-                                                                              .vpn,
-                                                                            enabled:
-                                                                              e
-                                                                                .target
-                                                                                .checked,
-                                                                          },
-                                                                        },
-                                                                    },
-                                                                  }),
-                                                                )
-                                                              }
-                                                            />
-                                                            <span className="w-20 text-[--color-text-muted]">
-                                                              VPN
-                                                            </span>
-                                                            {ipqsConfig.ip
-                                                              .criteria.vpn
-                                                              .enabled && (
-                                                              <label className="flex items-center gap-1.5 text-[--color-text-muted]">
-                                                                <input
-                                                                  type="checkbox"
-                                                                  className="h-3.5 w-3.5 accent-[--color-primary]"
-                                                                  checked={
-                                                                    ipqsConfig
-                                                                      .ip
-                                                                      .criteria
-                                                                      .vpn
-                                                                      .allowed
-                                                                  }
-                                                                  onChange={(
-                                                                    e,
-                                                                  ) =>
-                                                                    setIpqsConfig(
-                                                                      (p) => ({
-                                                                        ...p,
-                                                                        ip: {
-                                                                          ...p.ip,
-                                                                          criteria:
-                                                                            {
-                                                                              ...p
-                                                                                .ip
-                                                                                .criteria,
-                                                                              vpn: {
+                                                                              .criteria,
+                                                                            proxy:
+                                                                              {
                                                                                 ...p
                                                                                   .ip
                                                                                   .criteria
-                                                                                  .vpn,
-                                                                                allowed:
+                                                                                  .proxy,
+                                                                                enabled:
                                                                                   e
                                                                                     .target
                                                                                     .checked,
                                                                               },
+                                                                          },
+                                                                      },
+                                                                    }),
+                                                                  )
+                                                                }
+                                                              />
+                                                              <span className="w-20 text-[--color-text-muted]">
+                                                                Proxy
+                                                              </span>
+                                                              {ipqsConfig.ip
+                                                                .criteria.proxy
+                                                                .enabled && (
+                                                                <label className="flex items-center gap-1.5 text-[--color-text-muted]">
+                                                                  <input
+                                                                    type="checkbox"
+                                                                    className="h-3.5 w-3.5 accent-[--color-primary]"
+                                                                    checked={
+                                                                      ipqsConfig
+                                                                        .ip
+                                                                        .criteria
+                                                                        .proxy
+                                                                        .allowed
+                                                                    }
+                                                                    onChange={(
+                                                                      e,
+                                                                    ) =>
+                                                                      setIpqsConfig(
+                                                                        (
+                                                                          p,
+                                                                        ) => ({
+                                                                          ...p,
+                                                                          ip: {
+                                                                            ...p.ip,
+                                                                            criteria:
+                                                                              {
+                                                                                ...p
+                                                                                  .ip
+                                                                                  .criteria,
+                                                                                proxy:
+                                                                                  {
+                                                                                    ...p
+                                                                                      .ip
+                                                                                      .criteria
+                                                                                      .proxy,
+                                                                                    allowed:
+                                                                                      e
+                                                                                        .target
+                                                                                        .checked,
+                                                                                  },
+                                                                              },
+                                                                          },
+                                                                        }),
+                                                                      )
+                                                                    }
+                                                                  />
+                                                                  Allow proxies
+                                                                </label>
+                                                              )}
+                                                            </div>
+                                                            {/* vpn */}
+                                                            <div className="flex flex-wrap items-center gap-3 text-xs">
+                                                              <input
+                                                                type="checkbox"
+                                                                className="h-3.5 w-3.5 accent-[--color-primary]"
+                                                                checked={
+                                                                  ipqsConfig.ip
+                                                                    .criteria
+                                                                    .vpn.enabled
+                                                                }
+                                                                onChange={(e) =>
+                                                                  setIpqsConfig(
+                                                                    (p) => ({
+                                                                      ...p,
+                                                                      ip: {
+                                                                        ...p.ip,
+                                                                        criteria:
+                                                                          {
+                                                                            ...p
+                                                                              .ip
+                                                                              .criteria,
+                                                                            vpn: {
+                                                                              ...p
+                                                                                .ip
+                                                                                .criteria
+                                                                                .vpn,
+                                                                              enabled:
+                                                                                e
+                                                                                  .target
+                                                                                  .checked,
                                                                             },
-                                                                        },
-                                                                      }),
-                                                                    )
-                                                                  }
-                                                                />
-                                                                Allow VPNs
-                                                              </label>
-                                                            )}
+                                                                          },
+                                                                      },
+                                                                    }),
+                                                                  )
+                                                                }
+                                                              />
+                                                              <span className="w-20 text-[--color-text-muted]">
+                                                                VPN
+                                                              </span>
+                                                              {ipqsConfig.ip
+                                                                .criteria.vpn
+                                                                .enabled && (
+                                                                <label className="flex items-center gap-1.5 text-[--color-text-muted]">
+                                                                  <input
+                                                                    type="checkbox"
+                                                                    className="h-3.5 w-3.5 accent-[--color-primary]"
+                                                                    checked={
+                                                                      ipqsConfig
+                                                                        .ip
+                                                                        .criteria
+                                                                        .vpn
+                                                                        .allowed
+                                                                    }
+                                                                    onChange={(
+                                                                      e,
+                                                                    ) =>
+                                                                      setIpqsConfig(
+                                                                        (
+                                                                          p,
+                                                                        ) => ({
+                                                                          ...p,
+                                                                          ip: {
+                                                                            ...p.ip,
+                                                                            criteria:
+                                                                              {
+                                                                                ...p
+                                                                                  .ip
+                                                                                  .criteria,
+                                                                                vpn: {
+                                                                                  ...p
+                                                                                    .ip
+                                                                                    .criteria
+                                                                                    .vpn,
+                                                                                  allowed:
+                                                                                    e
+                                                                                      .target
+                                                                                      .checked,
+                                                                                },
+                                                                              },
+                                                                          },
+                                                                        }),
+                                                                      )
+                                                                    }
+                                                                  />
+                                                                  Allow VPNs
+                                                                </label>
+                                                              )}
+                                                            </div>
                                                           </div>
-                                                        </div>
-                                                      </motion.div>
-                                                    )}
+                                                        </motion.div>
+                                                      )}
                                                   </AnimatePresence>
                                                 </div>
                                               </div>
@@ -4228,54 +6005,257 @@ export function CampaignDetailModal({
                             className="space-y-4"
                           >
                             {/* Header */}
-                            <div className="flex items-center justify-end gap-2">
-                              {criteriaFields.length > 0 && (
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="min-h-[28px] flex items-center">
+                                {localCriteriaSetId &&
+                                localCriteriaSetVersion != null ? (
+                                  <div className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] text-emerald-700">
+                                    <Check
+                                      size={12}
+                                      className="shrink-0 text-emerald-600"
+                                    />
+                                    <span>
+                                      Active catalog:{" "}
+                                      <strong>
+                                        {localCriteriaSetName ??
+                                          catalogSets.find(
+                                            (s) => s.id === localCriteriaSetId,
+                                          )?.name ??
+                                          localCriteriaSetId}
+                                      </strong>{" "}
+                                      v{localCriteriaSetVersion}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <p className="text-[11px] text-[--color-text-muted]">
+                                    No active criteria catalog applied.
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {criteriaFields.length > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSaveCriteriaToSetMode(
+                                        localCriteriaSetId
+                                          ? "new_version"
+                                          : "new_set",
+                                      );
+                                      setSaveCriteriaToSetDraft({
+                                        name: localCriteriaSetName ?? "",
+                                        description: "",
+                                      });
+                                      setSaveCriteriaToSetOpen(true);
+                                    }}
+                                    className="shrink-0 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-3 py-1.5 text-[11px] font-medium text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg] transition-colors"
+                                  >
+                                    Save to Catalog
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={openCriteriaCatalogModal}
+                                  className="shrink-0 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-3 py-1.5 text-[11px] font-medium text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg] transition-colors"
+                                >
+                                  Criteria Catalog
+                                </button>
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    setSaveAsSetDraft({
-                                      name: "",
-                                      description: "",
-                                    });
-                                    setSaveAsSetOpen(true);
+                                    setCampaignBulkImportOpen((v) => !v);
+                                    setCampaignBulkImportText("");
                                   }}
                                   className="shrink-0 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-3 py-1.5 text-[11px] font-medium text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg] transition-colors"
                                 >
-                                  Save as Set
+                                  Bulk import
                                 </button>
-                              )}
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  setCatalogOpen(true);
-                                  setCatalogFormMode("browse");
-                                  setCatalogLoading(true);
-                                  try {
-                                    const res = await listCriteriaCatalog();
-                                    if (res.success)
-                                      setCatalogSets(res.data.items);
-                                  } catch {
-                                    toast.error("Failed to load catalog.");
-                                  } finally {
-                                    setCatalogLoading(false);
-                                  }
-                                }}
-                                className="shrink-0 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-3 py-1.5 text-[11px] font-medium text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg] transition-colors"
-                              >
-                                Criteria Catalog
-                              </button>
-                              <Button
-                                size="sm"
-                                iconLeft={<Plus size={14} />}
-                                onClick={() => {
-                                  setFieldDraft(emptyFieldDraft);
-                                  setEditFieldData(null);
-                                  setAddFieldOpen(true);
-                                }}
-                              >
-                                Add Field
-                              </Button>
+                                <Button
+                                  size="sm"
+                                  iconLeft={<Plus size={14} />}
+                                  onClick={() => {
+                                    setFieldDraft(emptyFieldDraft);
+                                    setEditFieldData(null);
+                                    setAddFieldOpen(true);
+                                  }}
+                                >
+                                  Add Field
+                                </Button>
+                              </div>
                             </div>
+
+                            <AnimatePresence initial={false}>
+                              {campaignBulkImportOpen && (
+                                <motion.div
+                                  key="campaign-bulk-import"
+                                  initial={{ opacity: 0, height: 0 }}
+                                  animate={{ opacity: 1, height: "auto" }}
+                                  exit={{ opacity: 0, height: 0 }}
+                                  transition={{
+                                    duration: 0.18,
+                                    ease: "easeOut",
+                                  }}
+                                  className="overflow-hidden"
+                                >
+                                  <div className="rounded-xl border border-[--color-border] bg-[--color-bg-muted] p-4 space-y-3">
+                                    <p className="text-[11px] font-medium text-[--color-text-muted] uppercase tracking-wide">
+                                      Bulk import fields — paste a JSON array
+                                    </p>
+                                    <p className="text-[11px] text-[--color-text-muted]">
+                                      Each object must have{" "}
+                                      <code className="font-mono">
+                                        field_label
+                                      </code>{" "}
+                                      and{" "}
+                                      <code className="font-mono">
+                                        field_name
+                                      </code>
+                                      . Optional:{" "}
+                                      <code className="font-mono">
+                                        data_type
+                                      </code>
+                                      ,{" "}
+                                      <code className="font-mono">
+                                        required
+                                      </code>
+                                      ,{" "}
+                                      <code className="font-mono">
+                                        description
+                                      </code>
+                                      .
+                                    </p>
+                                    <textarea
+                                      rows={5}
+                                      className="w-full rounded-lg border border-[--color-border] bg-[--color-bg] px-3 py-2 font-mono text-[11px] text-[--color-text] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-1 focus:ring-[--color-primary] resize-y"
+                                      placeholder={
+                                        '[\n  { "field_label": "First Name", "field_name": "first_name", "data_type": "Text", "required": true }\n]'
+                                      }
+                                      value={campaignBulkImportText}
+                                      onChange={(e) =>
+                                        setCampaignBulkImportText(
+                                          e.target.value,
+                                        )
+                                      }
+                                    />
+                                    <div className="flex items-center justify-end gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setCampaignBulkImportOpen(false);
+                                          setCampaignBulkImportText("");
+                                        }}
+                                        className="rounded-md border border-[--color-border] bg-[--color-bg] px-2.5 py-1 text-[11px] font-medium text-[--color-text-muted] hover:text-[--color-text] transition-colors"
+                                      >
+                                        Cancel
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={
+                                          campaignBulkImporting ||
+                                          !campaignBulkImportText.trim()
+                                        }
+                                        onClick={async () => {
+                                          let parsed: any[];
+                                          try {
+                                            parsed = JSON.parse(
+                                              campaignBulkImportText,
+                                            );
+                                            if (!Array.isArray(parsed))
+                                              throw new Error(
+                                                "Expected a JSON array",
+                                              );
+                                          } catch (err: any) {
+                                            toast.error(
+                                              `Invalid JSON: ${err.message ?? "parse error"}`,
+                                            );
+                                            return;
+                                          }
+                                          const validTypes = [
+                                            "Text",
+                                            "Number",
+                                            "Boolean",
+                                            "Date",
+                                            "List",
+                                            "US State",
+                                          ];
+                                          const toCreate: Array<{
+                                            field_label: string;
+                                            field_name: string;
+                                            data_type: CriteriaFieldType;
+                                            required: boolean;
+                                            description?: string;
+                                          }> = [];
+                                          for (const item of parsed) {
+                                            if (
+                                              !item.field_label?.trim() ||
+                                              !item.field_name?.trim()
+                                            ) {
+                                              toast.error(
+                                                "Each field must have field_label and field_name",
+                                              );
+                                              return;
+                                            }
+                                            toCreate.push({
+                                              field_label: String(
+                                                item.field_label,
+                                              ).trim(),
+                                              field_name: String(
+                                                item.field_name,
+                                              )
+                                                .trim()
+                                                .toLowerCase()
+                                                .replace(/\s+/g, "_")
+                                                .replace(/[^a-z0-9_]/g, ""),
+                                              data_type: (validTypes.includes(
+                                                item.data_type,
+                                              )
+                                                ? item.data_type
+                                                : "Text") as CriteriaFieldType,
+                                              required: Boolean(item.required),
+                                              ...(item.description
+                                                ? {
+                                                    description: String(
+                                                      item.description,
+                                                    ),
+                                                  }
+                                                : {}),
+                                            });
+                                          }
+                                          setCampaignBulkImporting(true);
+                                          try {
+                                            for (const fieldPayload of toCreate) {
+                                              await createCriteriaField(
+                                                campaign.id,
+                                                fieldPayload,
+                                              );
+                                            }
+                                            await refreshCriteria();
+                                            toast.success(
+                                              `${toCreate.length} field${
+                                                toCreate.length !== 1 ? "s" : ""
+                                              } added to campaign.`,
+                                            );
+                                            setCampaignBulkImportOpen(false);
+                                            setCampaignBulkImportText("");
+                                          } catch {
+                                            toast.error(
+                                              "Failed to import some fields.",
+                                            );
+                                          } finally {
+                                            setCampaignBulkImporting(false);
+                                          }
+                                        }}
+                                        className="rounded-md bg-[--color-primary] text-white px-2.5 py-1 text-[11px] font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+                                      >
+                                        {campaignBulkImporting
+                                          ? "Saving…"
+                                          : "Add fields to campaign"}
+                                      </button>
+                                    </div>
+                                  </div>
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
 
                             {criteriaLoading ? (
                               <p className="text-sm text-[--color-text-muted]">
@@ -4300,23 +6280,7 @@ export function CampaignDetailModal({
                                       <div className="flex flex-col items-center gap-2">
                                         <button
                                           type="button"
-                                          onClick={async () => {
-                                            setCatalogOpen(true);
-                                            setCatalogFormMode("browse");
-                                            setCatalogLoading(true);
-                                            try {
-                                              const res =
-                                                await listCriteriaCatalog();
-                                              if (res.success)
-                                                setCatalogSets(res.data.items);
-                                            } catch {
-                                              toast.error(
-                                                "Failed to load catalog.",
-                                              );
-                                            } finally {
-                                              setCatalogLoading(false);
-                                            }
-                                          }}
+                                          onClick={openCriteriaCatalogModal}
                                           className="rounded-md bg-[--color-primary] px-4 py-2 text-[13px] font-medium text-white hover:opacity-90 transition-opacity"
                                         >
                                           Apply from Criteria Catalog
@@ -4799,7 +6763,7 @@ export function CampaignDetailModal({
                                                                   }
                                                                 </span>
                                                                 <span className="text-[--color-text-muted]">
-                                                                  Delivered:{" "}
+                                                                  Sold:{" "}
                                                                   {getClientLeadCount(
                                                                     row.link,
                                                                   )}
@@ -5036,6 +7000,63 @@ export function CampaignDetailModal({
                                 </>
                               );
                             })()}
+
+                            {/* ── Cherry Pick Default ─────────────────────── */}
+                            <div className="mt-6 space-y-3 border-t border-[--color-border] pt-4">
+                              <div>
+                                <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                                  Cherry Pick
+                                </p>
+                                <p className="text-[11px] text-[--color-text-muted] mt-1">
+                                  When enabled, rejected (non-test) leads are
+                                  automatically marked as cherry-pickable.
+                                  Affiliates can override this per-participant.
+                                </p>
+                              </div>
+                              <label className="flex items-center gap-2.5 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  className="h-4 w-4 accent-[--color-primary]"
+                                  checked={
+                                    campaign.default_cherry_pickable ?? false
+                                  }
+                                  onChange={async (e) => {
+                                    const val = e.target.checked;
+                                    try {
+                                      const res = await updateCampaign(
+                                        campaign.id,
+                                        {
+                                          name: campaign.name,
+                                          default_cherry_pickable: val,
+                                        },
+                                      );
+                                      if (res.success) {
+                                        toast.success(
+                                          val
+                                            ? "Rejected leads will be auto-marked cherry-pickable."
+                                            : "Auto cherry-pickable disabled.",
+                                        );
+                                        onCampaignUpdate?.({
+                                          default_cherry_pickable: val,
+                                        });
+                                      } else {
+                                        toast.error(
+                                          (res as any).message ||
+                                            "Failed to update cherry pick setting",
+                                        );
+                                      }
+                                    } catch {
+                                      toast.error(
+                                        "Failed to update cherry pick setting.",
+                                      );
+                                    }
+                                  }}
+                                />
+                                <span className="text-sm text-[--color-text]">
+                                  Auto cherry-pickable on rejection
+                                </span>
+                              </label>
+                            </div>
                           </motion.div>
                         )}
 
@@ -5049,17 +7070,68 @@ export function CampaignDetailModal({
                             className="space-y-4"
                           >
                             {/* Header */}
-                            <div className="flex items-center justify-end gap-2">
-                              <Button
-                                size="sm"
-                                iconLeft={<Plus size={14} />}
-                                onClick={() => {
-                                  setEditingRule(null);
-                                  setLogicBuilderOpen(true);
-                                }}
-                              >
-                                Create Rule
-                              </Button>
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="min-h-[28px] flex items-center">
+                                {localLogicSetId &&
+                                localLogicSetVersion != null ? (
+                                  <div className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] text-emerald-700">
+                                    <Check
+                                      size={12}
+                                      className="shrink-0 text-emerald-600"
+                                    />
+                                    <span>
+                                      Active catalog:{" "}
+                                      <strong>
+                                        {localLogicSetName ?? localLogicSetId}
+                                      </strong>{" "}
+                                      v{localLogicSetVersion}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <p className="text-[11px] text-[--color-text-muted]">
+                                    No active logic catalog applied.
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {logicRules.length > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSaveLogicToSetMode(
+                                        localLogicSetId
+                                          ? "new_version"
+                                          : "new_set",
+                                      );
+                                      setSaveLogicToSetDraft({
+                                        name: localLogicSetName ?? "",
+                                        description: "",
+                                      });
+                                      setSaveLogicToSetOpen(true);
+                                    }}
+                                    className="shrink-0 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-3 py-1.5 text-[11px] font-medium text-[--color-text-muted] hover:bg-[--color-bg] hover:text-[--color-text] transition-colors"
+                                  >
+                                    Save to Catalog
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={openLogicCatalogModal}
+                                  className="shrink-0 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-3 py-1.5 text-[11px] font-medium text-[--color-text-muted] hover:bg-[--color-bg] hover:text-[--color-text] transition-colors"
+                                >
+                                  Logic Catalog
+                                </button>
+                                <Button
+                                  size="sm"
+                                  iconLeft={<Plus size={14} />}
+                                  onClick={() => {
+                                    setEditingRule(null);
+                                    setLogicBuilderOpen(true);
+                                  }}
+                                >
+                                  Create Rule
+                                </Button>
+                              </div>
                             </div>
 
                             {logicRulesLoading ? (
@@ -5268,6 +7340,591 @@ export function CampaignDetailModal({
         saving={savingRule}
       />
 
+      {/* ── Logic Catalog modal ─────────────────────────────────────────── */}
+      <Modal
+        title="Campaign Logic Catalog"
+        isOpen={logicCatalogOpen}
+        onClose={() => setLogicCatalogOpen(false)}
+        width={640}
+        bodyClassName="px-5 py-4 overflow-y-auto h-[520px]"
+      >
+        <div className="space-y-4 text-sm">
+          <div className="flex items-start justify-between gap-3">
+            <p className="text-xs text-[--color-text-muted] leading-relaxed">
+              Versioned logic sets. Applying a version replaces this campaign's
+              current logic rules with that catalog version.
+            </p>
+            <Button size="sm" variant="outline" onClick={openLogicCatalogModal}>
+              Refresh
+            </Button>
+          </div>
+
+          {localLogicSetId && localLogicSetVersion != null && (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] text-emerald-700">
+              Currently applied:{" "}
+              <strong>
+                {localLogicSetName ??
+                  logicCatalogSets.find((s) => s.id === localLogicSetId)
+                    ?.name ??
+                  localLogicSetId}
+              </strong>{" "}
+              v{localLogicSetVersion}
+            </div>
+          )}
+
+          {logicCatalogLoading ? (
+            <p className="text-sm text-[--color-text-muted]">Loading…</p>
+          ) : logicCatalogSets.length === 0 ? (
+            <p className="text-sm text-[--color-text-muted]">
+              No logic catalog sets yet. Save current rules as a catalog set to
+              create one.
+            </p>
+          ) : (
+            <div className="divide-y divide-[--color-border] rounded-xl border border-[--color-border] overflow-hidden">
+              {logicCatalogSets.map((set) => (
+                <div key={set.id}>
+                  <div
+                    className="flex items-center gap-3 px-4 py-3 bg-[--color-bg] hover:bg-[--color-bg-muted] transition-colors cursor-pointer"
+                    onClick={async () => {
+                      if (expandedLogicSetId === set.id) {
+                        setExpandedLogicSetId(null);
+                        return;
+                      }
+                      setExpandedLogicSetId(set.id);
+                      if (logicSetVersionsMap[set.id]) return;
+                      setLoadingLogicVersionsFor(set.id);
+                      try {
+                        const res = await getLogicCatalogSet(set.id);
+                        if (res.success) {
+                          setLogicSetVersionsMap((prev) => ({
+                            ...prev,
+                            [set.id]: res.data.versions,
+                          }));
+                        }
+                      } catch {
+                        toast.error("Failed to load logic catalog versions.");
+                      } finally {
+                        setLoadingLogicVersionsFor(null);
+                      }
+                    }}
+                  >
+                    <span className="text-[--color-text-muted]">
+                      {expandedLogicSetId === set.id ? (
+                        <ChevronDown size={14} />
+                      ) : (
+                        <ChevronRight size={14} />
+                      )}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-[--color-text-strong] text-[13px]">
+                          {set.name}
+                        </span>
+                        <span className="font-mono text-[10px] text-[--color-text-muted] bg-[--color-bg-muted] border border-[--color-border] rounded px-1.5 py-0.5">
+                          v{set.latest_version}
+                        </span>
+                        {localLogicSetId === set.id && (
+                          <span className="text-[10px] font-medium text-emerald-600 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5">
+                            Active
+                          </span>
+                        )}
+                      </div>
+                      {set.description && (
+                        <p className="mt-0.5 text-[11px] text-[--color-text-muted]">
+                          {set.description}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <AnimatePresence initial={false}>
+                    {expandedLogicSetId === set.id && (
+                      <motion.div
+                        key={`logic-versions-${set.id}`}
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2, ease: "easeOut" }}
+                        style={{ overflow: "hidden" }}
+                        className="bg-[--color-bg-muted] border-t border-[--color-border]"
+                      >
+                        {loadingLogicVersionsFor === set.id ? (
+                          <p className="px-6 py-3 text-xs text-[--color-text-muted]">
+                            Loading versions…
+                          </p>
+                        ) : (logicSetVersionsMap[set.id] ?? []).length === 0 ? (
+                          <p className="px-6 py-3 text-xs text-[--color-text-muted]">
+                            No versions found.
+                          </p>
+                        ) : (
+                          [...(logicSetVersionsMap[set.id] ?? [])]
+                            .sort((a, b) => b.version - a.version)
+                            .map((version) => {
+                              const isApplied =
+                                localLogicSetId === set.id &&
+                                localLogicSetVersion === version.version;
+                              const applyKey = `${set.id}#v${version.version}`;
+                              return (
+                                <div
+                                  key={version.version}
+                                  className="border-b last:border-0 border-[--color-border]"
+                                >
+                                  <div className="flex items-center gap-3 px-6 py-2.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setExpandedLogicVersionRules((prev) => {
+                                          const next = new Set(prev);
+                                          if (next.has(applyKey))
+                                            next.delete(applyKey);
+                                          else next.add(applyKey);
+                                          return next;
+                                        });
+                                      }}
+                                      className="flex items-center gap-1.5 flex-1 min-w-0 text-left"
+                                    >
+                                      <span className="text-[--color-text-muted]">
+                                        {expandedLogicVersionRules.has(
+                                          applyKey,
+                                        ) ? (
+                                          <ChevronDown size={11} />
+                                        ) : (
+                                          <ChevronRight size={11} />
+                                        )}
+                                      </span>
+                                      <span className="font-mono text-[11px] font-semibold text-[--color-text-strong] w-6">
+                                        v{version.version}
+                                      </span>
+                                      <span className="text-[11px] text-[--color-text-muted]">
+                                        {version.rules.length} rule
+                                        {version.rules.length !== 1 ? "s" : ""}
+                                      </span>
+                                    </button>
+                                    {isApplied ? (
+                                      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600">
+                                        <Check size={11} />
+                                        Applied
+                                      </span>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        disabled={applyingLogicCatalog !== null}
+                                        onClick={() =>
+                                          applyLogicCatalogVersion(
+                                            set.id,
+                                            set.name,
+                                            version.version,
+                                          )
+                                        }
+                                        className="inline-flex items-center gap-1 rounded-md border border-[--color-border] bg-[--color-surface] px-2.5 py-1 text-[11px] font-medium text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg] disabled:opacity-50 transition-colors"
+                                      >
+                                        {applyingLogicCatalog === applyKey
+                                          ? "Applying…"
+                                          : "Apply"}
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  <AnimatePresence initial={false}>
+                                    {expandedLogicVersionRules.has(
+                                      applyKey,
+                                    ) && (
+                                      <motion.div
+                                        key={`logic-rules-${applyKey}`}
+                                        initial={{ height: 0, opacity: 0 }}
+                                        animate={{ height: "auto", opacity: 1 }}
+                                        exit={{ height: 0, opacity: 0 }}
+                                        transition={{
+                                          duration: 0.18,
+                                          ease: "easeOut",
+                                        }}
+                                        style={{ overflow: "hidden" }}
+                                      >
+                                        {version.rules.length === 0 ? (
+                                          <p className="px-10 pb-3 text-[11px] text-[--color-text-muted]">
+                                            No rules in this version.
+                                          </p>
+                                        ) : (
+                                          <div className="space-y-1 border-t border-[--color-border] bg-[--color-bg] px-10 py-2.5">
+                                            {version.rules.map((rule) => {
+                                              const ruleDetailKey = `${applyKey}#rule:${rule.id}`;
+                                              const condCount =
+                                                rule.groups.reduce(
+                                                  (acc, group) =>
+                                                    acc +
+                                                    group.conditions.length,
+                                                  0,
+                                                );
+                                              return (
+                                                <div
+                                                  key={rule.id}
+                                                  className="rounded-md border border-[--color-border] bg-[--color-bg-muted]"
+                                                >
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                      setExpandedLogicRuleDetails(
+                                                        (prev) => {
+                                                          const next = new Set(
+                                                            prev,
+                                                          );
+                                                          if (
+                                                            next.has(
+                                                              ruleDetailKey,
+                                                            )
+                                                          ) {
+                                                            next.delete(
+                                                              ruleDetailKey,
+                                                            );
+                                                          } else {
+                                                            next.add(
+                                                              ruleDetailKey,
+                                                            );
+                                                          }
+                                                          return next;
+                                                        },
+                                                      );
+                                                    }}
+                                                    className="flex w-full items-center gap-2 px-2.5 py-2 text-[11px]"
+                                                  >
+                                                    <span className="text-[--color-text-muted]">
+                                                      {expandedLogicRuleDetails.has(
+                                                        ruleDetailKey,
+                                                      ) ? (
+                                                        <ChevronDown
+                                                          size={11}
+                                                        />
+                                                      ) : (
+                                                        <ChevronRight
+                                                          size={11}
+                                                        />
+                                                      )}
+                                                    </span>
+                                                    <span
+                                                      className={`rounded px-1.5 py-0.5 font-semibold ${
+                                                        rule.action === "pass"
+                                                          ? "bg-green-500/10 text-green-600"
+                                                          : "bg-red-500/10 text-red-500"
+                                                      }`}
+                                                    >
+                                                      {rule.action === "pass"
+                                                        ? "Pass"
+                                                        : "Fail"}
+                                                    </span>
+                                                    <span className="flex-1 truncate text-[--color-text] text-left">
+                                                      {rule.name}
+                                                    </span>
+                                                    <span className="shrink-0 text-[10px] text-[--color-text-muted]">
+                                                      {rule.groups.length} group
+                                                      {rule.groups.length !== 1
+                                                        ? "s"
+                                                        : ""}{" "}
+                                                      · {condCount} cond.
+                                                    </span>
+                                                  </button>
+                                                  <AnimatePresence
+                                                    initial={false}
+                                                  >
+                                                    {expandedLogicRuleDetails.has(
+                                                      ruleDetailKey,
+                                                    ) && (
+                                                      <motion.div
+                                                        key={`logic-rule-detail-${ruleDetailKey}`}
+                                                        initial={{
+                                                          height: 0,
+                                                          opacity: 0,
+                                                        }}
+                                                        animate={{
+                                                          height: "auto",
+                                                          opacity: 1,
+                                                        }}
+                                                        exit={{
+                                                          height: 0,
+                                                          opacity: 0,
+                                                        }}
+                                                        transition={{
+                                                          duration: 0.15,
+                                                          ease: "easeOut",
+                                                        }}
+                                                        style={{
+                                                          overflow: "hidden",
+                                                        }}
+                                                        className="border-t border-[--color-border] bg-[--color-bg] px-3 py-2"
+                                                      >
+                                                        <div className="space-y-2">
+                                                          {rule.groups.map(
+                                                            (
+                                                              group,
+                                                              groupIdx,
+                                                            ) => (
+                                                              <div
+                                                                key={`${rule.id}-group-${groupIdx}`}
+                                                                className="rounded-md border border-[--color-border] bg-[--color-bg-muted] p-2"
+                                                              >
+                                                                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                                                                  Group{" "}
+                                                                  {groupIdx + 1}
+                                                                </p>
+                                                                <div className="space-y-1">
+                                                                  {group.conditions.map(
+                                                                    (
+                                                                      condition,
+                                                                      condIdx,
+                                                                    ) => (
+                                                                      <p
+                                                                        key={`${rule.id}-group-${groupIdx}-cond-${condIdx}`}
+                                                                        className="text-[11px] text-[--color-text]"
+                                                                      >
+                                                                        <span className="font-medium">
+                                                                          {normalizeFieldLabel(
+                                                                            condition.field_name,
+                                                                          )}
+                                                                        </span>{" "}
+                                                                        <span className="text-[--color-text-muted]">
+                                                                          {formatLogicOperatorLabel(
+                                                                            condition.operator,
+                                                                          )}
+                                                                        </span>{" "}
+                                                                        <span className="font-mono text-[10px] text-[--color-text-muted]">
+                                                                          {formatLogicConditionValue(
+                                                                            condition.value,
+                                                                          )}
+                                                                        </span>
+                                                                      </p>
+                                                                    ),
+                                                                  )}
+                                                                </div>
+                                                              </div>
+                                                            ),
+                                                          )}
+                                                        </div>
+                                                      </motion.div>
+                                                    )}
+                                                  </AnimatePresence>
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        )}
+                                      </motion.div>
+                                    )}
+                                  </AnimatePresence>
+                                </div>
+                              );
+                            })
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      {/* ── Save campaign logic to catalog ──────────────────────────────── */}
+      <Modal
+        title="Save Logic Rules to Catalog"
+        isOpen={saveLogicToSetOpen}
+        onClose={() => setSaveLogicToSetOpen(false)}
+        width={470}
+      >
+        <div className="space-y-4 text-sm">
+          <p className="text-[13px] text-[--color-text-muted]">
+            Save these campaign logic rules as either a new version of the
+            active logic catalog entry or as a brand new logic catalog set.
+          </p>
+
+          <div className="space-y-2">
+            <label className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+              Save Mode
+            </label>
+            <div className="grid grid-cols-1 gap-2">
+              <button
+                type="button"
+                disabled={!localLogicSetId}
+                onClick={() => {
+                  setSaveLogicToSetMode("new_version");
+                  setSaveLogicToSetDraft((draft) => ({
+                    ...draft,
+                    name: localLogicSetName ?? localLogicSetId ?? draft.name,
+                  }));
+                }}
+                className={`rounded-lg border px-3 py-2 text-left transition-colors ${
+                  saveLogicToSetMode === "new_version"
+                    ? "border-[--color-primary] bg-[--color-primary]/10"
+                    : "border-[--color-border] bg-[--color-bg]"
+                } ${!localLogicSetId ? "cursor-not-allowed opacity-50" : ""}`}
+              >
+                <p className="text-xs font-medium text-[--color-text]">
+                  Save as new version
+                </p>
+                <p className="text-[11px] text-[--color-text-muted]">
+                  {localLogicSetId
+                    ? `Adds a version to ${localLogicSetName ?? localLogicSetId}.`
+                    : "No active catalog applied on this campaign yet."}
+                </p>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSaveLogicToSetMode("new_set")}
+                className={`rounded-lg border px-3 py-2 text-left transition-colors ${
+                  saveLogicToSetMode === "new_set"
+                    ? "border-[--color-primary] bg-[--color-primary]/10"
+                    : "border-[--color-border] bg-[--color-bg]"
+                }`}
+              >
+                <p className="text-xs font-medium text-[--color-text]">
+                  Save as new set
+                </p>
+                <p className="text-[11px] text-[--color-text-muted]">
+                  Creates a brand new catalog entry with version 1.
+                </p>
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+              Set Name{saveLogicToSetMode === "new_set" ? " *" : ""}
+            </label>
+            <input
+              type="text"
+              value={saveLogicToSetDraft.name}
+              onChange={(e) =>
+                setSaveLogicToSetDraft((draft) => ({
+                  ...draft,
+                  name: e.target.value,
+                }))
+              }
+              disabled={saveLogicToSetMode === "new_version"}
+              placeholder="e.g. Standard Campaign Logic"
+              className={`w-full rounded-md border border-[--color-border] bg-[--color-bg] px-3 py-2 text-sm text-[--color-text] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-1 focus:ring-[--color-primary] ${
+                saveLogicToSetMode === "new_version"
+                  ? "cursor-not-allowed opacity-60"
+                  : ""
+              }`}
+            />
+            {saveLogicToSetMode === "new_version" && (
+              <p className="text-[11px] text-[--color-text-muted]">
+                Set name is locked when saving a new version.
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+              Description
+            </label>
+            <input
+              type="text"
+              value={saveLogicToSetDraft.description}
+              onChange={(e) =>
+                setSaveLogicToSetDraft((draft) => ({
+                  ...draft,
+                  description: e.target.value,
+                }))
+              }
+              placeholder="Optional description"
+              className="w-full rounded-md border border-[--color-border] bg-[--color-bg] px-3 py-2 text-sm text-[--color-text] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-1 focus:ring-[--color-primary]"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSaveLogicToSetOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={
+                savingLogicToSet ||
+                (saveLogicToSetMode === "new_set" &&
+                  !saveLogicToSetDraft.name.trim())
+              }
+              onClick={saveCurrentLogicToCatalog}
+            >
+              {savingLogicToSet ? "Saving…" : "Save & Apply"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Campaign tags modal ─────────────────────────────────────────── */}
+      <Modal
+        title="Edit Campaign Tags"
+        isOpen={editTagsOpen}
+        onClose={() => setEditTagsOpen(false)}
+        width={480}
+      >
+        <div className="space-y-4">
+          {tagDefinitions.length === 0 ? (
+            <p className="rounded-lg border border-[--color-border] bg-[--color-bg-muted] px-3 py-2 text-sm text-[--color-text-muted]">
+              No tag definitions are configured for this tenant.
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {tagDefinitions.map((def) => {
+                const active = tagDraft.includes(def.label);
+                return (
+                  <button
+                    key={def.id}
+                    type="button"
+                    onClick={() =>
+                      setTagDraft((prev) =>
+                        active
+                          ? prev.filter((t) => t !== def.label)
+                          : [...prev, def.label],
+                      )
+                    }
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                      active
+                        ? def.color
+                          ? ""
+                          : "border-blue-500 bg-blue-500/10 text-blue-400"
+                        : "border-[--color-border] text-[--color-text-muted] hover:border-[--color-text-muted]"
+                    }`}
+                    style={
+                      active && def.color
+                        ? {
+                            borderColor: def.color,
+                            backgroundColor: def.color + "18",
+                            color: def.color,
+                          }
+                        : undefined
+                    }
+                  >
+                    <Tag size={12} />
+                    {def.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setEditTagsOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={savingTags}
+              onClick={saveCampaignTagDraft}
+            >
+              {savingTags ? "Saving…" : "Save Tags"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       {/* ── Criteria Catalog modal ──────────────────────────────────────── */}
       <Modal
         title={
@@ -5325,8 +7982,10 @@ export function CampaignDetailModal({
                   <span className="text-emerald-700 dark:text-emerald-400">
                     Currently applied:{" "}
                     <strong>
-                      {catalogSets.find((s) => s.id === localCriteriaSetId)
-                        ?.name ?? localCriteriaSetId}
+                      {localCriteriaSetName ??
+                        catalogSets.find((s) => s.id === localCriteriaSetId)
+                          ?.name ??
+                        localCriteriaSetId}
                     </strong>{" "}
                     v{localCriteriaSetVersion}
                   </span>
@@ -5387,11 +8046,6 @@ export function CampaignDetailModal({
                                 ? `v${localCriteriaSetVersion}`
                                 : `v${set.latest_version}`}
                             </span>
-                            {!set.active && (
-                              <span className="text-[10px] font-medium text-rose-500 bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800 rounded px-1.5 py-0.5">
-                                inactive
-                              </span>
-                            )}
                             {localCriteriaSetId === set.id && (
                               <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded px-1.5 py-0.5">
                                 Active
@@ -5467,15 +8121,13 @@ export function CampaignDetailModal({
                             <Pencil size={10} />
                             Edit
                           </button>
-                          {set.active && (
-                            <button
-                              type="button"
-                              onClick={() => setConfirmDeactivateSet(set)}
-                              className="inline-flex items-center gap-1 rounded-md border border-[--color-border] bg-[--color-surface] px-2 py-1 text-[11px] font-medium text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors"
-                            >
-                              Deactivate
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteSet(set)}
+                            className="inline-flex items-center gap-1 rounded-md border border-rose-200 dark:border-rose-800 bg-[--color-surface] px-2 py-1 text-[11px] font-medium text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors"
+                          >
+                            Delete
+                          </button>
                         </div>
                       </div>
 
@@ -5585,6 +8237,9 @@ export function CampaignDetailModal({
                                                     `Applied "${set.name}" v${v.version}.`,
                                                   );
                                                   setLocalCriteriaSetId(set.id);
+                                                  setLocalCriteriaSetName(
+                                                    set.name,
+                                                  );
                                                   setLocalCriteriaSetVersion(
                                                     v.version,
                                                   );
@@ -5764,27 +8419,151 @@ export function CampaignDetailModal({
                       </span>
                     )}
                   </p>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setCatalogFieldDrafts((prev) => [
-                        ...prev,
-                        {
-                          field_label: "",
-                          field_name: "",
-                          data_type: "Text",
-                          required: false,
-                          description: "",
-                          state_mapping: null,
-                        },
-                      ])
-                    }
-                    className="inline-flex items-center gap-1 text-[11px] text-[--color-primary] hover:underline"
-                  >
-                    <Plus size={11} />
-                    Add field
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setCatalogBulkImportOpen((v) => !v)}
+                      className="inline-flex items-center gap-1 text-[11px] text-[--color-text-muted] hover:text-[--color-text] hover:underline"
+                    >
+                      <Upload size={11} />
+                      Bulk import
+                    </button>
+                  </div>
                 </div>
+
+                {/* bulk import panel */}
+                <AnimatePresence initial={false}>
+                  {catalogBulkImportOpen && (
+                    <motion.div
+                      key="catalog-bulk"
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.18, ease: "easeOut" }}
+                      style={{ overflow: "hidden" }}
+                    >
+                      <div className="rounded-lg border border-[--color-border] bg-[--color-bg-muted] p-3 space-y-2 text-[11px]">
+                        <p className="text-[--color-text-muted]">
+                          Paste a JSON array of field objects. Each object must
+                          have{" "}
+                          <code className="font-mono text-[--color-text]">
+                            field_label
+                          </code>{" "}
+                          and{" "}
+                          <code className="font-mono text-[--color-text]">
+                            field_name
+                          </code>
+                          . Optional:{" "}
+                          <code className="font-mono text-[--color-text]">
+                            data_type
+                          </code>
+                          ,{" "}
+                          <code className="font-mono text-[--color-text]">
+                            required
+                          </code>
+                          ,{" "}
+                          <code className="font-mono text-[--color-text]">
+                            description
+                          </code>
+                          .
+                        </p>
+                        <textarea
+                          className={`${inputClass} min-h-[100px] resize-y font-mono text-[11px]`}
+                          placeholder={`[
+  {
+    "field_label": "First Name",
+    "field_name": "first_name",
+    "data_type": "Text",
+    "required": true,
+    "description": "Applicant first name"
+  }
+]`}
+                          value={catalogBulkImportText}
+                          onChange={(e) =>
+                            setCatalogBulkImportText(e.target.value)
+                          }
+                        />
+                        <div className="flex items-center gap-2 justify-end">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCatalogBulkImportOpen(false);
+                              setCatalogBulkImportText("");
+                            }}
+                            className="text-[11px] text-[--color-text-muted] hover:text-[--color-text] transition-colors"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              let parsed: any[];
+                              try {
+                                parsed = JSON.parse(catalogBulkImportText);
+                                if (!Array.isArray(parsed))
+                                  throw new Error("Expected a JSON array");
+                              } catch (err: any) {
+                                toast.error(
+                                  `Invalid JSON: ${err.message ?? "parse error"}`,
+                                );
+                                return;
+                              }
+                              const validTypes = [
+                                "Text",
+                                "Number",
+                                "Boolean",
+                                "Date",
+                                "List",
+                                "US State",
+                              ];
+                              const imported: CatalogFieldDraft[] = [];
+                              for (const item of parsed) {
+                                if (
+                                  !item.field_label?.trim() ||
+                                  !item.field_name?.trim()
+                                ) {
+                                  toast.error(
+                                    "Each field must have field_label and field_name",
+                                  );
+                                  return;
+                                }
+                                const dt = validTypes.includes(item.data_type)
+                                  ? item.data_type
+                                  : "Text";
+                                imported.push({
+                                  field_label: String(item.field_label).trim(),
+                                  field_name: String(item.field_name)
+                                    .trim()
+                                    .toLowerCase()
+                                    .replace(/\s+/g, "_")
+                                    .replace(/[^a-z0-9_]/g, ""),
+                                  data_type: dt as CriteriaFieldType,
+                                  required: Boolean(item.required),
+                                  description: item.description
+                                    ? String(item.description)
+                                    : "",
+                                  state_mapping: null,
+                                });
+                              }
+                              setCatalogFieldDrafts((prev) => [
+                                ...prev,
+                                ...imported,
+                              ]);
+                              toast.success(
+                                `${imported.length} field${imported.length !== 1 ? "s" : ""} imported.`,
+                              );
+                              setCatalogBulkImportOpen(false);
+                              setCatalogBulkImportText("");
+                            }}
+                            className="rounded-md bg-[--color-primary] text-white px-2.5 py-1 text-[11px] font-medium hover:opacity-90 transition-opacity"
+                          >
+                            Import fields
+                          </button>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
 
                 {catalogFieldDrafts.length === 0 ? (
                   <p className="text-[11px] text-[--color-text-muted]">
@@ -5915,8 +8694,9 @@ export function CampaignDetailModal({
                               )
                             }
                             className="shrink-0 p-1.5 rounded text-[--color-text-muted] hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors"
+                            title="Delete field"
                           >
-                            <X size={12} />
+                            <Trash2 size={12} />
                           </button>
                         </div>
                       </div>
@@ -5924,6 +8704,28 @@ export function CampaignDetailModal({
                   </div>
                 )}
               </div>
+
+              {/* add field button at bottom */}
+              <button
+                type="button"
+                onClick={() =>
+                  setCatalogFieldDrafts((prev) => [
+                    ...prev,
+                    {
+                      field_label: "",
+                      field_name: "",
+                      data_type: "Text",
+                      required: false,
+                      description: "",
+                      state_mapping: null,
+                    },
+                  ])
+                }
+                className="w-full rounded-lg border border-dashed border-[--color-border] py-2 text-xs text-[--color-text-muted] hover:border-[--color-primary] hover:text-[--color-primary] transition-colors inline-flex items-center justify-center gap-1"
+              >
+                <Plus size={12} />
+                Add field
+              </button>
 
               {/* submit row */}
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-[--color-border]">
@@ -5985,7 +8787,15 @@ export function CampaignDetailModal({
                       }
                       // refresh catalog list
                       const res = await listCriteriaCatalog();
-                      if (res.success) setCatalogSets(res.data.items);
+                      if (res.success) {
+                        setCatalogSets(res.data.items);
+                        if (localCriteriaSetId && !localCriteriaSetName) {
+                          const current = res.data.items.find(
+                            (item) => item.id === localCriteriaSetId,
+                          );
+                          if (current) setLocalCriteriaSetName(current.name);
+                        }
+                      }
                       setCatalogFormMode("browse");
                     } catch (err: any) {
                       toast.error(
@@ -6395,6 +9205,7 @@ export function CampaignDetailModal({
                       // applied catalog version.
                       setLocalCriteriaSetId(null);
                       setLocalCriteriaSetVersion(null);
+                      setLocalCriteriaSetName(null);
                       onCampaignUpdate?.({
                         criteria_set_id: null,
                         criteria_set_version: null,
@@ -6610,58 +9421,54 @@ export function CampaignDetailModal({
         )}
       </Modal>
 
-      {/* ── Deactivate catalog set confirm modal ────────────────────────── */}
+      {/* ── Delete catalog set confirm modal ────────────────────────────── */}
       <Modal
-        title="Deactivate Catalog Set?"
-        isOpen={!!confirmDeactivateSet}
-        onClose={() => setConfirmDeactivateSet(null)}
+        title="Delete Catalog Set?"
+        isOpen={!!confirmDeleteSet}
+        onClose={() => setConfirmDeleteSet(null)}
         width={400}
       >
-        {confirmDeactivateSet && (
+        {confirmDeleteSet && (
           <div className="space-y-4 px-1 pb-1 text-sm">
             <p className="text-[--color-text]">
-              Deactivate{" "}
+              Permanently delete{" "}
               <span className="font-semibold text-[--color-text-strong]">
-                {confirmDeactivateSet.name}
+                {confirmDeleteSet.name}
               </span>
-              ? This will not affect campaigns already using it.
+              ? This cannot be undone. Campaigns actively using a version of
+              this set will retain their criteria fields but lose the catalog
+              link.
             </p>
             <div className="flex justify-end gap-2 pt-1">
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => setConfirmDeactivateSet(null)}
+                onClick={() => setConfirmDeleteSet(null)}
               >
                 Cancel
               </Button>
               <Button
                 size="sm"
                 variant="danger"
-                disabled={deactivating}
+                disabled={deletingSet}
                 onClick={async () => {
-                  if (!confirmDeactivateSet) return;
-                  setDeactivating(true);
+                  if (!confirmDeleteSet) return;
+                  setDeletingSet(true);
                   try {
-                    await deactivateCriteriaCatalogSet(confirmDeactivateSet.id);
-                    toast.success(
-                      `"${confirmDeactivateSet.name}" deactivated.`,
-                    );
+                    await deleteCriteriaCatalogSet(confirmDeleteSet.id);
+                    toast.success(`"${confirmDeleteSet.name}" deleted.`);
                     setCatalogSets((prev) =>
-                      prev.map((s) =>
-                        s.id === confirmDeactivateSet.id
-                          ? { ...s, active: false }
-                          : s,
-                      ),
+                      prev.filter((s) => s.id !== confirmDeleteSet.id),
                     );
-                    setConfirmDeactivateSet(null);
+                    setConfirmDeleteSet(null);
                   } catch {
-                    toast.error("Failed to deactivate.");
+                    toast.error("Failed to delete catalog set.");
                   } finally {
-                    setDeactivating(false);
+                    setDeletingSet(false);
                   }
                 }}
               >
-                {deactivating ? "Deactivating…" : "Deactivate"}
+                {deletingSet ? "Deleting…" : "Delete"}
               </Button>
             </div>
           </div>
@@ -6708,6 +9515,7 @@ export function CampaignDetailModal({
                     // Deleting a field de-syncs the campaign from the applied catalog.
                     setLocalCriteriaSetId(null);
                     setLocalCriteriaSetVersion(null);
+                    setLocalCriteriaSetName(null);
                     onCampaignUpdate?.({
                       criteria_set_id: null,
                       criteria_set_version: null,
@@ -6727,107 +9535,117 @@ export function CampaignDetailModal({
         )}
       </Modal>
 
-      {/* ── Save criteria fields as a new catalog set ──────────────────── */}
+      {/* ── Save criteria fields to catalog ─────────────────────────────── */}
       <Modal
-        title="Save Fields as Catalog Set"
-        isOpen={saveAsSetOpen}
-        onClose={() => setSaveAsSetOpen(false)}
-        width={440}
+        title="Save Criteria to Catalog"
+        isOpen={saveCriteriaToSetOpen}
+        onClose={() => setSaveCriteriaToSetOpen(false)}
+        width={470}
       >
         <div className="space-y-4 text-sm">
-          <p className="text-[--color-text-muted] text-[13px]">
-            Creates a new versioned catalog set from this campaign's{" "}
-            {criteriaFields.length} field
-            {criteriaFields.length !== 1 ? "s" : ""}. The set will be applied to
-            this campaign automatically.
+          <p className="text-[13px] text-[--color-text-muted]">
+            Save this campaign's {criteriaFields.length} criteria field
+            {criteriaFields.length !== 1 ? "s" : ""} as either a new version of
+            the active catalog entry or as a brand new set.
           </p>
+
+          <div className="space-y-2">
+            <label className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+              Save Mode
+            </label>
+            <div className="grid grid-cols-1 gap-2">
+              <button
+                type="button"
+                disabled={!localCriteriaSetId}
+                onClick={() => setSaveCriteriaToSetMode("new_version")}
+                className={`rounded-lg border px-3 py-2 text-left transition-colors ${
+                  saveCriteriaToSetMode === "new_version"
+                    ? "border-[--color-primary] bg-[--color-primary]/10"
+                    : "border-[--color-border] bg-[--color-bg]"
+                } ${!localCriteriaSetId ? "opacity-50 cursor-not-allowed" : ""}`}
+              >
+                <p className="text-xs font-medium text-[--color-text]">
+                  Save as new version
+                </p>
+                <p className="text-[11px] text-[--color-text-muted]">
+                  {localCriteriaSetId
+                    ? `Adds a version to ${localCriteriaSetName ?? localCriteriaSetId}.`
+                    : "No active catalog is applied to this campaign yet."}
+                </p>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSaveCriteriaToSetMode("new_set")}
+                className={`rounded-lg border px-3 py-2 text-left transition-colors ${
+                  saveCriteriaToSetMode === "new_set"
+                    ? "border-[--color-primary] bg-[--color-primary]/10"
+                    : "border-[--color-border] bg-[--color-bg]"
+                }`}
+              >
+                <p className="text-xs font-medium text-[--color-text]">
+                  Save as new set
+                </p>
+                <p className="text-[11px] text-[--color-text-muted]">
+                  Creates a new catalog entry with version 1.
+                </p>
+              </button>
+            </div>
+          </div>
+
           <div className="space-y-1">
             <label className="text-xs uppercase tracking-wide text-[--color-text-muted]">
-              Set Name *
+              Set Name{saveCriteriaToSetMode === "new_set" ? " *" : ""}
             </label>
             <input
               type="text"
-              value={saveAsSetDraft.name}
+              value={saveCriteriaToSetDraft.name}
               onChange={(e) =>
-                setSaveAsSetDraft((d) => ({ ...d, name: e.target.value }))
+                setSaveCriteriaToSetDraft((draft) => ({
+                  ...draft,
+                  name: e.target.value,
+                }))
               }
               placeholder="e.g. Rideshare Base Criteria"
               className="w-full rounded-md border border-[--color-border] bg-[--color-bg] px-3 py-2 text-sm text-[--color-text] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-1 focus:ring-[--color-primary]"
             />
           </div>
+
           <div className="space-y-1">
             <label className="text-xs uppercase tracking-wide text-[--color-text-muted]">
               Description
             </label>
             <input
               type="text"
-              value={saveAsSetDraft.description}
+              value={saveCriteriaToSetDraft.description}
               onChange={(e) =>
-                setSaveAsSetDraft((d) => ({
-                  ...d,
+                setSaveCriteriaToSetDraft((draft) => ({
+                  ...draft,
                   description: e.target.value,
                 }))
               }
-              placeholder="Optional description"
+              placeholder="Optional"
               className="w-full rounded-md border border-[--color-border] bg-[--color-bg] px-3 py-2 text-sm text-[--color-text] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-1 focus:ring-[--color-primary]"
             />
           </div>
+
           <div className="flex justify-end gap-2 pt-1">
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setSaveAsSetOpen(false)}
+              onClick={() => setSaveCriteriaToSetOpen(false)}
             >
               Cancel
             </Button>
             <Button
               size="sm"
-              disabled={savingAsSet || !saveAsSetDraft.name.trim()}
-              onClick={async () => {
-                if (!campaign || !saveAsSetDraft.name.trim()) return;
-                setSavingAsSet(true);
-                try {
-                  const fields = criteriaFields.map((f) => ({
-                    field_label: f.field_label,
-                    field_name: f.field_name,
-                    data_type: f.data_type,
-                    required: f.required,
-                    ...(f.description ? { description: f.description } : {}),
-                    ...(f.options?.length ? { options: f.options } : {}),
-                    ...(f.value_mappings?.length
-                      ? { value_mappings: f.value_mappings }
-                      : {}),
-                    ...(f.state_mapping
-                      ? { state_mapping: f.state_mapping }
-                      : {}),
-                  }));
-                  const res = await createCriteriaCatalogSet({
-                    name: saveAsSetDraft.name.trim(),
-                    ...(saveAsSetDraft.description.trim()
-                      ? { description: saveAsSetDraft.description.trim() }
-                      : {}),
-                    fields,
-                  });
-                  if (!res.success) throw new Error("Failed to create set");
-                  const newSet = res.data.set;
-                  // Auto-apply v1 to this campaign
-                  await applyCriteriaCatalog(campaign.id, newSet.id, 1);
-                  setLocalCriteriaSetId(newSet.id);
-                  setLocalCriteriaSetVersion(1);
-                  onCampaignUpdate?.({
-                    criteria_set_id: newSet.id,
-                    criteria_set_version: 1,
-                  });
-                  toast.success(`Saved as "${newSet.name}" v1 and applied.`);
-                  setSaveAsSetOpen(false);
-                } catch (err: any) {
-                  toast.error(err?.message || "Failed to save as set.");
-                } finally {
-                  setSavingAsSet(false);
-                }
-              }}
+              disabled={
+                savingCriteriaToSet ||
+                (saveCriteriaToSetMode === "new_set" &&
+                  !saveCriteriaToSetDraft.name.trim())
+              }
+              onClick={saveCurrentCriteriaToCatalog}
             >
-              {savingAsSet ? "Saving…" : "Save & Apply"}
+              {savingCriteriaToSet ? "Saving…" : "Save & Apply"}
             </Button>
           </div>
         </div>
@@ -7023,76 +9841,237 @@ export function CampaignDetailModal({
                     <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
                       Lead Cap
                     </p>
-                    <div className="flex items-center gap-2">
-                      <input
-                        className={inputClass}
-                        type="number"
-                        min={1}
-                        placeholder="Uncapped"
-                        value={affiliateCapDraft}
-                        onChange={(e) => setAffiliateCapDraft(e.target.value)}
-                      />
-                      <Button
-                        size="sm"
-                        disabled={savingAffiliateCap}
-                        onClick={async () => {
-                          const trimmed = affiliateCapDraft.trim();
-                          const parsed = Number(trimmed);
-                          if (!trimmed || Number.isNaN(parsed) || parsed < 1) {
-                            toast.warning(
-                              "Enter a cap of at least 1, or use Uncapped.",
-                            );
-                            return;
-                          }
-                          setSavingAffiliateCap(true);
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      iconLeft={<Gauge size={13} />}
+                      onClick={() => {
+                        setAffiliateCapModalId(pid);
+                        setParticipantAction(null);
+                      }}
+                    >
+                      Configure Lead Cap
+                    </Button>
+                    <p className="text-xs text-[--color-text-muted]">
+                      Set a maximum number of leads this affiliate can send per
+                      campaign.
+                    </p>
+                  </div>
+                )}
+
+                {!isClient && (
+                  <div className="space-y-2 border-t border-[--color-border] pt-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                      Sold Pixel
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        const existing = (
+                          currentLink as CampaignAffiliate | undefined
+                        )?.sold_pixel_config;
+                        setPixelDraft(
+                          existing
+                            ? {
+                                enabled: Boolean(existing.enabled),
+                                url: existing.url ?? "",
+                                method: existing.method ?? "POST",
+                                headers: existing.headers,
+                                payload_mapping: normalizePixelMappingRows(
+                                  existing.payload_mapping,
+                                  existing.parameter_mode ?? "query",
+                                ),
+                              }
+                            : defaultAffiliatePixelConfig(),
+                        );
+                        setPixelSaveAttempted(false);
+                        setPixelConfigTab("pixel");
+                        setPixelAffiliateId(pid);
+                        setParticipantAction(null);
+                      }}
+                    >
+                      Configure Sold Pixel
+                    </Button>
+                    <p className="text-xs text-[--color-text-muted]">
+                      Fire-and-forget callback sent only when this
+                      affiliate&apos;s lead is sold.
+                    </p>
+                  </div>
+                )}
+
+                {!isClient && (
+                  <div className="space-y-2 border-t border-[--color-border] pt-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                      Pixel Criteria
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setPixelConfigTab("pixel_criteria");
+                        setPixelSaveAttempted(false);
+                        const existing = (
+                          currentLink as CampaignAffiliate | undefined
+                        )?.sold_pixel_config;
+                        setPixelDraft(
+                          existing
+                            ? {
+                                enabled: Boolean(existing.enabled),
+                                url: existing.url ?? "",
+                                method: existing.method ?? "POST",
+                                headers: existing.headers,
+                                payload_mapping: normalizePixelMappingRows(
+                                  existing.payload_mapping,
+                                  existing.parameter_mode ?? "query",
+                                ),
+                              }
+                            : defaultAffiliatePixelConfig(),
+                        );
+                        setPixelAffiliateId(pid);
+                        setParticipantAction(null);
+                      }}
+                    >
+                      Manage Pixel Criteria
+                    </Button>
+                    <p className="text-xs text-[--color-text-muted]">
+                      Conditional rules that determine whether the sold pixel
+                      fires for this affiliate.
+                    </p>
+                  </div>
+                )}
+
+                {!isClient && (
+                  <div className="space-y-2 border-t border-[--color-border] pt-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                      Sold Criteria
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setPixelConfigTab("sold_criteria");
+                        setPixelSaveAttempted(false);
+                        const existing = (
+                          currentLink as CampaignAffiliate | undefined
+                        )?.sold_pixel_config;
+                        setPixelDraft(
+                          existing
+                            ? {
+                                enabled: Boolean(existing.enabled),
+                                url: existing.url ?? "",
+                                method: existing.method ?? "POST",
+                                headers: existing.headers,
+                                payload_mapping: normalizePixelMappingRows(
+                                  existing.payload_mapping,
+                                  existing.parameter_mode ?? "query",
+                                ),
+                              }
+                            : defaultAffiliatePixelConfig(),
+                        );
+                        setPixelAffiliateId(pid);
+                        setParticipantAction(null);
+                      }}
+                    >
+                      Manage Sold Criteria
+                    </Button>
+                    <p className="text-xs text-[--color-text-muted]">
+                      Conditional rules that determine whether a delivered lead
+                      counts as &quot;sold&quot; for this affiliate.
+                    </p>
+                  </div>
+                )}
+
+                {!isClient && (
+                  <div className="space-y-2 border-t border-[--color-border] pt-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                      Cherry Pick Override
+                    </p>
+                    <div className="flex items-center gap-3">
+                      <select
+                        className="rounded-lg border border-[--color-border] bg-[--color-bg] px-2.5 py-1.5 text-xs text-[--color-text] focus:outline-none focus:ring-2 focus:ring-[--color-primary]/40"
+                        value={
+                          (currentLink as CampaignAffiliate | undefined)
+                            ?.cherry_pick_override === true
+                            ? "true"
+                            : (currentLink as CampaignAffiliate | undefined)
+                                  ?.cherry_pick_override === false
+                              ? "false"
+                              : "inherit"
+                        }
+                        onChange={async (e) => {
+                          const raw = e.target.value;
+                          const val =
+                            raw === "true"
+                              ? true
+                              : raw === "false"
+                                ? false
+                                : null;
                           try {
-                            await onUpdateAffiliateLeadCap(
-                              campaign.id,
+                            const res = await updateAffiliateCherryPickOverride(
+                              campaign!.id,
                               pid,
-                              parsed,
+                              val,
                             );
-                            setLocalAffiliateLinks((prev) =>
-                              prev.map((l) =>
-                                l.affiliate_id === pid
-                                  ? { ...l, lead_cap: parsed }
-                                  : l,
-                              ),
+                            if (res.success) {
+                              toast.success("Cherry pick override updated.");
+                              setLocalAffiliateLinks((prev) =>
+                                prev.map((l) =>
+                                  l.affiliate_id === pid
+                                    ? {
+                                        ...l,
+                                        cherry_pick_override: val ?? undefined,
+                                      }
+                                    : l,
+                                ),
+                              );
+                            } else {
+                              toast.error(
+                                (res as any).message ||
+                                  "Failed to update override",
+                              );
+                            }
+                          } catch {
+                            toast.error(
+                              "Failed to update cherry pick override.",
                             );
-                          } finally {
-                            setSavingAffiliateCap(false);
                           }
                         }}
                       >
-                        Save
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={savingAffiliateCap}
-                        onClick={async () => {
-                          setSavingAffiliateCap(true);
-                          try {
-                            await onUpdateAffiliateLeadCap(
-                              campaign.id,
-                              pid,
-                              null,
-                            );
-                            setAffiliateCapDraft("");
-                            setLocalAffiliateLinks((prev) =>
-                              prev.map((l) =>
-                                l.affiliate_id === pid
-                                  ? { ...l, lead_cap: null }
-                                  : l,
-                              ),
-                            );
-                          } finally {
-                            setSavingAffiliateCap(false);
-                          }
-                        }}
-                      >
-                        Uncapped
-                      </Button>
+                        <option value="inherit">
+                          Inherit from campaign (
+                          {campaign?.default_cherry_pickable
+                            ? "enabled"
+                            : "disabled"}
+                          )
+                        </option>
+                        <option value="true">Always cherry-pickable</option>
+                        <option value="false">Never cherry-pickable</option>
+                      </select>
                     </div>
+                    <p className="text-xs text-[--color-text-muted]">
+                      Controls whether rejected leads from this affiliate are
+                      automatically marked as cherry-pickable.
+                    </p>
+                  </div>
+                )}
+
+                {!isClient && (
+                  <div className="space-y-2 border-t border-[--color-border] pt-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                      Logic Rules
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openAffiliateLogicManager(pid)}
+                    >
+                      Manage Logic Rules
+                    </Button>
+                    <p className="text-xs text-[--color-text-muted]">
+                      Override or extend the campaign logic rules for this
+                      affiliate specifically.
+                    </p>
                   </div>
                 )}
 
@@ -7114,10 +10093,9 @@ export function CampaignDetailModal({
                                 url: existing.url ?? "",
                                 method: existing.method ?? "POST",
                                 headers: existing.headers,
-                                payload_mapping:
-                                  existing.payload_mapping?.length > 0
-                                    ? existing.payload_mapping
-                                    : [],
+                                payload_mapping: normalizeDeliveryMappingRows(
+                                  existing.payload_mapping,
+                                ),
                                 acceptance_rules:
                                   existing.acceptance_rules?.length > 0
                                     ? existing.acceptance_rules
@@ -7125,6 +10103,7 @@ export function CampaignDetailModal({
                               }
                             : defaultDeliveryConfig(),
                         );
+                        setDeliverySaveAttempted(false);
                         setDeliveryTab("request");
                         setDeliveryClientId(pid);
                         setParticipantAction(null);
@@ -7132,6 +10111,21 @@ export function CampaignDetailModal({
                     >
                       Configure Delivery
                     </Button>
+                    <p className="text-xs text-[--color-text-muted]">
+                      Set the endpoint and payload mapping for delivering leads
+                      to this client.
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openClientLogicManager(pid)}
+                    >
+                      Manage Logic Rules
+                    </Button>
+                    <p className="text-xs text-[--color-text-muted]">
+                      Override or extend the campaign logic rules for this
+                      client specifically.
+                    </p>
                   </div>
                 )}
 
@@ -7170,6 +10164,869 @@ export function CampaignDetailModal({
           );
         })()}
 
+      {/* ── Participant Logic Rules Modal ────────────────────────────────── */}
+      <Modal
+        title={
+          pixelLogicIntroAffiliateId
+            ? `Affiliate Logic Rules — ${affiliates.find((a) => a.id === pixelLogicIntroAffiliateId)?.name || pixelLogicIntroAffiliateId}`
+            : deliveryLogicIntroClientId
+              ? `Client Logic Rules — ${clients.find((c) => c.id === deliveryLogicIntroClientId)?.name || deliveryLogicIntroClientId}`
+              : "Logic Rules"
+        }
+        isOpen={!!(pixelLogicIntroAffiliateId || deliveryLogicIntroClientId)}
+        onClose={() => {
+          setPixelLogicIntroAffiliateId(null);
+          setDeliveryLogicIntroClientId(null);
+          setParticipantLogicCatalogOpen(false);
+          setParticipantLogicSetName(null);
+          setParticipantLogicBaseSetId(null);
+          setParticipantLogicBaseSetVersion(null);
+          setParticipantLogicBaseSetName(null);
+          setSaveParticipantLogicOpen(false);
+          setSaveParticipantLogicDraft({ name: "", description: "" });
+        }}
+        width={720}
+        bodyClassName="px-5 py-4 h-[620px] max-h-[80vh] overflow-hidden"
+      >
+        <div className="flex h-full min-h-0 flex-col gap-4">
+          {/* Catalog applied badge */}
+          {participantLogicSetId && (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] text-emerald-700">
+              Applied from catalog:{" "}
+              <strong>
+                {participantLogicSetName ??
+                  participantLogicCatalogSets.find(
+                    (s) => s.id === participantLogicSetId,
+                  )?.name ??
+                  participantLogicSetId}
+              </strong>{" "}
+              v{participantLogicSetVersion}
+            </div>
+          )}
+
+          {!participantLogicSetId &&
+            participantLogicBaseSetId &&
+            participantLogicBaseSetVersion != null && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
+                Modified from catalog:{" "}
+                <strong>
+                  {participantLogicBaseSetName ?? participantLogicBaseSetId}
+                </strong>{" "}
+                v{participantLogicBaseSetVersion}. Save to catalog to create a
+                new version or new set.
+              </div>
+            )}
+
+          {localLogicSetId && localLogicSetVersion != null && (
+            <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-[11px] text-sky-700">
+              Base campaign logic:{" "}
+              <strong>
+                {localLogicSetName ??
+                  logicCatalogSets.find((s) => s.id === localLogicSetId)
+                    ?.name ??
+                  localLogicSetId}
+              </strong>{" "}
+              <button
+                type="button"
+                className="underline decoration-dotted underline-offset-2 hover:text-sky-900 transition-colors"
+                onClick={() => {
+                  setPinnedBaseExpandedRules(new Set());
+                  setPinnedBaseLogicViewerOpen(true);
+                }}
+              >
+                v{localLogicSetVersion} — view rules
+              </button>
+              . Participants inherit campaign logic automatically.
+            </div>
+          )}
+
+          {participantLogicCatalogOpen ? (
+            /* ── Catalog browser ── */
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                  Logic Catalog
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setParticipantLogicCatalogOpen(false)}
+                  className="text-[--color-text-muted] hover:text-[--color-text] transition-colors"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              {participantLogicCatalogLoading ? (
+                <p className="text-sm text-[--color-text-muted]">Loading…</p>
+              ) : participantLogicCatalogSets.length === 0 ? (
+                <p className="text-sm text-[--color-text-muted]">
+                  No logic catalog sets found.
+                </p>
+              ) : (
+                <div className="min-h-0 flex-1 overflow-y-auto divide-y divide-[--color-border] rounded-xl border border-[--color-border]">
+                  {participantLogicCatalogSets.map((set) => (
+                    <div key={set.id}>
+                      <div
+                        className="flex items-center gap-3 px-4 py-3 bg-[--color-bg] hover:bg-[--color-bg-muted] transition-colors cursor-pointer"
+                        onClick={async () => {
+                          if (participantExpandedSetId === set.id) {
+                            setParticipantExpandedSetId(null);
+                            return;
+                          }
+                          setParticipantExpandedSetId(set.id);
+                          if (participantSetVersionsMap[set.id]) return;
+                          setParticipantLoadingVersionsFor(set.id);
+                          try {
+                            const res = await getLogicCatalogSet(set.id);
+                            if (res.success) {
+                              setParticipantSetVersionsMap((prev) => ({
+                                ...prev,
+                                [set.id]: res.data.versions,
+                              }));
+                            }
+                          } catch {
+                            toast.error(
+                              "Failed to load logic catalog versions.",
+                            );
+                          } finally {
+                            setParticipantLoadingVersionsFor(null);
+                          }
+                        }}
+                      >
+                        <span className="text-[--color-text-muted]">
+                          {participantExpandedSetId === set.id ? (
+                            <ChevronDown size={14} />
+                          ) : (
+                            <ChevronRight size={14} />
+                          )}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium text-[--color-text-strong] text-[13px]">
+                              {set.name}
+                            </span>
+                            <span className="font-mono text-[10px] text-[--color-text-muted] bg-[--color-bg-muted] border border-[--color-border] rounded px-1.5 py-0.5">
+                              v{set.latest_version}
+                            </span>
+                            {participantLogicSetId === set.id && (
+                              <span className="text-[10px] font-medium text-emerald-600 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5">
+                                Active
+                              </span>
+                            )}
+                          </div>
+                          {set.description && (
+                            <p className="mt-0.5 text-[11px] text-[--color-text-muted]">
+                              {set.description}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <AnimatePresence initial={false}>
+                        {participantExpandedSetId === set.id && (
+                          <motion.div
+                            key={`participant-logic-versions-${set.id}`}
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: "auto", opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.2, ease: "easeOut" }}
+                            style={{ overflow: "hidden" }}
+                            className="bg-[--color-bg-muted] border-t border-[--color-border]"
+                          >
+                            {participantLoadingVersionsFor === set.id ? (
+                              <p className="px-6 py-3 text-xs text-[--color-text-muted]">
+                                Loading versions…
+                              </p>
+                            ) : (participantSetVersionsMap[set.id] ?? [])
+                                .length === 0 ? (
+                              <p className="px-6 py-3 text-xs text-[--color-text-muted]">
+                                No versions found.
+                              </p>
+                            ) : (
+                              [...(participantSetVersionsMap[set.id] ?? [])]
+                                .sort((a, b) => b.version - a.version)
+                                .map((version) => {
+                                  const isApplied =
+                                    participantLogicSetId === set.id &&
+                                    participantLogicSetVersion ===
+                                      version.version;
+                                  const applyKey = `${set.id}#v${version.version}`;
+                                  return (
+                                    <div
+                                      key={version.version}
+                                      className="border-b last:border-0 border-[--color-border]"
+                                    >
+                                      <div className="flex items-center gap-3 px-6 py-2.5">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setParticipantExpandedVersionRules(
+                                              (prev) => {
+                                                const next = new Set(prev);
+                                                if (next.has(applyKey))
+                                                  next.delete(applyKey);
+                                                else next.add(applyKey);
+                                                return next;
+                                              },
+                                            );
+                                          }}
+                                          className="flex items-center gap-1.5 flex-1 min-w-0 text-left"
+                                        >
+                                          <span className="text-[--color-text-muted]">
+                                            {participantExpandedVersionRules.has(
+                                              applyKey,
+                                            ) ? (
+                                              <ChevronDown size={11} />
+                                            ) : (
+                                              <ChevronRight size={11} />
+                                            )}
+                                          </span>
+                                          <span className="font-mono text-[11px] font-semibold text-[--color-text-strong] w-6">
+                                            v{version.version}
+                                          </span>
+                                          <span className="text-[11px] text-[--color-text-muted]">
+                                            {version.rules.length} rule
+                                            {version.rules.length !== 1
+                                              ? "s"
+                                              : ""}
+                                          </span>
+                                        </button>
+                                        {isApplied ? (
+                                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600">
+                                            <Check size={11} />
+                                            Applied
+                                          </span>
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            disabled={
+                                              participantLogicApplyingCatalogId !==
+                                              null
+                                            }
+                                            onClick={() =>
+                                              handleApplyParticipantLogicCatalog(
+                                                set,
+                                                version.version,
+                                              )
+                                            }
+                                            className="inline-flex items-center gap-1 rounded-md border border-[--color-border] bg-[--color-surface] px-2.5 py-1 text-[11px] font-medium text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg] disabled:opacity-50 transition-colors"
+                                          >
+                                            {participantLogicApplyingCatalogId ===
+                                            applyKey
+                                              ? "Applying…"
+                                              : "Apply"}
+                                          </button>
+                                        )}
+                                      </div>
+
+                                      <AnimatePresence initial={false}>
+                                        {participantExpandedVersionRules.has(
+                                          applyKey,
+                                        ) && (
+                                          <motion.div
+                                            key={`participant-logic-rules-${applyKey}`}
+                                            initial={{ height: 0, opacity: 0 }}
+                                            animate={{
+                                              height: "auto",
+                                              opacity: 1,
+                                            }}
+                                            exit={{ height: 0, opacity: 0 }}
+                                            transition={{
+                                              duration: 0.18,
+                                              ease: "easeOut",
+                                            }}
+                                            style={{ overflow: "hidden" }}
+                                          >
+                                            {version.rules.length === 0 ? (
+                                              <p className="px-10 pb-3 text-[11px] text-[--color-text-muted]">
+                                                No rules in this version.
+                                              </p>
+                                            ) : (
+                                              <div className="space-y-1 border-t border-[--color-border] bg-[--color-bg] px-10 py-2.5">
+                                                {version.rules.map((rule) => {
+                                                  const ruleDetailKey = `${applyKey}#rule:${rule.id}`;
+                                                  const condCount =
+                                                    rule.groups.reduce(
+                                                      (acc, group) =>
+                                                        acc +
+                                                        group.conditions.length,
+                                                      0,
+                                                    );
+                                                  return (
+                                                    <div
+                                                      key={rule.id}
+                                                      className="rounded-md border border-[--color-border] bg-[--color-bg-muted]"
+                                                    >
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                          setParticipantExpandedRuleDetails(
+                                                            (prev) => {
+                                                              const next =
+                                                                new Set(prev);
+                                                              if (
+                                                                next.has(
+                                                                  ruleDetailKey,
+                                                                )
+                                                              ) {
+                                                                next.delete(
+                                                                  ruleDetailKey,
+                                                                );
+                                                              } else {
+                                                                next.add(
+                                                                  ruleDetailKey,
+                                                                );
+                                                              }
+                                                              return next;
+                                                            },
+                                                          );
+                                                        }}
+                                                        className="flex w-full items-center gap-2 px-2.5 py-2 text-[11px]"
+                                                      >
+                                                        <span className="text-[--color-text-muted]">
+                                                          {participantExpandedRuleDetails.has(
+                                                            ruleDetailKey,
+                                                          ) ? (
+                                                            <ChevronDown
+                                                              size={11}
+                                                            />
+                                                          ) : (
+                                                            <ChevronRight
+                                                              size={11}
+                                                            />
+                                                          )}
+                                                        </span>
+                                                        <span
+                                                          className={`rounded px-1.5 py-0.5 font-semibold ${
+                                                            rule.action ===
+                                                            "pass"
+                                                              ? "bg-green-500/10 text-green-600"
+                                                              : "bg-red-500/10 text-red-500"
+                                                          }`}
+                                                        >
+                                                          {rule.action ===
+                                                          "pass"
+                                                            ? "Pass"
+                                                            : "Fail"}
+                                                        </span>
+                                                        <span className="flex-1 truncate text-[--color-text] text-left">
+                                                          {rule.name}
+                                                        </span>
+                                                        <span className="shrink-0 text-[10px] text-[--color-text-muted]">
+                                                          {rule.groups.length}{" "}
+                                                          group
+                                                          {rule.groups
+                                                            .length !== 1
+                                                            ? "s"
+                                                            : ""}{" "}
+                                                          · {condCount} cond.
+                                                        </span>
+                                                      </button>
+                                                      <AnimatePresence
+                                                        initial={false}
+                                                      >
+                                                        {participantExpandedRuleDetails.has(
+                                                          ruleDetailKey,
+                                                        ) && (
+                                                          <motion.div
+                                                            key={`participant-logic-rule-detail-${ruleDetailKey}`}
+                                                            initial={{
+                                                              height: 0,
+                                                              opacity: 0,
+                                                            }}
+                                                            animate={{
+                                                              height: "auto",
+                                                              opacity: 1,
+                                                            }}
+                                                            exit={{
+                                                              height: 0,
+                                                              opacity: 0,
+                                                            }}
+                                                            transition={{
+                                                              duration: 0.15,
+                                                              ease: "easeOut",
+                                                            }}
+                                                            style={{
+                                                              overflow:
+                                                                "hidden",
+                                                            }}
+                                                            className="border-t border-[--color-border] bg-[--color-bg] px-3 py-2"
+                                                          >
+                                                            <div className="space-y-2">
+                                                              {rule.groups.map(
+                                                                (
+                                                                  group,
+                                                                  groupIdx,
+                                                                ) => (
+                                                                  <div
+                                                                    key={`${rule.id}-group-${groupIdx}`}
+                                                                    className="rounded-md border border-[--color-border] bg-[--color-bg-muted] p-2"
+                                                                  >
+                                                                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                                                                      Group{" "}
+                                                                      {groupIdx +
+                                                                        1}
+                                                                    </p>
+                                                                    <div className="space-y-1">
+                                                                      {group.conditions.map(
+                                                                        (
+                                                                          condition,
+                                                                          condIdx,
+                                                                        ) => (
+                                                                          <p
+                                                                            key={`${rule.id}-group-${groupIdx}-cond-${condIdx}`}
+                                                                            className="text-[11px] text-[--color-text]"
+                                                                          >
+                                                                            <span className="font-medium">
+                                                                              {normalizeFieldLabel(
+                                                                                condition.field_name,
+                                                                              )}
+                                                                            </span>{" "}
+                                                                            <span className="text-[--color-text-muted]">
+                                                                              {formatLogicOperatorLabel(
+                                                                                condition.operator,
+                                                                              )}
+                                                                            </span>{" "}
+                                                                            <span className="font-mono text-[10px] text-[--color-text-muted]">
+                                                                              {formatLogicConditionValue(
+                                                                                condition.value,
+                                                                              )}
+                                                                            </span>
+                                                                          </p>
+                                                                        ),
+                                                                      )}
+                                                                    </div>
+                                                                  </div>
+                                                                ),
+                                                              )}
+                                                            </div>
+                                                          </motion.div>
+                                                        )}
+                                                      </AnimatePresence>
+                                                    </div>
+                                                  );
+                                                })}
+                                              </div>
+                                            )}
+                                          </motion.div>
+                                        )}
+                                      </AnimatePresence>
+                                    </div>
+                                  );
+                                })
+                            )}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            /* ── Rules list ── */
+            <>
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                {participantLogicLoading ? (
+                  <p className="text-sm text-[--color-text-muted]">Loading…</p>
+                ) : participantLogicRules.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-[--color-border] py-12 text-center text-sm text-[--color-text-muted]">
+                    No logic rules yet.{" "}
+                    <button
+                      type="button"
+                      className="text-[--color-primary] hover:underline"
+                      onClick={() => {
+                        setParticipantLogicEditingRule(null);
+                        setParticipantLogicBuilderOpen(true);
+                      }}
+                    >
+                      Add one
+                    </button>
+                    .
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {participantLogicRules.map((rule) => (
+                      <div
+                        key={rule.id}
+                        className="flex items-center gap-3 rounded-xl border border-[--color-border] bg-[--color-bg] px-4 py-3"
+                      >
+                        {/* Enable toggle */}
+                        <button
+                          type="button"
+                          onClick={() => handleToggleParticipantLogicRule(rule)}
+                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors ${
+                            rule.enabled
+                              ? "bg-[--color-primary]"
+                              : "bg-[--color-border]"
+                          }`}
+                          aria-label={`${rule.enabled ? "Disable" : "Enable"} rule`}
+                        >
+                          <span
+                            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition-transform ${
+                              rule.enabled ? "translate-x-4" : "translate-x-0"
+                            }`}
+                          />
+                        </button>
+
+                        {/* Action badge */}
+                        <span
+                          className={`shrink-0 rounded px-2 py-0.5 text-[11px] font-semibold ${
+                            rule.action === "pass"
+                              ? "bg-green-500/10 text-green-600"
+                              : "bg-red-500/10 text-red-500"
+                          }`}
+                        >
+                          {rule.action === "pass" ? "Pass" : "Fail"}
+                        </span>
+
+                        {/* Name */}
+                        <span
+                          className={`flex-1 text-sm truncate ${
+                            rule.enabled
+                              ? "text-[--color-text-strong]"
+                              : "text-[--color-text-muted] line-through"
+                          }`}
+                        >
+                          {rule.name}
+                        </span>
+
+                        {/* Group / condition count */}
+                        <span className="shrink-0 text-[11px] text-[--color-text-muted]">
+                          {rule.groups.length}{" "}
+                          {rule.groups.length === 1 ? "group" : "groups"}
+                          {" · "}
+                          {rule.groups.reduce(
+                            (acc, g) => acc + g.conditions.length,
+                            0,
+                          )}{" "}
+                          cond.
+                        </span>
+
+                        {/* Edit */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setParticipantLogicEditingRule(rule);
+                            setParticipantLogicBuilderOpen(true);
+                          }}
+                          className="shrink-0 text-[--color-text-muted] hover:text-[--color-text] transition-colors"
+                        >
+                          <Pencil size={13} />
+                        </button>
+
+                        {/* Delete */}
+                        <button
+                          type="button"
+                          disabled={participantLogicDeletingRuleId === rule.id}
+                          onClick={() =>
+                            handleDeleteParticipantLogicRule(rule.id)
+                          }
+                          className="shrink-0 text-[--color-text-muted] hover:text-red-500 transition-colors disabled:opacity-40"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer actions */}
+              <div className="flex items-center justify-between border-t border-[--color-border] pt-3">
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    iconLeft={<Plus size={14} />}
+                    onClick={() => {
+                      setParticipantLogicEditingRule(null);
+                      setParticipantLogicBuilderOpen(true);
+                    }}
+                  >
+                    Add Rule
+                  </Button>
+                  {participantLogicRules.length > 0 && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setSaveParticipantLogicMode(
+                          participantLogicBaseSetId ? "new_version" : "new_set",
+                        );
+                        setSaveParticipantLogicDraft({
+                          name: participantLogicBaseSetName ?? "",
+                          description: "",
+                        });
+                        setSaveParticipantLogicOpen(true);
+                      }}
+                    >
+                      Save to Catalog
+                    </Button>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {participantLogicType === "client" &&
+                    deliveryLogicIntroClientId && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={syncingClientLogicToCampaign}
+                        onClick={handleSyncClientLogicToCampaign}
+                      >
+                        {syncingClientLogicToCampaign
+                          ? "Syncing…"
+                          : "Sync to Campaign Logic"}
+                      </Button>
+                    )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={openParticipantLogicCatalog}
+                  >
+                    Apply from Logic Catalog
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </Modal>
+
+      {/* ── Pinned Base Campaign Logic Viewer ─────────────────────────── */}
+      <Modal
+        title={`Base Campaign Logic — ${localLogicSetName ?? localLogicSetId ?? "Campaign"} v${localLogicSetVersion ?? "?"}`}
+        isOpen={pinnedBaseLogicViewerOpen}
+        onClose={() => setPinnedBaseLogicViewerOpen(false)}
+        width={620}
+        bodyClassName="px-5 py-4 max-h-[70vh] overflow-y-auto"
+      >
+        <div className="space-y-2">
+          {logicRules.length === 0 ? (
+            <p className="text-sm text-[--color-text-muted]">
+              No campaign-level logic rules defined.
+            </p>
+          ) : (
+            logicRules.map((rule: any) => {
+              const expanded = pinnedBaseExpandedRules.has(rule.id);
+              return (
+                <div
+                  key={rule.id}
+                  className="rounded-lg border border-[--color-border] bg-[--color-bg]"
+                >
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left"
+                    onClick={() =>
+                      setPinnedBaseExpandedRules((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(rule.id)) next.delete(rule.id);
+                        else next.add(rule.id);
+                        return next;
+                      })
+                    }
+                  >
+                    <ChevronRight
+                      size={14}
+                      className={`shrink-0 text-[--color-text-muted] transition-transform ${expanded ? "rotate-90" : ""}`}
+                    />
+                    <span className="flex-1 text-sm font-medium text-[--color-text]">
+                      {rule.name}
+                    </span>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                        rule.action === "pass"
+                          ? "bg-emerald-100 text-emerald-700"
+                          : "bg-red-100 text-red-700"
+                      }`}
+                    >
+                      {rule.action}
+                    </span>
+                    {!rule.enabled && (
+                      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-gray-500">
+                        disabled
+                      </span>
+                    )}
+                  </button>
+                  {expanded && (
+                    <div className="border-t border-[--color-border] px-3 py-2 space-y-2">
+                      {(rule.groups ?? []).map((group: any, gi: number) => (
+                        <div
+                          key={group.id ?? gi}
+                          className="rounded-md border border-[--color-border] bg-[--color-bg-muted] px-3 py-2"
+                        >
+                          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                            Group {gi + 1}{" "}
+                            <span className="font-normal">
+                              (all conditions must match)
+                            </span>
+                          </p>
+                          <div className="space-y-1">
+                            {(group.conditions ?? []).map(
+                              (cond: any, ci: number) => (
+                                <div
+                                  key={cond.id ?? ci}
+                                  className="flex items-center gap-2 text-xs text-[--color-text]"
+                                >
+                                  <span className="font-mono text-[--color-primary]">
+                                    {cond.field_name}
+                                  </span>
+                                  <span className="text-[--color-text-muted]">
+                                    {(cond.operator ?? "").replace(/_/g, " ")}
+                                  </span>
+                                  {cond.value !== undefined && (
+                                    <span className="font-medium">
+                                      {Array.isArray(cond.value)
+                                        ? cond.value.join(", ")
+                                        : String(cond.value)}
+                                    </span>
+                                  )}
+                                </div>
+                              ),
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                      {(!rule.groups || rule.groups.length === 0) && (
+                        <p className="text-xs text-[--color-text-muted]">
+                          No condition groups defined.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </Modal>
+
+      {/* ── Save participant logic to catalog ───────────────────────────── */}
+      <Modal
+        title="Save Logic Rules to Catalog"
+        isOpen={saveParticipantLogicOpen}
+        onClose={() => setSaveParticipantLogicOpen(false)}
+        width={470}
+      >
+        <div className="space-y-4 text-sm">
+          <p className="text-[13px] text-[--color-text-muted]">
+            Save these participant-specific rules as either a new version of the
+            active logic catalog entry or as a brand new catalog set.
+          </p>
+
+          <div className="space-y-2">
+            <label className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+              Save Mode
+            </label>
+            <div className="grid grid-cols-1 gap-2">
+              <button
+                type="button"
+                disabled={!participantLogicBaseSetId}
+                onClick={() => setSaveParticipantLogicMode("new_version")}
+                className={`rounded-lg border px-3 py-2 text-left transition-colors ${
+                  saveParticipantLogicMode === "new_version"
+                    ? "border-[--color-primary] bg-[--color-primary]/10"
+                    : "border-[--color-border] bg-[--color-bg]"
+                } ${!participantLogicBaseSetId ? "opacity-50 cursor-not-allowed" : ""}`}
+              >
+                <p className="text-xs font-medium text-[--color-text]">
+                  Save as new version
+                </p>
+                <p className="text-[11px] text-[--color-text-muted]">
+                  {participantLogicBaseSetId
+                    ? `Adds a version to ${participantLogicBaseSetName ?? participantLogicBaseSetId}.`
+                    : "No active catalog applied on this participant yet."}
+                </p>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSaveParticipantLogicMode("new_set")}
+                className={`rounded-lg border px-3 py-2 text-left transition-colors ${
+                  saveParticipantLogicMode === "new_set"
+                    ? "border-[--color-primary] bg-[--color-primary]/10"
+                    : "border-[--color-border] bg-[--color-bg]"
+                }`}
+              >
+                <p className="text-xs font-medium text-[--color-text]">
+                  Save as new set
+                </p>
+                <p className="text-[11px] text-[--color-text-muted]">
+                  Creates a brand new catalog entry with version 1.
+                </p>
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+              Set Name{saveParticipantLogicMode === "new_set" ? " *" : ""}
+            </label>
+            <input
+              type="text"
+              value={saveParticipantLogicDraft.name}
+              onChange={(e) =>
+                setSaveParticipantLogicDraft((draft) => ({
+                  ...draft,
+                  name: e.target.value,
+                }))
+              }
+              placeholder="e.g. Happy Law Overrides"
+              className="w-full rounded-md border border-[--color-border] bg-[--color-bg] px-3 py-2 text-sm text-[--color-text] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-1 focus:ring-[--color-primary]"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+              Description
+            </label>
+            <input
+              type="text"
+              value={saveParticipantLogicDraft.description}
+              onChange={(e) =>
+                setSaveParticipantLogicDraft((draft) => ({
+                  ...draft,
+                  description: e.target.value,
+                }))
+              }
+              placeholder="Optional"
+              className="w-full rounded-md border border-[--color-border] bg-[--color-bg] px-3 py-2 text-sm text-[--color-text] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-1 focus:ring-[--color-primary]"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSaveParticipantLogicOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={
+                savingParticipantLogicToCatalog ||
+                (saveParticipantLogicMode === "new_set" &&
+                  !saveParticipantLogicDraft.name.trim())
+              }
+              onClick={saveParticipantLogicToCatalog}
+            >
+              {savingParticipantLogicToCatalog ? "Saving…" : "Save & Apply"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Participant rule builder modal ───────────────────────────────── */}
+      <LogicBuilderModal
+        isOpen={participantLogicBuilderOpen}
+        onClose={() => {
+          setParticipantLogicBuilderOpen(false);
+          setParticipantLogicEditingRule(null);
+        }}
+        onSave={handleSaveParticipantLogicRule}
+        rule={participantLogicEditingRule}
+        criteriaFields={criteriaFields}
+        saving={participantLogicSaving}
+      />
+
       <Modal
         title={`Client Delivery${
           deliveryClientId
@@ -7177,7 +11034,10 @@ export function CampaignDetailModal({
             : ""
         }`}
         isOpen={!!deliveryClientId}
-        onClose={() => setDeliveryClientId(null)}
+        onClose={() => {
+          setDeliverySaveAttempted(false);
+          setDeliveryClientId(null);
+        }}
         width={720}
         bodyClassName="px-5 py-4 h-[620px] max-h-[80vh]"
       >
@@ -7233,11 +11093,11 @@ export function CampaignDetailModal({
                     </label>
                     <label className="space-y-1 md:col-span-1">
                       <span className="text-xs font-medium text-[--color-text-muted]">
-                        Webhook URL
+                        Webhook URL <span className="text-red-500">*</span>
                       </span>
                       <input
                         className={`${inputClass} ${
-                          !deliveryHasUrl
+                          deliveryInvalidUrl
                             ? "border-red-500/60 focus:border-red-500 focus:ring-red-500/25"
                             : ""
                         }`}
@@ -7255,13 +11115,13 @@ export function CampaignDetailModal({
 
                   <div
                     className={`space-y-2 rounded-lg border p-3 ${
-                      deliveryHasMappings
-                        ? "border-[--color-border]"
-                        : "border-red-500/60"
+                      deliveryInvalidMappings
+                        ? "border-red-500/60"
+                        : "border-[--color-border]"
                     }`}
                   >
                     <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
-                      Payload Mapping
+                      Payload Mapping <span className="text-red-500">*</span>
                     </p>
 
                     {criteriaFields.length > 0 &&
@@ -7303,6 +11163,7 @@ export function CampaignDetailModal({
                                       key: cf.field_name,
                                       value_source: "field" as const,
                                       field_name: cf.field_name,
+                                      parameter_target: "body" as const,
                                     }));
                                   if (toAdd.length === 0) return prev;
                                   const hasOnlyEmptyPlaceholder =
@@ -7325,62 +11186,118 @@ export function CampaignDetailModal({
                       })()}
 
                     <div className="space-y-2">
-                      {deliveryDraft.payload_mapping.map((row, idx) => (
-                        <div
-                          key={`map-${idx}`}
-                          className="grid gap-2 md:grid-cols-[minmax(0,1fr)_140px_minmax(0,1fr)_auto]"
-                        >
-                          <input
-                            className={inputClass}
-                            placeholder="Outbound key"
-                            value={row.key}
-                            onChange={(e) =>
-                              setDeliveryDraft((prev) => ({
-                                ...prev,
-                                payload_mapping: prev.payload_mapping.map(
-                                  (m, i) =>
-                                    i === idx
-                                      ? { ...m, key: e.target.value }
-                                      : m,
-                                ),
-                              }))
-                            }
-                          />
-                          <select
-                            className={inputClass}
-                            value={row.value_source}
-                            onChange={(e) => {
-                              const valueSource = e.target
-                                .value as ClientDeliveryConfig["payload_mapping"][number]["value_source"];
-                              setDeliveryDraft((prev) => ({
-                                ...prev,
-                                payload_mapping: prev.payload_mapping.map(
-                                  (m, i) =>
-                                    i === idx
-                                      ? {
-                                          ...m,
-                                          value_source: valueSource,
-                                          field_name:
-                                            valueSource === "field"
-                                              ? (m.field_name ?? "")
-                                              : undefined,
-                                          static_value:
-                                            valueSource === "static"
-                                              ? (m.static_value ?? "")
-                                              : undefined,
-                                        }
-                                      : m,
-                                ),
-                              }));
-                            }}
+                      <AnimatePresence initial={false}>
+                        {deliveryDraft.payload_mapping.map((row, idx) => (
+                          <motion.div
+                            key={`map-${idx}`}
+                            layout
+                            initial={{ opacity: 0, y: 6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -6 }}
+                            transition={{ duration: 0.18 }}
+                            className="grid gap-2 md:grid-cols-[minmax(0,1fr)_140px_minmax(0,1fr)_120px_auto]"
                           >
-                            <option value="field">Lead Field</option>
-                            <option value="static">Static Value</option>
-                          </select>
-                          {row.value_source === "field" ? (
+                            <input
+                              className={inputClass}
+                              placeholder="Outbound key"
+                              value={row.key}
+                              onChange={(e) =>
+                                setDeliveryDraft((prev) => ({
+                                  ...prev,
+                                  payload_mapping: prev.payload_mapping.map(
+                                    (m, i) =>
+                                      i === idx
+                                        ? { ...m, key: e.target.value }
+                                        : m,
+                                  ),
+                                }))
+                              }
+                            />
                             <select
                               className={inputClass}
-                              value={row.field_name ?? ""}
+                              value={row.value_source}
+                              onChange={(e) => {
+                                const valueSource = e.target
+                                  .value as ClientDeliveryConfig["payload_mapping"][number]["value_source"];
+                                setDeliveryDraft((prev) => ({
+                                  ...prev,
+                                  payload_mapping: prev.payload_mapping.map(
+                                    (m, i) =>
+                                      i === idx
+                                        ? {
+                                            ...m,
+                                            value_source: valueSource,
+                                            field_name:
+                                              valueSource === "field"
+                                                ? (m.field_name ?? "")
+                                                : undefined,
+                                            static_value:
+                                              valueSource === "static"
+                                                ? (m.static_value ?? "")
+                                                : undefined,
+                                          }
+                                        : m,
+                                  ),
+                                }));
+                              }}
+                            >
+                              <option value="field">Lead Field</option>
+                              <option value="static">Static Value</option>
+                            </select>
+                            {row.value_source === "field" ? (
+                              <select
+                                className={inputClass}
+                                value={row.field_name ?? ""}
+                                onChange={(e) =>
+                                  setDeliveryDraft((prev) => ({
+                                    ...prev,
+                                    payload_mapping: prev.payload_mapping.map(
+                                      (m, i) =>
+                                        i === idx
+                                          ? {
+                                              ...m,
+                                              field_name: e.target.value,
+                                            }
+                                          : m,
+                                    ),
+                                  }))
+                                }
+                              >
+                                <option value="">
+                                  {criteriaFields.length === 0
+                                    ? "No fields defined"
+                                    : "Select lead field\u2026"}
+                                </option>
+                                {criteriaFields.map((cf) => (
+                                  <option key={cf.id} value={cf.field_name}>
+                                    {cf.field_label}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <input
+                                className={inputClass}
+                                placeholder="static_value"
+                                value={String(row.static_value ?? "")}
+                                onChange={(e) =>
+                                  setDeliveryDraft((prev) => ({
+                                    ...prev,
+                                    payload_mapping: prev.payload_mapping.map(
+                                      (m, i) =>
+                                        i === idx
+                                          ? {
+                                              ...m,
+                                              static_value: e.target.value,
+                                            }
+                                          : m,
+                                    ),
+                                  }))
+                                }
+                              />
+                            )}
+                            <select
+                              className={inputClass}
+                              value={row.parameter_target ?? "body"}
                               onChange={(e) =>
                                 setDeliveryDraft((prev) => ({
                                   ...prev,
@@ -7389,60 +11306,39 @@ export function CampaignDetailModal({
                                       i === idx
                                         ? {
                                             ...m,
-                                            field_name: e.target.value,
+                                            parameter_target: e.target.value as
+                                              | "query"
+                                              | "body",
                                           }
                                         : m,
                                   ),
                                 }))
                               }
                             >
-                              <option value="">
-                                {criteriaFields.length === 0
-                                  ? "No fields defined"
-                                  : "Select lead field\u2026"}
-                              </option>
-                              {criteriaFields.map((cf) => (
-                                <option key={cf.id} value={cf.field_name}>
-                                  {cf.field_label}
-                                </option>
-                              ))}
+                              <option value="query">Query</option>
+                              <option value="body">Body</option>
                             </select>
-                          ) : (
-                            <input
-                              className={inputClass}
-                              placeholder="static_value"
-                              value={String(row.static_value ?? "")}
-                              onChange={(e) =>
+                            <button
+                              type="button"
+                              className="flex items-center justify-center rounded p-1.5 text-[--color-text-muted] hover:text-red-500 disabled:opacity-30 transition-colors"
+                              onClick={() =>
                                 setDeliveryDraft((prev) => ({
                                   ...prev,
-                                  payload_mapping: prev.payload_mapping.map(
-                                    (m, i) =>
-                                      i === idx
-                                        ? { ...m, static_value: e.target.value }
-                                        : m,
+                                  payload_mapping: prev.payload_mapping.filter(
+                                    (_, i) => i !== idx,
                                   ),
                                 }))
                               }
-                            />
-                          )}
-                          <button
-                            type="button"
-                            className="flex items-center justify-center rounded p-1.5 text-[--color-text-muted] hover:text-red-500 disabled:opacity-30 transition-colors"
-                            onClick={() =>
-                              setDeliveryDraft((prev) => ({
-                                ...prev,
-                                payload_mapping: prev.payload_mapping.filter(
-                                  (_, i) => i !== idx,
-                                ),
-                              }))
-                            }
-                            disabled={deliveryDraft.payload_mapping.length <= 1}
-                            title="Remove row"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      ))}
+                              disabled={
+                                deliveryDraft.payload_mapping.length <= 1
+                              }
+                              title="Remove row"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </motion.div>
+                        ))}
+                      </AnimatePresence>
                     </div>
 
                     <button
@@ -7453,7 +11349,12 @@ export function CampaignDetailModal({
                           ...prev,
                           payload_mapping: [
                             ...prev.payload_mapping,
-                            { key: "", value_source: "field", field_name: "" },
+                            {
+                              key: "",
+                              value_source: "field",
+                              field_name: "",
+                              parameter_target: "body",
+                            },
                           ],
                         }))
                       }
@@ -7511,6 +11412,9 @@ export function CampaignDetailModal({
                           return {
                             key: m.key.trim(),
                             value: String(m.static_value ?? ""),
+                            target: (m.parameter_target ?? "body") as
+                              | "query"
+                              | "body",
                           };
                         }
                         const cf = criteriaFields.find(
@@ -7519,28 +11423,88 @@ export function CampaignDetailModal({
                         return {
                           key: m.key.trim(),
                           value: cf ? sampleValueFor(cf) : "\u2026",
+                          target: (m.parameter_target ?? "body") as
+                            | "query"
+                            | "body",
                         };
                       });
 
                     if (previewEntries.length === 0) return null;
 
-                    const lines = [
+                    const queryEntries = previewEntries.filter(
+                      (entry) => entry.target === "query",
+                    );
+                    const bodyEntries = previewEntries.filter(
+                      (entry) => entry.target === "body",
+                    );
+                    const hasQuery = queryEntries.length > 0;
+                    const hasBody = bodyEntries.length > 0;
+
+                    if (!hasQuery && !hasBody) return null;
+
+                    const baseUrl =
+                      deliveryDraft.url.trim() ||
+                      "https://buyer.example.com/leads";
+                    const queryPreviewUrl = (() => {
+                      try {
+                        const url = new URL(baseUrl);
+                        for (const entry of queryEntries) {
+                          url.searchParams.set(entry.key, entry.value);
+                        }
+                        return url.toString();
+                      } catch {
+                        const query = queryEntries
+                          .map(
+                            (entry) =>
+                              `${encodeURIComponent(entry.key)}=${encodeURIComponent(entry.value)}`,
+                          )
+                          .join("&");
+                        return query ? `${baseUrl}?${query}` : baseUrl;
+                      }
+                    })();
+
+                    const bodyLines = [
                       "{",
-                      ...previewEntries.map(
+                      ...bodyEntries.map(
                         (e, i) =>
-                          `  "${e.key}": "${e.value}"${i < previewEntries.length - 1 ? "," : ""}`,
+                          `  "${e.key}": "${e.value}"${i < bodyEntries.length - 1 ? "," : ""}`,
                       ),
                       "}",
                     ];
 
                     return (
-                      <div className="rounded-lg border border-[--color-border] bg-[--color-bg-muted] p-3">
-                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
-                          Expected Payload Preview
-                        </p>
-                        <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-[--color-text]">
-                          {lines.join("\n")}
-                        </pre>
+                      <div className="space-y-2 rounded-lg border border-[--color-border] bg-[--color-bg-muted] p-3">
+                        {hasQuery && (
+                          <details
+                            className="rounded-md border border-[--color-border] bg-[--color-panel]"
+                            open
+                          >
+                            <summary className="cursor-pointer px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                              Expected URL with Query Params
+                            </summary>
+                            <div className="border-t border-[--color-border] p-3">
+                              <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-[--color-text]">
+                                {queryPreviewUrl}
+                              </pre>
+                            </div>
+                          </details>
+                        )}
+
+                        {hasBody && (
+                          <details
+                            className="rounded-md border border-[--color-border] bg-[--color-panel]"
+                            open={!hasQuery}
+                          >
+                            <summary className="cursor-pointer px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                              Expected Payload Preview
+                            </summary>
+                            <div className="border-t border-[--color-border] p-3">
+                              <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-[--color-text]">
+                                {bodyLines.join("\n")}
+                              </pre>
+                            </div>
+                          </details>
+                        )}
                       </div>
                     );
                   })()}
@@ -7549,15 +11513,16 @@ export function CampaignDetailModal({
                 <div className="space-y-3">
                   <div
                     className={`space-y-2 rounded-lg border p-3 ${
-                      deliveryHasValidationRule
-                        ? "border-[--color-border]"
-                        : "border-red-500/60"
+                      deliveryInvalidRules
+                        ? "border-red-500/60"
+                        : "border-[--color-border]"
                     }`}
                   >
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
-                          Acceptance Rules
+                          Acceptance Rules{" "}
+                          <span className="text-red-500">*</span>
                         </p>
                         <p className="text-[11px] text-[--color-text-muted] mt-0.5">
                           Rules are evaluated as OR (first match wins). Matching
@@ -7566,91 +11531,99 @@ export function CampaignDetailModal({
                       </div>
                     </div>
                     <div className="space-y-2">
-                      {deliveryDraft.acceptance_rules.map((rule, idx) => (
-                        <div
-                          key={`rule-${idx}`}
-                          className="grid gap-2 md:grid-cols-[minmax(0,1fr)_110px_auto]"
-                        >
-                          <input
-                            className={inputClass}
-                            placeholder="Response contains..."
-                            value={rule.match_value}
-                            onChange={(e) =>
-                              setDeliveryDraft((prev) => ({
-                                ...prev,
-                                acceptance_rules: prev.acceptance_rules.map(
-                                  (r, i) =>
-                                    i === idx
-                                      ? { ...r, match_value: e.target.value }
-                                      : r,
-                                ),
-                              }))
-                            }
-                          />
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setDeliveryDraft((prev) => ({
-                                ...prev,
-                                acceptance_rules: prev.acceptance_rules.map(
-                                  (r, i) =>
-                                    i === idx
-                                      ? {
-                                          ...r,
-                                          action:
-                                            r.action === "passed"
-                                              ? "failed"
-                                              : "passed",
-                                        }
-                                      : r,
-                                ),
-                              }))
-                            }
-                            className={`flex w-[100px] items-center justify-between rounded-full border px-1 py-1 text-xs font-semibold transition-colors ${
-                              rule.action === "passed"
-                                ? "border-green-500/40 bg-green-500/10"
-                                : "border-red-500/40 bg-red-500/10"
-                            }`}
+                      <AnimatePresence initial={false}>
+                        {deliveryDraft.acceptance_rules.map((rule, idx) => (
+                          <motion.div
+                            key={`rule-${idx}`}
+                            layout
+                            initial={{ opacity: 0, y: 6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -6 }}
+                            transition={{ duration: 0.18 }}
+                            className="grid gap-2 md:grid-cols-[minmax(0,1fr)_110px_auto]"
                           >
-                            <span
-                              className={`flex h-5 w-5 items-center justify-center rounded-full text-white transition-all ${
+                            <input
+                              className={inputClass}
+                              placeholder="Response contains..."
+                              value={rule.match_value}
+                              onChange={(e) =>
+                                setDeliveryDraft((prev) => ({
+                                  ...prev,
+                                  acceptance_rules: prev.acceptance_rules.map(
+                                    (r, i) =>
+                                      i === idx
+                                        ? { ...r, match_value: e.target.value }
+                                        : r,
+                                  ),
+                                }))
+                              }
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDeliveryDraft((prev) => ({
+                                  ...prev,
+                                  acceptance_rules: prev.acceptance_rules.map(
+                                    (r, i) =>
+                                      i === idx
+                                        ? {
+                                            ...r,
+                                            action:
+                                              r.action === "passed"
+                                                ? "failed"
+                                                : "passed",
+                                          }
+                                        : r,
+                                  ),
+                                }))
+                              }
+                              className={`flex w-[100px] items-center justify-between rounded-full border px-1 py-1 text-xs font-semibold transition-colors ${
                                 rule.action === "passed"
-                                  ? "bg-green-500"
-                                  : "bg-red-500"
+                                  ? "border-green-500/40 bg-green-500/10"
+                                  : "border-red-500/40 bg-red-500/10"
                               }`}
                             >
-                              {rule.action === "passed" ? "✓" : "✕"}
-                            </span>
-                            <span
-                              className={`flex-1 text-center ${
-                                rule.action === "passed"
-                                  ? "text-green-600"
-                                  : "text-red-500"
-                              }`}
+                              <span
+                                className={`flex h-5 w-5 items-center justify-center rounded-full text-white transition-all ${
+                                  rule.action === "passed"
+                                    ? "bg-green-500"
+                                    : "bg-red-500"
+                                }`}
+                              >
+                                {rule.action === "passed" ? "✓" : "✕"}
+                              </span>
+                              <span
+                                className={`flex-1 text-center ${
+                                  rule.action === "passed"
+                                    ? "text-green-600"
+                                    : "text-red-500"
+                                }`}
+                              >
+                                {rule.action === "passed" ? "Pass" : "Fail"}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              className="flex items-center justify-center rounded p-1.5 text-[--color-text-muted] hover:text-red-500 disabled:opacity-30 transition-colors"
+                              onClick={() =>
+                                setDeliveryDraft((prev) => ({
+                                  ...prev,
+                                  acceptance_rules:
+                                    prev.acceptance_rules.filter(
+                                      (_, i) => i !== idx,
+                                    ),
+                                }))
+                              }
+                              disabled={
+                                deliveryDraft.acceptance_rules.length <= 1
+                              }
+                              title="Remove rule"
                             >
-                              {rule.action === "passed" ? "Pass" : "Fail"}
-                            </span>
-                          </button>
-                          <button
-                            type="button"
-                            className="flex items-center justify-center rounded p-1.5 text-[--color-text-muted] hover:text-red-500 disabled:opacity-30 transition-colors"
-                            onClick={() =>
-                              setDeliveryDraft((prev) => ({
-                                ...prev,
-                                acceptance_rules: prev.acceptance_rules.filter(
-                                  (_, i) => i !== idx,
-                                ),
-                              }))
-                            }
-                            disabled={
-                              deliveryDraft.acceptance_rules.length <= 1
-                            }
-                            title="Remove rule"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      ))}
+                              <Trash2 size={14} />
+                            </button>
+                          </motion.div>
+                        ))}
+                      </AnimatePresence>
                     </div>
                     <button
                       type="button"
@@ -7673,16 +11646,19 @@ export function CampaignDetailModal({
               )}
             </div>
 
-            <div className="flex justify-end gap-2 border-t border-[--color-border] pt-3">
+            <div className="flex items-center justify-end gap-2 border-t border-[--color-border] pt-3">
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => setDeliveryClientId(null)}
+                onClick={() => {
+                  setDeliverySaveAttempted(false);
+                  setDeliveryClientId(null);
+                }}
               >
                 Cancel
               </Button>
-              <DisabledTooltip message={deliverySaveDisabledReason}>
-                <span className="inline-flex">
+              <div className="inline-flex">
+                <DisabledTooltip message={deliverySaveDisabledReason}>
                   <Button
                     size="sm"
                     disabled={
@@ -7690,6 +11666,7 @@ export function CampaignDetailModal({
                       Boolean(deliverySaveDisabledReason)
                     }
                     onClick={async () => {
+                      setDeliverySaveAttempted(true);
                       const trimmedUrl = deliveryDraft.url.trim();
                       if (!trimmedUrl) {
                         toast.warning("Webhook URL is required.");
@@ -7713,6 +11690,9 @@ export function CampaignDetailModal({
                       const hasBadMapping = deliveryDraft.payload_mapping.some(
                         (m) =>
                           !m.key.trim() ||
+                          (m.parameter_target !== undefined &&
+                            m.parameter_target !== "query" &&
+                            m.parameter_target !== "body") ||
                           (m.value_source === "field"
                             ? !(m.field_name ?? "").trim()
                             : String(m.static_value ?? "").trim().length === 0),
@@ -7748,11 +11728,15 @@ export function CampaignDetailModal({
                                     key: m.key.trim(),
                                     value_source: "field",
                                     field_name: (m.field_name ?? "").trim(),
+                                    parameter_target:
+                                      m.parameter_target ?? "body",
                                   }
                                 : {
                                     key: m.key.trim(),
                                     value_source: "static",
                                     static_value: m.static_value,
+                                    parameter_target:
+                                      m.parameter_target ?? "body",
                                   },
                           ),
                           acceptance_rules: deliveryDraft.acceptance_rules.map(
@@ -7784,12 +11768,1117 @@ export function CampaignDetailModal({
                   >
                     Save Delivery Config
                   </Button>
-                </span>
-              </DisabledTooltip>
+                </DisabledTooltip>
+              </div>
             </div>
           </div>
         )}
       </Modal>
+
+      {/* ── Affiliate Lead Cap Modal ───────────────────────────────────────── */}
+      <Modal
+        title={`Affiliate Lead Cap${
+          affiliateCapModalId
+            ? ` — ${affiliates.find((a) => a.id === affiliateCapModalId)?.name || affiliateCapModalId}`
+            : ""
+        }`}
+        isOpen={!!affiliateCapModalId}
+        onClose={() => setAffiliateCapModalId(null)}
+        width={420}
+      >
+        {affiliateCapModalId && (
+          <div className="space-y-4">
+            <p className="text-sm text-[--color-text-muted]">
+              Set a maximum number of leads this affiliate can submit for this
+              campaign. Leave blank for uncapped.
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                className={inputClass}
+                type="number"
+                min={1}
+                placeholder="Uncapped"
+                value={affiliateCapDraft}
+                onChange={(e) => setAffiliateCapDraft(e.target.value)}
+              />
+              <Button
+                size="sm"
+                disabled={savingAffiliateCap}
+                onClick={async () => {
+                  const trimmed = affiliateCapDraft.trim();
+                  const parsed = Number(trimmed);
+                  if (!trimmed || Number.isNaN(parsed) || parsed < 1) {
+                    toast.warning(
+                      "Enter a cap of at least 1, or use Uncapped.",
+                    );
+                    return;
+                  }
+                  setSavingAffiliateCap(true);
+                  try {
+                    await onUpdateAffiliateLeadCap(
+                      campaign.id,
+                      affiliateCapModalId,
+                      parsed,
+                    );
+                    setLocalAffiliateLinks((prev) =>
+                      prev.map((l) =>
+                        l.affiliate_id === affiliateCapModalId
+                          ? { ...l, lead_cap: parsed }
+                          : l,
+                      ),
+                    );
+                    setAffiliateCapModalId(null);
+                  } finally {
+                    setSavingAffiliateCap(false);
+                  }
+                }}
+              >
+                Save
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={savingAffiliateCap}
+                onClick={async () => {
+                  setSavingAffiliateCap(true);
+                  try {
+                    await onUpdateAffiliateLeadCap(
+                      campaign.id,
+                      affiliateCapModalId,
+                      null,
+                    );
+                    setAffiliateCapDraft("");
+                    setLocalAffiliateLinks((prev) =>
+                      prev.map((l) =>
+                        l.affiliate_id === affiliateCapModalId
+                          ? { ...l, lead_cap: null }
+                          : l,
+                      ),
+                    );
+                    setAffiliateCapModalId(null);
+                  } finally {
+                    setSavingAffiliateCap(false);
+                  }
+                }}
+              >
+                Uncapped
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        title={`${pixelConfigTab === "pixel" ? "Affiliate Sold Pixel" : pixelConfigTab === "pixel_criteria" ? "Pixel Criteria" : "Sold Criteria"}${
+          pixelAffiliateId
+            ? ` — ${affiliates.find((a) => a.id === pixelAffiliateId)?.name || pixelAffiliateId}`
+            : ""
+        }`}
+        isOpen={!!pixelAffiliateId}
+        onClose={() => {
+          setPixelSaveAttempted(false);
+          setPixelAffiliateId(null);
+          setPixelCriteriaAffiliateId(null);
+          setSoldCriteriaAffiliateId(null);
+          setPixelCriteriaRules([]);
+          setSoldCriteriaRules([]);
+        }}
+        width={720}
+        bodyClassName="px-5 py-4 h-[620px] max-h-[80vh]"
+      >
+        {pixelAffiliateId && (
+          <div className="flex h-full min-h-0 flex-col gap-4">
+            {/* ── Tab bar ────────────────────────────────── */}
+            <div className="flex gap-1 rounded-lg bg-[--color-bg-muted] p-1 shrink-0">
+              {(
+                [
+                  { key: "pixel", label: "Sold Pixel" },
+                  { key: "pixel_criteria", label: "Pixel Criteria" },
+                  { key: "sold_criteria", label: "Sold Criteria" },
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setPixelConfigTab(tab.key)}
+                  className={`flex-1 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    pixelConfigTab === tab.key
+                      ? "bg-[--color-panel] text-[--color-text] shadow-sm"
+                      : "text-[--color-text-muted] hover:text-[--color-text]"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* ── Sold Pixel tab ─────────────────────────── */}
+            {pixelConfigTab === "pixel" && (
+              <>
+                <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                  <div className="space-y-3">
+                    <div className="rounded-lg border border-[--color-border] bg-[--color-bg-muted] p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                            Enable Pixel
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-[--color-text-muted]">
+                            Fires only when this affiliate's lead is sold.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={pixelDraft.enabled}
+                          onClick={() =>
+                            setPixelDraft((prev) => ({
+                              ...prev,
+                              enabled: !prev.enabled,
+                            }))
+                          }
+                          className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition ${
+                            pixelDraft.enabled
+                              ? "bg-[--color-primary]"
+                              : "bg-[--color-border]"
+                          }`}
+                        >
+                          <span
+                            className={`inline-block h-5 w-5 transform rounded-full bg-[--color-bg] transition ${
+                              pixelDraft.enabled
+                                ? "translate-x-5"
+                                : "translate-x-1"
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <label className="space-y-1">
+                        <span className="text-xs font-medium text-[--color-text-muted]">
+                          Method
+                        </span>
+                        <select
+                          className={inputClass}
+                          value={pixelDraft.method}
+                          onChange={(e) =>
+                            setPixelDraft((prev) => ({
+                              ...prev,
+                              method: e.target
+                                .value as AffiliateSoldPixelConfig["method"],
+                            }))
+                          }
+                        >
+                          {(["POST", "GET", "PUT", "PATCH"] as const).map(
+                            (m) => (
+                              <option key={m} value={m}>
+                                {m}
+                              </option>
+                            ),
+                          )}
+                        </select>
+                      </label>
+                      <label className="space-y-1 md:col-span-1">
+                        <span className="text-xs font-medium text-[--color-text-muted]">
+                          Pixel URL <span className="text-red-500">*</span>
+                        </span>
+                        <input
+                          className={`${inputClass} ${
+                            pixelInvalidUrl
+                              ? "border-red-500/60 focus:border-red-500 focus:ring-red-500/25"
+                              : ""
+                          }`}
+                          value={pixelDraft.url}
+                          onChange={(e) =>
+                            setPixelDraft((prev) => ({
+                              ...prev,
+                              url: e.target.value,
+                            }))
+                          }
+                          placeholder="https://affiliate.example.com/pixel"
+                        />
+                      </label>
+                    </div>
+
+                    <p className="text-xs text-[--color-text-muted]">
+                      Choose query/body destination per mapping row below.
+                    </p>
+
+                    <div
+                      className={`space-y-2 rounded-lg border p-3 ${
+                        pixelInvalidMappings
+                          ? "border-red-500/60"
+                          : "border-[--color-border]"
+                      }`}
+                    >
+                      <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                        Payload Mapping <span className="text-red-500">*</span>
+                      </p>
+
+                      {criteriaFields.length > 0 &&
+                        (() => {
+                          const alreadyMapped = new Set(
+                            pixelDraft.payload_mapping
+                              .map((m) => m.field_name)
+                              .filter(Boolean),
+                          );
+                          const unmappedCount = criteriaFields.filter(
+                            (cf) => !alreadyMapped.has(cf.field_name),
+                          ).length;
+                          if (unmappedCount === 0) return null;
+                          return (
+                            <div className="flex items-center justify-between rounded-lg border border-[--color-border] bg-[--color-bg-muted] px-3 py-2.5">
+                              <div className="min-w-0">
+                                <p className="text-xs font-semibold text-[--color-text-strong]">
+                                  Import from criteria fields
+                                </p>
+                                <p className="mt-0.5 text-[11px] text-[--color-text-muted]">
+                                  Add all {unmappedCount} unmapped field
+                                  {unmappedCount !== 1 ? "s" : ""} at once.
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                className="ml-3 shrink-0 rounded-md border border-[--color-border] bg-[--color-panel] px-3 py-1.5 text-xs font-semibold text-[--color-text] hover:border-[--color-primary] hover:text-[--color-primary] transition-colors"
+                                onClick={() =>
+                                  setPixelDraft((prev) => {
+                                    const mapped = new Set(
+                                      prev.payload_mapping
+                                        .map((m) => m.field_name)
+                                        .filter(Boolean),
+                                    );
+                                    const toAdd = criteriaFields
+                                      .filter(
+                                        (cf) => !mapped.has(cf.field_name),
+                                      )
+                                      .map((cf) => ({
+                                        key: cf.field_name,
+                                        value_source: "field" as const,
+                                        field_name: cf.field_name,
+                                      }));
+                                    if (toAdd.length === 0) return prev;
+                                    const hasOnlyEmptyPlaceholder =
+                                      prev.payload_mapping.length === 1 &&
+                                      !prev.payload_mapping[0].key &&
+                                      !prev.payload_mapping[0].field_name;
+                                    return {
+                                      ...prev,
+                                      payload_mapping: hasOnlyEmptyPlaceholder
+                                        ? toAdd
+                                        : [...prev.payload_mapping, ...toAdd],
+                                    };
+                                  })
+                                }
+                              >
+                                Add All
+                              </button>
+                            </div>
+                          );
+                        })()}
+
+                      <div className="space-y-2">
+                        <AnimatePresence initial={false}>
+                          {pixelDraft.payload_mapping.map((row, idx) => (
+                            <motion.div
+                              key={`pixel-map-${idx}`}
+                              layout
+                              initial={{ opacity: 0, y: 6 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: -6 }}
+                              transition={{ duration: 0.18 }}
+                              className="grid gap-2 md:grid-cols-[minmax(0,1fr)_140px_minmax(0,1fr)_120px_auto]"
+                            >
+                              <input
+                                className={inputClass}
+                                placeholder="Outbound key"
+                                value={row.key}
+                                onChange={(e) =>
+                                  setPixelDraft((prev) => ({
+                                    ...prev,
+                                    payload_mapping: prev.payload_mapping.map(
+                                      (m, i) =>
+                                        i === idx
+                                          ? { ...m, key: e.target.value }
+                                          : m,
+                                    ),
+                                  }))
+                                }
+                              />
+                              <select
+                                className={inputClass}
+                                value={row.value_source}
+                                onChange={(e) => {
+                                  const valueSource = e.target
+                                    .value as AffiliateSoldPixelConfig["payload_mapping"][number]["value_source"];
+                                  setPixelDraft((prev) => ({
+                                    ...prev,
+                                    payload_mapping: prev.payload_mapping.map(
+                                      (m, i) =>
+                                        i === idx
+                                          ? {
+                                              ...m,
+                                              value_source: valueSource,
+                                              field_name:
+                                                valueSource === "field"
+                                                  ? (m.field_name ?? "")
+                                                  : undefined,
+                                              static_value:
+                                                valueSource === "static"
+                                                  ? (m.static_value ?? "")
+                                                  : undefined,
+                                            }
+                                          : m,
+                                    ),
+                                  }));
+                                }}
+                              >
+                                <option value="field">Lead Field</option>
+                                <option value="static">Static Value</option>
+                              </select>
+                              {row.value_source === "field" ? (
+                                <select
+                                  className={inputClass}
+                                  value={row.field_name ?? ""}
+                                  onChange={(e) =>
+                                    setPixelDraft((prev) => ({
+                                      ...prev,
+                                      payload_mapping: prev.payload_mapping.map(
+                                        (m, i) =>
+                                          i === idx
+                                            ? {
+                                                ...m,
+                                                field_name: e.target.value,
+                                              }
+                                            : m,
+                                      ),
+                                    }))
+                                  }
+                                >
+                                  <option value="">
+                                    {criteriaFields.length === 0
+                                      ? "No fields defined"
+                                      : "Select lead field…"}
+                                  </option>
+                                  {criteriaFields.map((cf) => (
+                                    <option key={cf.id} value={cf.field_name}>
+                                      {cf.field_label}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <input
+                                  className={inputClass}
+                                  placeholder="static_value"
+                                  value={String(row.static_value ?? "")}
+                                  onChange={(e) =>
+                                    setPixelDraft((prev) => ({
+                                      ...prev,
+                                      payload_mapping: prev.payload_mapping.map(
+                                        (m, i) =>
+                                          i === idx
+                                            ? {
+                                                ...m,
+                                                static_value: e.target.value,
+                                              }
+                                            : m,
+                                      ),
+                                    }))
+                                  }
+                                />
+                              )}
+                              <select
+                                className={`${inputClass} ${
+                                  pixelSaveAttempted &&
+                                  row.parameter_target !== "query" &&
+                                  row.parameter_target !== "body"
+                                    ? "border-red-500/60 focus:border-red-500 focus:ring-red-500/25"
+                                    : ""
+                                }`}
+                                value={row.parameter_target ?? ""}
+                                onChange={(e) =>
+                                  setPixelDraft((prev) => ({
+                                    ...prev,
+                                    payload_mapping: prev.payload_mapping.map(
+                                      (m, i) =>
+                                        i === idx
+                                          ? {
+                                              ...m,
+                                              parameter_target: e.target
+                                                .value as "query" | "body",
+                                            }
+                                          : m,
+                                    ),
+                                  }))
+                                }
+                              >
+                                <option value="">Target…</option>
+                                <option value="query">Query</option>
+                                <option value="body">Body</option>
+                              </select>
+                              <button
+                                type="button"
+                                className="flex items-center justify-center rounded p-1.5 text-[--color-text-muted] hover:text-red-500 disabled:opacity-30 transition-colors"
+                                onClick={() =>
+                                  setPixelDraft((prev) => ({
+                                    ...prev,
+                                    payload_mapping:
+                                      prev.payload_mapping.filter(
+                                        (_, i) => i !== idx,
+                                      ),
+                                  }))
+                                }
+                                disabled={
+                                  pixelDraft.payload_mapping.length <= 1
+                                }
+                                title="Remove row"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </motion.div>
+                          ))}
+                        </AnimatePresence>
+                      </div>
+
+                      <button
+                        type="button"
+                        className="mt-1 flex items-center gap-1 text-xs text-[--color-primary] hover:underline"
+                        onClick={() =>
+                          setPixelDraft((prev) => ({
+                            ...prev,
+                            payload_mapping: [
+                              ...prev.payload_mapping,
+                              {
+                                key: "",
+                                value_source: "field",
+                                field_name: "",
+                              },
+                            ],
+                          }))
+                        }
+                      >
+                        <Plus size={12} />
+                        Add mapping
+                      </button>
+                    </div>
+
+                    {(() => {
+                      const sampleValueFor = (
+                        field: CriteriaField | undefined,
+                      ): string => {
+                        if (!field) return "";
+                        const lbl = field.field_label.toLowerCase();
+                        if (lbl.includes("email")) return "john@example.com";
+                        if (lbl.includes("phone")) return "+1 (555) 867-5309";
+                        if (lbl.includes("first") && lbl.includes("name"))
+                          return "John";
+                        if (lbl.includes("last") && lbl.includes("name"))
+                          return "Doe";
+                        if (lbl.includes("name")) return "John Doe";
+                        if (lbl.includes("zip") || lbl.includes("postal"))
+                          return "90210";
+                        if (lbl.includes("city")) return "Los Angeles";
+                        if (
+                          lbl.includes("ip") ||
+                          field.field_name.toLowerCase().includes("ip")
+                        )
+                          return "203.0.113.42";
+                        if (lbl.includes("address")) return "123 Main St";
+                        if (lbl.includes("dob") || lbl.includes("birth"))
+                          return "1990-06-15";
+                        switch (field.data_type) {
+                          case "US State":
+                            return "CA";
+                          case "Number":
+                            return "30";
+                          case "Boolean":
+                            return "true";
+                          case "Date":
+                            return "2026-01-15";
+                          case "List":
+                            return field.options?.[0]?.value ?? "option1";
+                          default:
+                            return "Sample value";
+                        }
+                      };
+
+                      const previewEntries = pixelDraft.payload_mapping
+                        .filter((m) => m.key.trim())
+                        .map((m) => {
+                          if (m.value_source === "static") {
+                            return {
+                              key: m.key.trim(),
+                              value: String(m.static_value ?? ""),
+                              target: m.parameter_target,
+                            };
+                          }
+                          const cf = criteriaFields.find(
+                            (f) => f.field_name === m.field_name,
+                          );
+                          return {
+                            key: m.key.trim(),
+                            value: cf ? sampleValueFor(cf) : "…",
+                            target: m.parameter_target,
+                          };
+                        });
+
+                      if (previewEntries.length === 0) return null;
+
+                      const queryEntries = previewEntries.filter(
+                        (entry) => entry.target === "query",
+                      );
+                      const bodyEntries = previewEntries.filter(
+                        (entry) => entry.target === "body",
+                      );
+                      const hasQuery = queryEntries.length > 0;
+                      const hasBody = bodyEntries.length > 0;
+
+                      if (!hasQuery && !hasBody) return null;
+
+                      const baseUrl =
+                        pixelDraft.url.trim() ||
+                        "https://affiliate.example.com/pixel";
+                      const queryPreviewUrl = (() => {
+                        try {
+                          const url = new URL(baseUrl);
+                          for (const entry of queryEntries) {
+                            url.searchParams.set(entry.key, entry.value);
+                          }
+                          return url.toString();
+                        } catch {
+                          const query = queryEntries
+                            .map(
+                              (entry) =>
+                                `${encodeURIComponent(entry.key)}=${encodeURIComponent(entry.value)}`,
+                            )
+                            .join("&");
+                          return query ? `${baseUrl}?${query}` : baseUrl;
+                        }
+                      })();
+
+                      const bodyLines = [
+                        "{",
+                        ...bodyEntries.map(
+                          (e, i) =>
+                            `  "${e.key}": "${e.value}"${i < bodyEntries.length - 1 ? "," : ""}`,
+                        ),
+                        "}",
+                      ];
+
+                      return (
+                        <div className="space-y-2 rounded-lg border border-[--color-border] bg-[--color-bg-muted] p-3">
+                          {hasQuery && (
+                            <details
+                              className="rounded-md border border-[--color-border] bg-[--color-panel]"
+                              open
+                            >
+                              <summary className="cursor-pointer px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                                Expected URL with Query Params
+                              </summary>
+                              <div className="border-t border-[--color-border] p-3">
+                                <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-[--color-text]">
+                                  {queryPreviewUrl}
+                                </pre>
+                              </div>
+                            </details>
+                          )}
+
+                          {hasBody && (
+                            <details
+                              className="rounded-md border border-[--color-border] bg-[--color-panel]"
+                              open={!hasQuery}
+                            >
+                              <summary className="cursor-pointer px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                                Expected Payload Preview
+                              </summary>
+                              <div className="border-t border-[--color-border] p-3">
+                                <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-[--color-text]">
+                                  {bodyLines.join("\n")}
+                                </pre>
+                              </div>
+                            </details>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 border-t border-[--color-border] pt-3">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setPixelSaveAttempted(false);
+                      setPixelAffiliateId(null);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <div className="inline-flex">
+                    <DisabledTooltip message={pixelFinalSaveDisabledReason}>
+                      <Button
+                        size="sm"
+                        disabled={
+                          savingPixelConfig ||
+                          Boolean(pixelFinalSaveDisabledReason)
+                        }
+                        onClick={async () => {
+                          setPixelSaveAttempted(true);
+                          const trimmedUrl = pixelDraft.url.trim();
+                          if (!trimmedUrl) {
+                            toast.warning("Pixel URL is required.");
+                            return;
+                          }
+                          try {
+                            // eslint-disable-next-line no-new
+                            new URL(trimmedUrl);
+                          } catch {
+                            toast.warning("Enter a valid pixel URL.");
+                            return;
+                          }
+
+                          if (pixelDraft.payload_mapping.length === 0) {
+                            toast.warning(
+                              "At least one payload mapping is required.",
+                            );
+                            return;
+                          }
+
+                          const hasBadMapping = pixelDraft.payload_mapping.some(
+                            (m) =>
+                              !m.key.trim() ||
+                              (m.parameter_target !== "query" &&
+                                m.parameter_target !== "body") ||
+                              (m.value_source === "field"
+                                ? !(m.field_name ?? "").trim()
+                                : String(m.static_value ?? "").trim().length ===
+                                  0),
+                          );
+                          if (hasBadMapping) {
+                            toast.warning("Complete all payload mapping rows.");
+                            return;
+                          }
+
+                          if (pixelSaveBlockedByEnabledConfig) {
+                            toast.warning(
+                              "Enabled pixels require URL and payload mappings.",
+                            );
+                            return;
+                          }
+
+                          setSavingPixelConfig(true);
+                          try {
+                            const payload: AffiliateSoldPixelConfig = {
+                              ...pixelDraft,
+                              url: trimmedUrl,
+                              payload_mapping: pixelDraft.payload_mapping.map(
+                                (m) =>
+                                  m.value_source === "field"
+                                    ? {
+                                        key: m.key.trim(),
+                                        value_source: "field",
+                                        field_name: (m.field_name ?? "").trim(),
+                                        parameter_target: m.parameter_target,
+                                      }
+                                    : {
+                                        key: m.key.trim(),
+                                        value_source: "static",
+                                        static_value: m.static_value,
+                                        parameter_target: m.parameter_target,
+                                      },
+                              ),
+                            };
+
+                            await onUpdateAffiliateSoldPixelConfig(
+                              campaign.id,
+                              pixelAffiliateId,
+                              payload,
+                            );
+
+                            setLocalAffiliateLinks((prev) =>
+                              prev.map((l) =>
+                                l.affiliate_id === pixelAffiliateId
+                                  ? { ...l, sold_pixel_config: payload }
+                                  : l,
+                              ),
+                            );
+
+                            setPixelAffiliateId(null);
+                          } finally {
+                            setSavingPixelConfig(false);
+                          }
+                        }}
+                      >
+                        Save Pixel Config
+                      </Button>
+                    </DisabledTooltip>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* ── Pixel Criteria tab ─────────────────────── */}
+            {pixelConfigTab === "pixel_criteria" && (
+              <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                <div className="space-y-4">
+                  <div className="rounded-lg border border-[--color-border] bg-[--color-bg-muted] p-3">
+                    <p className="text-[11px] text-[--color-text-muted]">
+                      <span className="font-semibold text-[--color-text]">
+                        Optional.
+                      </span>{" "}
+                      Pixel criteria rules determine whether the sold pixel
+                      fires for this affiliate. If any rule fails, the pixel is
+                      suppressed. When no rules are configured, the pixel always
+                      fires (if enabled).
+                    </p>
+                  </div>
+
+                  {pixelCriteriaLoading ? (
+                    <p className="text-sm text-[--color-text-muted]">
+                      Loading…
+                    </p>
+                  ) : pixelCriteriaRules.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-[--color-border] py-10 text-center text-sm text-[--color-text-muted]">
+                      No pixel criteria rules yet.{" "}
+                      <button
+                        type="button"
+                        className="text-[--color-primary] hover:underline"
+                        onClick={() => {
+                          setPixelCriteriaEditingRule(null);
+                          setPixelCriteriaBuilderOpen(true);
+                        }}
+                      >
+                        Add one
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {pixelCriteriaRules.map((rule) => (
+                        <div
+                          key={rule.id}
+                          className={`rounded-lg border p-3 transition-colors ${
+                            rule.enabled !== false
+                              ? "border-[--color-border] bg-[--color-bg]"
+                              : "border-[--color-border] bg-[--color-bg-muted] opacity-60"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium text-[--color-text] truncate">
+                                  {rule.name}
+                                </span>
+                                <span
+                                  className={`rounded px-1.5 py-px text-[10px] font-semibold leading-tight ${
+                                    rule.action === "pass"
+                                      ? "bg-green-500/15 text-green-500"
+                                      : "bg-red-500/15 text-red-400"
+                                  }`}
+                                >
+                                  {rule.action}
+                                </span>
+                                {rule.enabled === false && (
+                                  <span className="rounded px-1.5 py-px text-[10px] font-semibold leading-tight bg-yellow-500/15 text-yellow-500">
+                                    disabled
+                                  </span>
+                                )}
+                              </div>
+                              <div className="mt-1.5 space-y-1">
+                                {rule.groups.map((group, gIdx) => (
+                                  <div
+                                    key={`pc-${rule.id}-g${gIdx}`}
+                                    className="rounded-md border border-[--color-border] bg-[--color-bg-muted] p-2"
+                                  >
+                                    <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                                      Group {gIdx + 1}
+                                    </p>
+                                    {group.conditions.map((cond, cIdx) => (
+                                      <p
+                                        key={`pc-${rule.id}-g${gIdx}-c${cIdx}`}
+                                        className="text-[11px] text-[--color-text]"
+                                      >
+                                        <span className="font-medium">
+                                          {normalizeFieldLabel(cond.field_name)}
+                                        </span>{" "}
+                                        <span className="text-[--color-text-muted]">
+                                          {formatLogicOperatorLabel(
+                                            cond.operator,
+                                          )}
+                                        </span>{" "}
+                                        <span className="font-mono text-[10px] text-[--color-text-muted]">
+                                          {formatLogicConditionValue(
+                                            cond.value,
+                                          )}
+                                        </span>
+                                      </p>
+                                    ))}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                title={
+                                  rule.enabled !== false ? "Disable" : "Enable"
+                                }
+                                onClick={() =>
+                                  handleTogglePixelCriteriaRule(rule)
+                                }
+                                className="rounded p-1 text-[--color-text-muted] hover:text-[--color-primary] transition-colors"
+                              >
+                                {rule.enabled !== false ? (
+                                  <Check size={14} />
+                                ) : (
+                                  <RotateCcw size={14} />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                title="Edit"
+                                onClick={() => {
+                                  setPixelCriteriaEditingRule(rule);
+                                  setPixelCriteriaBuilderOpen(true);
+                                }}
+                                className="rounded p-1 text-[--color-text-muted] hover:text-[--color-primary] transition-colors"
+                              >
+                                <Pencil size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                title="Delete"
+                                disabled={
+                                  pixelCriteriaDeletingRuleId === rule.id
+                                }
+                                onClick={() =>
+                                  handleDeletePixelCriteriaRule(rule.id)
+                                }
+                                className="rounded p-1 text-[--color-text-muted] hover:text-red-500 transition-colors disabled:opacity-50"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {!pixelCriteriaLoading && pixelCriteriaRules.length > 0 && (
+                    <div className="flex justify-end">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setPixelCriteriaEditingRule(null);
+                          setPixelCriteriaBuilderOpen(true);
+                        }}
+                      >
+                        <Plus size={14} className="mr-1" />
+                        Add Rule
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── Sold Criteria tab ──────────────────────── */}
+            {pixelConfigTab === "sold_criteria" && (
+              <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                <div className="space-y-4">
+                  <div className="rounded-lg border border-[--color-border] bg-[--color-bg-muted] p-3">
+                    <p className="text-[11px] text-[--color-text-muted]">
+                      <span className="font-semibold text-[--color-text]">
+                        Optional.
+                      </span>{" "}
+                      Sold criteria rules determine whether a delivered lead
+                      counts as &quot;sold&quot; for this affiliate. If any rule
+                      fails, the lead is marked as not sold and does not count
+                      toward the lead cap. When no rules are configured, the
+                      delivery result is used as-is.
+                    </p>
+                  </div>
+
+                  {soldCriteriaLoading ? (
+                    <p className="text-sm text-[--color-text-muted]">
+                      Loading…
+                    </p>
+                  ) : soldCriteriaRules.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-[--color-border] py-10 text-center text-sm text-[--color-text-muted]">
+                      No sold criteria rules yet.{" "}
+                      <button
+                        type="button"
+                        className="text-[--color-primary] hover:underline"
+                        onClick={() => {
+                          setSoldCriteriaEditingRule(null);
+                          setSoldCriteriaBuilderOpen(true);
+                        }}
+                      >
+                        Add one
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {soldCriteriaRules.map((rule) => (
+                        <div
+                          key={rule.id}
+                          className={`rounded-lg border p-3 transition-colors ${
+                            rule.enabled !== false
+                              ? "border-[--color-border] bg-[--color-bg]"
+                              : "border-[--color-border] bg-[--color-bg-muted] opacity-60"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium text-[--color-text] truncate">
+                                  {rule.name}
+                                </span>
+                                <span
+                                  className={`rounded px-1.5 py-px text-[10px] font-semibold leading-tight ${
+                                    rule.action === "pass"
+                                      ? "bg-green-500/15 text-green-500"
+                                      : "bg-red-500/15 text-red-400"
+                                  }`}
+                                >
+                                  {rule.action}
+                                </span>
+                                {rule.enabled === false && (
+                                  <span className="rounded px-1.5 py-px text-[10px] font-semibold leading-tight bg-yellow-500/15 text-yellow-500">
+                                    disabled
+                                  </span>
+                                )}
+                              </div>
+                              <div className="mt-1.5 space-y-1">
+                                {rule.groups.map((group, gIdx) => (
+                                  <div
+                                    key={`sc-${rule.id}-g${gIdx}`}
+                                    className="rounded-md border border-[--color-border] bg-[--color-bg-muted] p-2"
+                                  >
+                                    <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                                      Group {gIdx + 1}
+                                    </p>
+                                    {group.conditions.map((cond, cIdx) => (
+                                      <p
+                                        key={`sc-${rule.id}-g${gIdx}-c${cIdx}`}
+                                        className="text-[11px] text-[--color-text]"
+                                      >
+                                        <span className="font-medium">
+                                          {normalizeFieldLabel(cond.field_name)}
+                                        </span>{" "}
+                                        <span className="text-[--color-text-muted]">
+                                          {formatLogicOperatorLabel(
+                                            cond.operator,
+                                          )}
+                                        </span>{" "}
+                                        <span className="font-mono text-[10px] text-[--color-text-muted]">
+                                          {formatLogicConditionValue(
+                                            cond.value,
+                                          )}
+                                        </span>
+                                      </p>
+                                    ))}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                title={
+                                  rule.enabled !== false ? "Disable" : "Enable"
+                                }
+                                onClick={() =>
+                                  handleToggleSoldCriteriaRule(rule)
+                                }
+                                className="rounded p-1 text-[--color-text-muted] hover:text-[--color-primary] transition-colors"
+                              >
+                                {rule.enabled !== false ? (
+                                  <Check size={14} />
+                                ) : (
+                                  <RotateCcw size={14} />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                title="Edit"
+                                onClick={() => {
+                                  setSoldCriteriaEditingRule(rule);
+                                  setSoldCriteriaBuilderOpen(true);
+                                }}
+                                className="rounded p-1 text-[--color-text-muted] hover:text-[--color-primary] transition-colors"
+                              >
+                                <Pencil size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                title="Delete"
+                                disabled={
+                                  soldCriteriaDeletingRuleId === rule.id
+                                }
+                                onClick={() =>
+                                  handleDeleteSoldCriteriaRule(rule.id)
+                                }
+                                className="rounded p-1 text-[--color-text-muted] hover:text-red-500 transition-colors disabled:opacity-50"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {!soldCriteriaLoading && soldCriteriaRules.length > 0 && (
+                    <div className="flex justify-end">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setSoldCriteriaEditingRule(null);
+                          setSoldCriteriaBuilderOpen(true);
+                        }}
+                      >
+                        <Plus size={14} className="mr-1" />
+                        Add Rule
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      {/* ── Pixel criteria rule builder modal ────────────────────────────── */}
+      <LogicBuilderModal
+        isOpen={pixelCriteriaBuilderOpen}
+        onClose={() => {
+          setPixelCriteriaBuilderOpen(false);
+          setPixelCriteriaEditingRule(null);
+        }}
+        onSave={handleSavePixelCriteriaRule}
+        rule={pixelCriteriaEditingRule}
+        criteriaFields={criteriaFields}
+        saving={pixelCriteriaSaving}
+      />
+
+      {/* ── Sold criteria rule builder modal ─────────────────────────────── */}
+      <LogicBuilderModal
+        isOpen={soldCriteriaBuilderOpen}
+        onClose={() => {
+          setSoldCriteriaBuilderOpen(false);
+          setSoldCriteriaEditingRule(null);
+        }}
+        onSave={handleSaveSoldCriteriaRule}
+        rule={soldCriteriaEditingRule}
+        criteriaFields={criteriaFields}
+        saving={soldCriteriaSaving}
+      />
 
       <LinkClientModal
         isOpen={linkClientModalOpen}
