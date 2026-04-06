@@ -910,14 +910,8 @@ export function CherryPickHistoryModal({
     sentPayloadSnapshot?.query_params ?? dr?.sent_query_params;
   const sentBodyPayload =
     sentPayloadSnapshot?.body_payload ?? dr?.sent_body_payload;
-  const snapshotHeaders = sentPayloadSnapshot?.headers;
-  const snapshotEffectivePayload =
-    sentPayloadSnapshot?.effective_mapped_payload;
-  const snapshotBodyRaw = sentPayloadSnapshot?.body_raw;
   const configuredWebhookUrl =
     sentPayloadSnapshot?.configured_webhook_url ?? dr?.webhook_url;
-  const finalWebhookUrl =
-    sentPayloadSnapshot?.final_webhook_url ?? dr?.final_webhook_url;
   const hasSentQueryParams =
     sentQueryParams != null && Object.keys(sentQueryParams).length > 0;
   const hasSentBodyPayload =
@@ -944,8 +938,8 @@ export function CherryPickHistoryModal({
         <div
           className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-semibold ${
             accepted
-              ? "bg-emerald-50 border-emerald-300 text-emerald-800 dark:bg-emerald-900/25 dark:border-emerald-700 dark:text-emerald-200"
-              : "bg-rose-50 border-rose-300 text-rose-800 dark:bg-rose-900/25 dark:border-rose-700 dark:text-rose-200"
+              ? "bg-emerald-50 border-emerald-300 text-emerald-700 dark:bg-emerald-950/60 dark:border-emerald-600 dark:text-emerald-300"
+              : "bg-rose-50 border-rose-300 text-rose-700 dark:bg-rose-950/60 dark:border-rose-600 dark:text-rose-300"
           }`}
         >
           <Cherry size={14} />
@@ -996,16 +990,6 @@ export function CherryPickHistoryModal({
                 {configuredWebhookUrl}
               </span>
             </div>
-            {finalWebhookUrl && finalWebhookUrl !== configuredWebhookUrl && (
-              <div className="space-y-1">
-                <p className="text-[10px] uppercase tracking-wide text-[--color-text-muted] font-semibold">
-                  Final URL Called
-                </p>
-                <p className="font-mono text-[11px] text-[--color-text] break-all rounded border border-[--color-border] bg-[--color-bg-muted] px-2.5 py-1.5">
-                  {finalWebhookUrl}
-                </p>
-              </div>
-            )}
             {(hasSentQueryParams || hasSentBodyPayload) && (
               <div className="space-y-2">
                 <p className="text-[10px] uppercase tracking-wide text-[--color-text-muted] font-semibold">
@@ -1028,62 +1012,6 @@ export function CherryPickHistoryModal({
                     </p>
                     <pre className="max-h-28 overflow-y-auto rounded border border-[--color-border] bg-[--color-bg-muted] px-2.5 py-2 font-mono text-[11px] text-[--color-text] whitespace-pre-wrap break-all">
                       {JSON.stringify(sentBodyPayload, null, 2)}
-                    </pre>
-                  </div>
-                )}
-              </div>
-            )}
-            {sentPayloadSnapshot && (
-              <div className="space-y-2">
-                <p className="text-[10px] uppercase tracking-wide text-[--color-text-muted] font-semibold">
-                  Request Snapshot
-                </p>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <p className="text-[10px] font-semibold text-[--color-text-muted] uppercase tracking-wide">
-                      Final Attempt
-                    </p>
-                    <p className="text-[11px] text-[--color-text]">
-                      {sentPayloadSnapshot.attempt}
-                    </p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-[10px] font-semibold text-[--color-text-muted] uppercase tracking-wide">
-                      Configured URL
-                    </p>
-                    <p className="font-mono text-[11px] text-[--color-text] break-all rounded border border-[--color-border] bg-[--color-bg-muted] px-2.5 py-1.5">
-                      {sentPayloadSnapshot.configured_webhook_url}
-                    </p>
-                  </div>
-                </div>
-                {snapshotHeaders && Object.keys(snapshotHeaders).length > 0 && (
-                  <div className="space-y-1">
-                    <p className="text-[10px] font-semibold text-[--color-text-muted] uppercase tracking-wide">
-                      Request Headers
-                    </p>
-                    <pre className="max-h-32 overflow-y-auto rounded border border-[--color-border] bg-[--color-bg-muted] px-2.5 py-2 font-mono text-[11px] text-[--color-text] whitespace-pre-wrap break-all">
-                      {JSON.stringify(snapshotHeaders, null, 2)}
-                    </pre>
-                  </div>
-                )}
-                {snapshotEffectivePayload &&
-                  snapshotEffectivePayload.length > 0 && (
-                    <div className="space-y-1">
-                      <p className="text-[10px] font-semibold text-[--color-text-muted] uppercase tracking-wide">
-                        Effective Mapped Payload
-                      </p>
-                      <pre className="max-h-32 overflow-y-auto rounded border border-[--color-border] bg-[--color-bg-muted] px-2.5 py-2 font-mono text-[11px] text-[--color-text] whitespace-pre-wrap break-all">
-                        {JSON.stringify(snapshotEffectivePayload, null, 2)}
-                      </pre>
-                    </div>
-                  )}
-                {snapshotBodyRaw && (
-                  <div className="space-y-1">
-                    <p className="text-[10px] font-semibold text-[--color-text-muted] uppercase tracking-wide">
-                      Serialized Body Sent
-                    </p>
-                    <pre className="max-h-28 overflow-y-auto rounded border border-[--color-border] bg-[--color-bg-muted] px-2.5 py-2 font-mono text-[11px] text-[--color-text] whitespace-pre-wrap break-all">
-                      {snapshotBodyRaw}
                     </pre>
                   </div>
                 )}

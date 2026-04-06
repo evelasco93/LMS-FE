@@ -688,6 +688,52 @@ export async function generatePostingInstructions({
         },
       }),
 
+      // ── Sending Test Leads ──
+      e(SectionHeading, { title: "Sending Test Leads" }),
+      e(
+        View,
+        {
+          style: {
+            backgroundColor: C.slate100,
+            borderRadius: 4,
+            padding: 10,
+            marginBottom: 8,
+          },
+        },
+        e(
+          Text,
+          { style: { fontSize: 9.5, color: C.slate800, lineHeight: 1.5 } },
+          "You can send test leads at any time — even while the campaign is LIVE. To mark a lead as test traffic, include the word ",
+        ),
+        e(
+          Text,
+          {
+            style: {
+              fontSize: 9.5,
+              color: C.slate800,
+              fontFamily: "Courier",
+              fontWeight: 700,
+            },
+          },
+          "test",
+        ),
+        e(
+          Text,
+          { style: { fontSize: 9.5, color: C.slate800, lineHeight: 1.5 } },
+          " in any of the validated fields (e.g. first name, last name, email, etc.). The system will automatically detect the lead as test traffic and process it accordingly — it will not be forwarded to clients or count against your lead cap.",
+        ),
+      ),
+      e(
+        Text,
+        { style: { fontSize: 9, color: C.slate500, marginBottom: 4 } },
+        'Example: set first_name to "Test" or email to "test@example.com".',
+      ),
+      e(
+        Text,
+        { style: { fontSize: 9, color: C.slate500 } },
+        "Test leads appear in reporting with a test flag so you can verify your integration is working end to end.",
+      ),
+
       // ── FAQs ──
       e(
         View,

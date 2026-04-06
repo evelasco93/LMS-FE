@@ -58,6 +58,8 @@ interface TableProps<T> {
   onRowClick?: (row: T) => void;
   rowKey?: (row: T, idx: number) => string | number;
   rowAnimation?: "stagger" | "subtle";
+  /** data-tour attribute applied to the first data row */
+  firstRowDataTour?: string;
 }
 
 export function Table<T extends Record<string, any>>({
@@ -67,6 +69,7 @@ export function Table<T extends Record<string, any>>({
   onRowClick,
   rowKey,
   rowAnimation = "stagger",
+  firstRowDataTour,
 }: TableProps<T>) {
   return (
     <div className="panel overflow-x-auto">
@@ -123,6 +126,9 @@ export function Table<T extends Record<string, any>>({
                     ? "bg-transparent"
                     : "bg-[color-mix(in_srgb,var(--color-border)_8%,transparent)]",
                 )}
+                {...(idx === 0 && firstRowDataTour
+                  ? { "data-tour": firstRowDataTour }
+                  : {})}
                 onClick={() => onRowClick?.(row)}
               >
                 {columns.map((col) => (

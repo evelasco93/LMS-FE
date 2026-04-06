@@ -9,7 +9,7 @@ import { motion } from "framer-motion";
 import { Table } from "@/components/table";
 import { Badge } from "@/components/badge";
 import { Button } from "@/components/button";
-import { AuditPopover } from "@/components/shared-ui";
+import { AuditPopover } from "@/components/ui/audit-popover";
 import {
   AffiliateDetailModal,
   AffiliateModal,
@@ -199,6 +199,7 @@ export function AffiliatesView({
         <Button
           iconLeft={<Plus size={16} />}
           onClick={() => setAffiliateModal(true)}
+          data-tour="btn-new-affiliate"
         >
           New Affiliate
         </Button>

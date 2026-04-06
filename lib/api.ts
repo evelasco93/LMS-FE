@@ -1528,7 +1528,6 @@ export async function fetchPostingInstructionsPayload(
         name: string;
         status: string;
         submit_url?: string;
-        submit_url_test?: string;
       };
       affiliate: {
         id: string;

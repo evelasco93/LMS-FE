@@ -11,9 +11,6 @@ export const metadata: Metadata = {
   // so that it stays in sync with auth state and active view.
   description:
     "Lead Management System for Summit Edge Legal. Streamline your client intake and case management with our intuitive lead management system.",
-  icons: {
-    icon: "/favicon.ico",
-  },
 };
 
 export default function RootLayout({

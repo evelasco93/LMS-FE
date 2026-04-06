@@ -42,6 +42,8 @@ interface SidebarProps {
   onLogoClick?: () => void;
   /** If provided, the Settings nav item is hidden unless role === "admin" */
   role?: string;
+  /** When true, force the sidebar to be expanded (e.g. during a guided tour) */
+  forceExpanded?: boolean;
 }
 
 const EXPANDED_W = 240;
@@ -87,8 +89,15 @@ function SlideText({
   );
 }
 
-export function Sidebar({ active, onChange, onLogoClick, role }: SidebarProps) {
+export function Sidebar({
+  active,
+  onChange,
+  onLogoClick,
+  role,
+  forceExpanded,
+}: SidebarProps) {
   const [collapsed, setCollapsed] = useState(true);
+  const isCollapsed = forceExpanded ? false : collapsed;
   const visibleItems = items.filter(
     (item) => item.key !== "admin" || role === "admin",
   );
@@ -99,13 +108,13 @@ export function Sidebar({ active, onChange, onLogoClick, role }: SidebarProps) {
       {/* Toggle tab — rectangular tab flush against the right edge of the sidebar */}
       <button
         type="button"
-        aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
+        aria-label={isCollapsed ? "Expand navigation" : "Collapse navigation"}
         onClick={() => setCollapsed((v) => !v)}
         className="absolute z-20 flex w-4 items-center justify-center rounded-r-md border border-l-0 border-[--color-nav-border] bg-[--color-nav-bg] shadow-sm text-[--color-nav-text] hover:bg-[color-mix(in_srgb,var(--color-nav-accent)_20%,var(--color-nav-bg))] transition-colors"
         style={{ right: -16, top: 14, height: 36 }}
       >
         <motion.span
-          animate={{ rotate: collapsed ? 0 : 180 }}
+          animate={{ rotate: isCollapsed ? 0 : 180 }}
           transition={{ duration: 0.2, ease: "easeInOut" }}
           style={{ display: "flex" }}
         >
@@ -115,9 +124,10 @@ export function Sidebar({ active, onChange, onLogoClick, role }: SidebarProps) {
 
       <motion.aside
         initial={false}
-        animate={{ width: collapsed ? COLLAPSED_W : EXPANDED_W }}
+        animate={{ width: isCollapsed ? COLLAPSED_W : EXPANDED_W }}
         transition={widthSpring}
         className="flex h-full flex-col overflow-hidden border-r py-4 bg-[--color-nav-bg] text-[--color-nav-text] border-[--color-nav-border] shadow-xl"
+        data-tour="sidebar"
       >
         {/* Logo — mark always centered in a fixed 64px zone, text slides in */}
         <button
@@ -130,7 +140,7 @@ export function Sidebar({ active, onChange, onLogoClick, role }: SidebarProps) {
             <MountainMark size={48} />
           </span>
           <AnimatePresence initial={false}>
-            {!collapsed && (
+            {!isCollapsed && (
               <motion.div
                 key="logo-text"
                 initial={{ opacity: 0, x: -10, width: 0 }}
@@ -155,9 +165,10 @@ export function Sidebar({ active, onChange, onLogoClick, role }: SidebarProps) {
           {visibleItems.map((item) => (
             <motion.button
               key={item.key}
+              data-tour={`nav-${item.key}`}
               onClick={() => onChange(item.key)}
               animate={{
-                paddingLeft: collapsed ? NAV_PL_COLLAPSED : NAV_PL_EXPANDED,
+                paddingLeft: isCollapsed ? NAV_PL_COLLAPSED : NAV_PL_EXPANDED,
               }}
               transition={widthSpring}
               className={clsx(
@@ -171,7 +182,7 @@ export function Sidebar({ active, onChange, onLogoClick, role }: SidebarProps) {
                 {item.icon}
               </span>
               <AnimatePresence initial={false}>
-                {!collapsed && (
+                {!isCollapsed && (
                   <SlideText key="lbl">
                     <span className="ml-3">{item.label}</span>
                   </SlideText>
@@ -184,7 +195,7 @@ export function Sidebar({ active, onChange, onLogoClick, role }: SidebarProps) {
         {/* Footer: copyright */}
         <div className="mt-auto overflow-hidden">
           <AnimatePresence initial={false}>
-            {!collapsed && (
+            {!isCollapsed && (
               <motion.p
                 key="e"
                 initial={{ opacity: 0 }}

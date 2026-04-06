@@ -261,7 +261,6 @@ export interface Campaign {
   }>;
   edit_history?: EditHistoryEntry[];
   submit_url?: string;
-  submit_url_test?: string;
   ever_linked_participants?: boolean;
   has_received_leads?: boolean;
   created_at?: string;

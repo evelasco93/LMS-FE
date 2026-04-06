@@ -15,7 +15,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Modal } from "@/components/modal";
 import { Button } from "@/components/button";
 import { Badge } from "@/components/badge";
-import { Field } from "@/components/shared-ui";
+import { Field } from "@/components/ui/field";
 import { inputClass, formatDate } from "@/lib/utils";
 import {
   updateUser,

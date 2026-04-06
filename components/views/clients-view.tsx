@@ -9,7 +9,7 @@ import { motion } from "framer-motion";
 import { Table } from "@/components/table";
 import { Badge } from "@/components/badge";
 import { Button } from "@/components/button";
-import { AuditPopover } from "@/components/shared-ui";
+import { AuditPopover } from "@/components/ui/audit-popover";
 import {
   ClientModal,
   EditClientModal,
@@ -192,6 +192,7 @@ export function ClientsView({
         <Button
           iconLeft={<Plus size={16} />}
           onClick={() => setClientModal(true)}
+          data-tour="btn-new-client"
         >
           New Client
         </Button>

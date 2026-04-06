@@ -18,11 +18,9 @@ import useSWR from "swr";
 import { Modal } from "@/components/modal";
 import { Badge } from "@/components/badge";
 import { Button } from "@/components/button";
-import {
-  EditHistoryPopover,
-  HoverTooltip,
-  InfoItem,
-} from "@/components/shared-ui";
+import { EditHistoryPopover } from "@/components/ui/edit-history-popover";
+import { HoverTooltip } from "@/components/ui/hover-tooltip";
+import { InfoItem } from "@/components/ui/info-item";
 import { updateLead, getEntityAudit } from "@/lib/api";
 import {
   resolveDisplayName,

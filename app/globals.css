@@ -189,3 +189,13 @@ a {
     transform: translateY(0px);
   }
 }
+
+/* Smooth fade-in for content replacing spinners */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

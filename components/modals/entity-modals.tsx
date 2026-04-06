@@ -8,7 +8,8 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Modal } from "@/components/modal";
 import { Button } from "@/components/button";
 import { Badge } from "@/components/badge";
-import { Field, PhoneField } from "@/components/shared-ui";
+import { Field } from "@/components/ui/field";
+import { PhoneField } from "@/components/ui/phone-field";
 import {
   inputClass,
   generateCodeFromName,

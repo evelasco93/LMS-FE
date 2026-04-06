@@ -49,7 +49,8 @@ import {
   getFullAuditLog,
 } from "@/lib/api";
 import { formatDate, inputClass, normalizeFieldLabel } from "@/lib/utils";
-import { AuditPopover, HoverTooltip } from "@/components/shared-ui";
+import { AuditPopover } from "@/components/ui/audit-popover";
+import { HoverTooltip } from "@/components/ui/hover-tooltip";
 import { getCurrentUser } from "@/lib/auth";
 import type {
   CognitoUser,

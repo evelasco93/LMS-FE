@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useCallback, useMemo, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 import { toast } from "sonner";
-import { LogOut, RefreshCcw } from "lucide-react";
+import { LogOut } from "lucide-react";
 
+import { useQueryState } from "@/hooks/use-query-state";
+import { useCampaignActions } from "@/hooks/use-campaign-actions";
 import { Sidebar, type NavKey } from "@/components/sidebar";
 import { AnimatePresence, motion } from "framer-motion";
 import { Button } from "@/components/button";
@@ -30,42 +31,22 @@ import {
   CherryPickModal,
   CherryPickHistoryModal,
 } from "@/components/modals/cherry-pick-modal";
+import {
+  useTour,
+  TourOverlay,
+  TourHelpButton,
+  getSiteOverviewTour,
+  getCampaignCreationTour,
+} from "@/components/guided-tour";
 
 import {
   listLeads,
   listClients,
   listAffiliates,
   listCampaigns,
-  linkClientToCampaign,
-  linkAffiliateToCampaign,
-  removeClientFromCampaign,
-  removeAffiliateFromCampaign,
-  rotateAffiliateKey,
-  updateCampaign,
-  updateCampaignStatus,
-  updateCampaignClientStatus,
-  updateCampaignAffiliateStatus,
-  updateCampaignPlugins,
-  setCampaignAffiliateLeadCap,
-  setCampaignAffiliateSoldPixelConfig,
-  setCampaignClientDeliveryConfig,
-  setCampaignDistributionConfig,
-  setClientWeight,
 } from "@/lib/api";
-import type {
-  Affiliate,
-  Campaign,
-  Client,
-  CriteriaField,
-  Lead,
-} from "@/lib/types";
-import type {
-  AffiliateSoldPixelConfig,
-  CampaignDetailTab,
-  CampaignParticipantStatus,
-  ClientDeliveryConfig,
-  DistributionMode,
-} from "@/lib/types";
+import type { Affiliate, Campaign, Client, Lead } from "@/lib/types";
+import type { CampaignDetailTab } from "@/lib/types";
 import {
   login,
   getCurrentUser,
@@ -235,6 +216,30 @@ function DashboardContent({
 }) {
   const [active, setActive] = useState<NavKey>("home");
 
+  // ── Guided tour ───────────────────────────────────────────────────────────
+  const tour = useTour();
+  const [tourSidebarExpanded, setTourSidebarExpanded] = useState(false);
+  const tourNavigate = useCallback((view: string) => {
+    setActive(view as NavKey);
+  }, []);
+  const tourExpandSidebar = useCallback((expanded: boolean) => {
+    setTourSidebarExpanded(expanded);
+  }, []);
+  const startSiteOverview = useCallback(() => {
+    tour.startTour(getSiteOverviewTour(tourNavigate, tourExpandSidebar));
+  }, [tour, tourNavigate, tourExpandSidebar]);
+  const startCampaignCreation = useCallback(() => {
+    tour.startTour(getCampaignCreationTour(tourNavigate, tourExpandSidebar));
+  }, [tour, tourNavigate, tourExpandSidebar]);
+  // Collapse sidebar when tour ends
+  const prevTourActive = useRef(false);
+  useEffect(() => {
+    if (prevTourActive.current && !tour.isActive) {
+      setTourSidebarExpanded(false);
+    }
+    prevTourActive.current = tour.isActive;
+  }, [tour.isActive]);
+
   // Sync browser tab title to active view
   useEffect(() => {
     const labels: Record<NavKey, string> = {
@@ -279,56 +284,24 @@ function DashboardContent({
     };
   }, []);
 
-  const pathname = usePathname();
+  const { getParam, setQueryParams } = useQueryState();
 
-  // ── Lightweight URL query-param state (no Next.js router overhead) ────────
-  const [queryState, setQueryState] = useState<Record<string, string>>(() => {
-    if (typeof window === "undefined") return {};
-    const obj: Record<string, string> = {};
-    new URLSearchParams(window.location.search).forEach((v, k) => {
-      obj[k] = v;
-    });
-    return obj;
-  });
-
-  const getParam = useCallback(
-    (key: string): string | null => queryState[key] ?? null,
-    [queryState],
-  );
-
-  const setQueryParams = useCallback(
-    (next: Record<string, string | undefined>) => {
-      setQueryState((prev) => {
-        const merged = { ...prev };
-        Object.entries(next).forEach(([k, v]) => {
-          if (v === undefined || v === "") delete merged[k];
-          else merged[k] = v;
-        });
-        const params = new URLSearchParams(merged);
-        const qs = params.toString();
-        window.history.replaceState(
-          window.history.state,
-          "",
-          qs ? `${pathname}?${qs}` : pathname,
-        );
-        return merged;
-      });
-    },
-    [pathname],
-  );
-
-  // Sync state on browser back / forward
-  useEffect(() => {
-    const onPop = () => {
-      const obj: Record<string, string> = {};
-      new URLSearchParams(window.location.search).forEach((v, k) => {
-        obj[k] = v;
-      });
-      setQueryState(obj);
+  // Capture nested-window URL params on mount so CampaignDetailModal can restore
+  // them once it opens. Read directly from the URL (not getParam) to avoid a
+  // dependency on queryState that would reset after the first render.
+  const [initialModal] = useState<
+    { window?: string; window_id?: string; window_tab?: string } | undefined
+  >(() => {
+    if (typeof window === "undefined") return undefined;
+    const sp = new URLSearchParams(window.location.search);
+    const m = sp.get("window");
+    if (!m) return undefined;
+    return {
+      window: m,
+      window_id: sp.get("window_id") ?? undefined,
+      window_tab: sp.get("window_tab") ?? undefined,
     };
-    window.addEventListener("popstate", onPop);
-    return () => window.removeEventListener("popstate", onPop);
-  }, []);
+  });
 
   const {
     data: leads = [],
@@ -589,6 +562,7 @@ function DashboardContent({
         toast.error("Page not found.", { id: "admin-blocked" });
       } else {
         setActive(resolvedView as NavKey);
+        setQueryParams({ view: resolvedView });
       }
     }
   }, [getParam, role]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -688,6 +662,9 @@ function DashboardContent({
       section: undefined,
       subsection: undefined,
       affiliate: undefined,
+      window: undefined,
+      window_id: undefined,
+      window_tab: undefined,
       leadTab: undefined,
       leadQc: undefined,
       leadPt: undefined,
@@ -708,14 +685,6 @@ function DashboardContent({
       clients_inactive: undefined,
       affiliates_inactive: undefined,
     });
-  };
-
-  const handleRefresh = () => {
-    if (active === "leads") refreshLeads();
-    if (active === "clients") refreshClients();
-    if (active === "affiliates") refreshAffiliates();
-    if (active === "campaigns") refreshCampaigns();
-    // settings: SettingsView owns its own SWR and refresh
   };
 
   const openCampaign = (
@@ -879,249 +848,33 @@ function DashboardContent({
       section: undefined,
       subsection: undefined,
       affiliate: undefined,
+      window: undefined,
+      window_id: undefined,
+      window_tab: undefined,
       view: active !== "leads" ? active : undefined,
     });
   };
 
-  const onLinkClientToCampaign = async (
-    campaignId: string,
-    clientId: string,
-  ) => {
-    const promise = linkClientToCampaign(campaignId, clientId);
-    await toast.promise(promise, {
-      loading: "Linking client…",
-      success: "Client linked",
-      error: (err) => err?.message || "Unable to link client",
-    });
-    await refreshCampaignsAndSelect(campaignId);
-    setActive("campaigns");
-  };
-
-  const onLinkAffiliateToCampaign = async (
-    campaignId: string,
-    affiliateId: string,
-  ) => {
-    const promise = linkAffiliateToCampaign(campaignId, affiliateId);
-    await toast.promise(promise, {
-      loading: "Linking affiliate…",
-      success: "Affiliate linked (campaign key refreshed)",
-      error: (err) => err?.message || "Unable to link affiliate",
-    });
-    await refreshCampaignsAndSelect(campaignId);
-    setActive("campaigns");
-  };
-
-  const onUpdateClientLinkStatus = async (
-    campaignId: string,
-    clientId: string,
-    status: CampaignParticipantStatus,
-  ) => {
-    const promise = updateCampaignClientStatus(campaignId, clientId, status);
-    await toast.promise(promise, {
-      loading: "Updating client status…",
-      success: "Client status updated",
-      error: (err) => err?.message || "Unable to update client status",
-    });
-    await refreshCampaignsAndSelect(campaignId);
-  };
-
-  const onUpdateAffiliateLinkStatus = async (
-    campaignId: string,
-    affiliateId: string,
-    status: CampaignParticipantStatus,
-  ) => {
-    const promise = updateCampaignAffiliateStatus(
-      campaignId,
-      affiliateId,
-      status,
-    );
-    await toast.promise(promise, {
-      loading: "Updating affiliate status…",
-      success: "Affiliate status updated",
-      error: (err) => err?.message || "Unable to update affiliate status",
-    });
-    await refreshCampaignsAndSelect(campaignId);
-  };
-
-  const onRemoveClientFromCampaign = async (
-    campaignId: string,
-    clientId: string,
-  ) => {
-    const promise = removeClientFromCampaign(campaignId, clientId);
-    await toast.promise(promise, {
-      loading: "Removing client…",
-      success: "Client removed from campaign",
-      error: (err) => err?.message || "Unable to remove client",
-    });
-    await refreshCampaignsAndSelect(campaignId);
-  };
-
-  const onRemoveAffiliateFromCampaign = async (
-    campaignId: string,
-    affiliateId: string,
-  ) => {
-    const promise = removeAffiliateFromCampaign(campaignId, affiliateId);
-    await toast.promise(promise, {
-      loading: "Removing affiliate…",
-      success: "Affiliate removed from campaign",
-      error: (err) => err?.message || "Unable to remove affiliate",
-    });
-    await refreshCampaignsAndSelect(campaignId);
-  };
-
-  const onEditCampaignName = async (campaignId: string, name: string) => {
-    const promise = updateCampaign(campaignId, { name }).then(() =>
-      refreshCampaignsAndSelect(campaignId),
-    );
-    await toast.promise(promise, {
-      loading: "Updating name…",
-      success: "Campaign name updated",
-      error: (err) => err?.message || "Unable to update name",
-    });
-  };
-
-  const onRotateCampaignParticipantKey = async (
-    campaignId: string,
-    type: "client" | "affiliate",
-    participantId: string,
-  ) => {
-    if (type !== "affiliate") return;
-    const promise = rotateAffiliateKey(campaignId, participantId).then(
-      (res) => {
-        if (!(res as any)?.success)
-          throw new Error(
-            (res as any)?.error || res?.message || "Unable to rotate key",
-          );
-        return refreshCampaignsAndSelect(campaignId);
-      },
-    );
-    await toast.promise(promise, {
-      loading: "Rotating campaign key…",
-      success: "Campaign key rotated",
-      error: (err) => err?.message || "Unable to rotate key",
-    });
-  };
-
-  const onUpdateCampaignStatus = async (
-    id: string,
-    status: Campaign["status"],
-  ) => {
-    const toastId = toast.loading("Updating status…");
-    try {
-      const res = await updateCampaignStatus(id, status);
-      if (!(res as any)?.success) {
-        toast.warning(
-          (res as any)?.error || res?.message || "Unable to update status",
-          { id: toastId },
-        );
-        return false;
-      }
-      await refreshCampaignsAndSelect(id);
-      toast.success("Status updated", { id: toastId });
-      return true;
-    } catch (error: any) {
-      toast.warning(
-        error?.message ||
-          "Unable to update status. Add a client or affiliate first.",
-        { id: toastId },
-      );
-      return false;
-    }
-  };
-
-  const onUpdateCampaignPlugins = async (
-    campaignId: string,
-    payload: Parameters<typeof updateCampaignPlugins>[1],
-  ) => {
-    const promise = updateCampaignPlugins(campaignId, payload);
-    await toast.promise(promise, {
-      loading: "Updating quality controls…",
-      success: "Quality controls updated",
-      error: (err) => err?.message || "Unable to update quality controls",
-    });
-    await refreshCampaignsAndSelect(campaignId);
-  };
-
-  const onUpdateAffiliateLeadCap = async (
-    campaignId: string,
-    affiliateId: string,
-    leadCap: number | null,
-  ) => {
-    const promise = setCampaignAffiliateLeadCap(
-      campaignId,
-      affiliateId,
-      leadCap,
-    );
-    await toast.promise(promise, {
-      loading: "Updating lead cap…",
-      success: leadCap == null ? "Lead cap removed" : "Lead cap updated",
-      error: (err) => err?.message || "Unable to update lead cap",
-    });
-    await refreshCampaignsAndSelect(campaignId);
-  };
-
-  const onUpdateClientDeliveryConfig = async (
-    campaignId: string,
-    clientId: string,
-    payload: ClientDeliveryConfig,
-  ) => {
-    const promise = setCampaignClientDeliveryConfig(
-      campaignId,
-      clientId,
-      payload,
-    );
-    await toast.promise(promise, {
-      loading: "Saving delivery config…",
-      success: "Delivery config updated",
-      error: (err) => err?.message || "Unable to update delivery config",
-    });
-    await refreshCampaignsAndSelect(campaignId);
-  };
-
-  const onUpdateAffiliateSoldPixelConfig = async (
-    campaignId: string,
-    affiliateId: string,
-    payload: AffiliateSoldPixelConfig,
-  ) => {
-    const promise = setCampaignAffiliateSoldPixelConfig(
-      campaignId,
-      affiliateId,
-      payload,
-    );
-    await toast.promise(promise, {
-      loading: "Saving sold pixel config…",
-      success: payload.enabled
-        ? "Affiliate sold pixel enabled"
-        : "Affiliate sold pixel config saved",
-      error: (err) => err?.message || "Unable to update sold pixel config",
-    });
-    await refreshCampaignsAndSelect(campaignId);
-  };
-
-  const onUpdateCampaignDistribution = async (
-    campaignId: string,
-    payload: {
-      mode: DistributionMode;
-      enabled: boolean;
-    },
-  ) => {
-    const promise = setCampaignDistributionConfig(campaignId, payload);
-    await toast.promise(promise, {
-      loading: "Saving routing config…",
-      success: "Routing config updated",
-      error: (err) => err?.message || "Unable to update routing config",
-    });
-    await refreshCampaignsAndSelect(campaignId);
-  };
-
-  const onUpdateCampaignClientWeight = async (
-    campaignId: string,
-    clientId: string,
-    deliveryConfig: ClientDeliveryConfig,
-    weight: number,
-  ) => {
-    await setClientWeight(campaignId, clientId, deliveryConfig, weight);
-  };
+  const {
+    onLinkClientToCampaign,
+    onLinkAffiliateToCampaign,
+    onUpdateClientLinkStatus,
+    onUpdateAffiliateLinkStatus,
+    onRemoveClientFromCampaign,
+    onRemoveAffiliateFromCampaign,
+    onEditCampaignName,
+    onRotateCampaignParticipantKey,
+    onUpdateCampaignStatus,
+    onUpdateCampaignPlugins,
+    onUpdateAffiliateLeadCap,
+    onUpdateClientDeliveryConfig,
+    onUpdateAffiliateSoldPixelConfig,
+    onUpdateCampaignDistribution,
+    onUpdateCampaignClientWeight,
+  } = useCampaignActions({
+    refreshCampaignsAndSelect,
+    setActive,
+  });
 
   return (
     <div className="flex h-screen overflow-hidden bg-[--color-bg] text-[--color-text]">
@@ -1130,6 +883,7 @@ function DashboardContent({
         onChange={handleNavChange}
         onLogoClick={() => handleNavChange("home")}
         role={currentUser?.role}
+        forceExpanded={tourSidebarExpanded}
       />
 
       <main className="flex-1 overflow-y-auto p-8">
@@ -1152,14 +906,7 @@ function DashboardContent({
               </motion.div>
             </AnimatePresence>
           </div>
-          <div className="flex items-center gap-3">
-            <Button
-              variant="outline"
-              iconLeft={<RefreshCcw size={16} />}
-              onClick={handleRefresh}
-            >
-              Refresh
-            </Button>
+          <div className="flex items-center gap-3" data-tour="header-actions">
             <ThemeToggle />
             {/* User avatar */}
             {currentUser && (
@@ -1188,167 +935,172 @@ function DashboardContent({
           </div>
         </header>
 
-        <AnimatePresence mode="wait" initial={false}>
-          {active === "home" && (
-            <motion.section
-              key="home"
-              className="flex flex-col items-center justify-center h-full min-h-[60vh] gap-6 text-center"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              transition={{ duration: 0.14, ease: "easeOut" }}
-            >
-              <HomeView />
-            </motion.section>
-          )}
-          {active === "leads" && (
-            <motion.section
-              key="leads"
-              className="space-y-4"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              transition={{ duration: 0.14, ease: "easeOut" }}
-            >
-              <LeadsView
-                leads={sortedLeads}
-                campaigns={campaigns}
-                affiliates={affiliates}
-                isLoading={leadsLoading}
-                onOpenCampaign={openCampaign}
-                initialFilters={leadFiltersFromQuery}
-                onFiltersChange={onLeadFiltersChange}
-                onCherryPick={(lead) => {
-                  if (lead.cherry_picked) {
-                    setCherryPickHistoryLead(lead);
-                  } else {
-                    setCherryPickLead(lead);
-                  }
-                }}
-                renderPayloadPreview={(lead, allLeads) => (
-                  <PayloadPreview
-                    lead={lead}
-                    allLeads={allLeads}
-                    campaignPlugins={
-                      campaigns.find((c) => c.id === lead.campaign_id)?.plugins
-                    }
-                    clients={clients}
-                    onOpenClient={(clientId) => setQuickViewClientId(clientId)}
-                    onCherryPick={(lead) => {
-                      if (lead.cherry_picked) {
-                        setCherryPickHistoryLead(lead);
-                      } else {
-                        setCherryPickLead(lead);
-                      }
-                    }}
-                  />
-                )}
-              />
-            </motion.section>
-          )}
-
-          {active === "clients" && (
-            <motion.section
-              key="clients"
-              className="space-y-4"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              transition={{ duration: 0.14, ease: "easeOut" }}
-            >
-              <ClientsView
-                clients={clients}
-                isLoading={clientsLoading}
-                onDataChanged={refreshClients}
-                campaigns={campaigns}
-              />
-            </motion.section>
-          )}
-
-          {active === "affiliates" && (
-            <motion.section
-              key="affiliates"
-              className="space-y-4"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              transition={{ duration: 0.14, ease: "easeOut" }}
-            >
-              <AffiliatesView
-                affiliates={affiliates}
-                isLoading={affiliatesLoading}
-                onDataChanged={refreshAffiliates}
-                campaigns={campaigns}
-              />
-            </motion.section>
-          )}
-
-          {active === "campaigns" && (
-            <motion.section
-              key="campaigns"
-              className="space-y-6"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              transition={{ duration: 0.14, ease: "easeOut" }}
-            >
-              <CampaignsView
-                campaigns={campaigns}
-                leads={leads}
-                isLoading={campaignsLoading}
-                onDataChanged={refreshCampaigns}
-                onOpenCampaign={openCampaign}
-              />
-            </motion.section>
-          )}
-
-          {active === "tools" && <ToolsView />}
-
-          {active === "admin" && role !== "admin" ? (
-            <motion.section
-              key="not-found"
-              className="flex flex-col items-center justify-center py-32 gap-4"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              transition={{ duration: 0.14, ease: "easeOut" }}
-            >
-              <p className="text-5xl font-bold text-[--color-text-muted] select-none">
-                404
-              </p>
-              <p className="text-lg font-medium text-[--color-text-strong]">
-                Page not found
-              </p>
-              <p className="text-sm text-[--color-text-muted]">
-                You don&apos;t have permission to view this page.
-              </p>
-              <button
-                type="button"
-                className="mt-2 text-sm text-[--color-primary] hover:underline"
-                onClick={() => handleNavChange("leads")}
-              >
-                Go to Leads
-              </button>
-            </motion.section>
-          ) : (
-            active === "admin" && (
+        <div data-tour="view-content">
+          <AnimatePresence mode="wait" initial={false}>
+            {active === "home" && (
               <motion.section
-                key="admin"
-                className="space-y-5"
+                key="home"
+                className="flex flex-col items-center justify-center h-full min-h-[60vh] gap-6 text-center"
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -4 }}
                 transition={{ duration: 0.14, ease: "easeOut" }}
               >
-                <AdminView
-                  role={role}
+                <HomeView />
+              </motion.section>
+            )}
+            {active === "leads" && (
+              <motion.section
+                key="leads"
+                className="space-y-4"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.14, ease: "easeOut" }}
+              >
+                <LeadsView
+                  leads={sortedLeads}
+                  campaigns={campaigns}
+                  affiliates={affiliates}
+                  isLoading={leadsLoading}
                   onOpenCampaign={openCampaign}
-                  onOpenLead={openLead}
+                  initialFilters={leadFiltersFromQuery}
+                  onFiltersChange={onLeadFiltersChange}
+                  onCherryPick={(lead) => {
+                    if (lead.cherry_picked) {
+                      setCherryPickHistoryLead(lead);
+                    } else {
+                      setCherryPickLead(lead);
+                    }
+                  }}
+                  renderPayloadPreview={(lead, allLeads) => (
+                    <PayloadPreview
+                      lead={lead}
+                      allLeads={allLeads}
+                      campaignPlugins={
+                        campaigns.find((c) => c.id === lead.campaign_id)
+                          ?.plugins
+                      }
+                      clients={clients}
+                      onOpenClient={(clientId) =>
+                        setQuickViewClientId(clientId)
+                      }
+                      onCherryPick={(lead) => {
+                        if (lead.cherry_picked) {
+                          setCherryPickHistoryLead(lead);
+                        } else {
+                          setCherryPickLead(lead);
+                        }
+                      }}
+                    />
+                  )}
                 />
               </motion.section>
-            )
-          )}
-        </AnimatePresence>
+            )}
+
+            {active === "clients" && (
+              <motion.section
+                key="clients"
+                className="space-y-4"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.14, ease: "easeOut" }}
+              >
+                <ClientsView
+                  clients={clients}
+                  isLoading={clientsLoading}
+                  onDataChanged={refreshClients}
+                  campaigns={campaigns}
+                />
+              </motion.section>
+            )}
+
+            {active === "affiliates" && (
+              <motion.section
+                key="affiliates"
+                className="space-y-4"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.14, ease: "easeOut" }}
+              >
+                <AffiliatesView
+                  affiliates={affiliates}
+                  isLoading={affiliatesLoading}
+                  onDataChanged={refreshAffiliates}
+                  campaigns={campaigns}
+                />
+              </motion.section>
+            )}
+
+            {active === "campaigns" && (
+              <motion.section
+                key="campaigns"
+                className="space-y-6"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.14, ease: "easeOut" }}
+              >
+                <CampaignsView
+                  campaigns={campaigns}
+                  leads={leads}
+                  isLoading={campaignsLoading}
+                  onDataChanged={refreshCampaigns}
+                  onOpenCampaign={openCampaign}
+                />
+              </motion.section>
+            )}
+
+            {active === "tools" && <ToolsView />}
+
+            {active === "admin" && role !== "admin" ? (
+              <motion.section
+                key="not-found"
+                className="flex flex-col items-center justify-center py-32 gap-4"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.14, ease: "easeOut" }}
+              >
+                <p className="text-5xl font-bold text-[--color-text-muted] select-none">
+                  404
+                </p>
+                <p className="text-lg font-medium text-[--color-text-strong]">
+                  Page not found
+                </p>
+                <p className="text-sm text-[--color-text-muted]">
+                  You don&apos;t have permission to view this page.
+                </p>
+                <button
+                  type="button"
+                  className="mt-2 text-sm text-[--color-primary] hover:underline"
+                  onClick={() => handleNavChange("leads")}
+                >
+                  Go to Leads
+                </button>
+              </motion.section>
+            ) : (
+              active === "admin" && (
+                <motion.section
+                  key="admin"
+                  className="space-y-5"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.14, ease: "easeOut" }}
+                >
+                  <AdminView
+                    role={role}
+                    onOpenCampaign={openCampaign}
+                    onOpenLead={openLead}
+                  />
+                </motion.section>
+              )
+            )}
+          </AnimatePresence>
+        </div>
       </main>
 
       <CampaignDetailModal
@@ -1413,6 +1165,14 @@ function DashboardContent({
         onUpdateClientDeliveryConfig={onUpdateClientDeliveryConfig}
         onUpdateCampaignDistribution={onUpdateCampaignDistribution}
         onUpdateClientWeight={onUpdateCampaignClientWeight}
+        onNestedModalChange={(params) => {
+          setQueryParams({
+            window: params.window,
+            window_id: params.window_id,
+            window_tab: params.window_tab,
+          });
+        }}
+        initialModal={initialModal}
       />
       <ClientDetailModal
         client={clients.find((c) => c.id === quickViewClientId) ?? null}
@@ -1438,6 +1198,25 @@ function DashboardContent({
         clients={clients}
         onClose={() => setCherryPickHistoryLead(null)}
       />
+
+      {/* Guided tour */}
+      {!tour.isActive && (
+        <TourHelpButton
+          onStartSiteOverview={startSiteOverview}
+          onStartCampaignCreation={startCampaignCreation}
+        />
+      )}
+      {tour.isActive && tour.currentStep && (
+        <TourOverlay
+          currentStep={tour.currentStep}
+          stepIndex={tour.stepIndex}
+          totalSteps={tour.activeTour!.length}
+          targetRect={tour.targetRect}
+          onNext={tour.next}
+          onPrev={tour.prev}
+          onSkip={tour.endTour}
+        />
+      )}
     </div>
   );
 }
