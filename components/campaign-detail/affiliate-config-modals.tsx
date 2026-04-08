@@ -145,7 +145,7 @@ export function AffiliateConfigModals({
   return (
     <>
       <Modal
-        title={`Affiliate Lead Cap${
+        title={`Source Lead Cap${
           affiliateCapModalId
             ? ` — ${affiliates.find((a) => a.id === affiliateCapModalId)?.name || affiliateCapModalId}`
             : ""
@@ -157,7 +157,7 @@ export function AffiliateConfigModals({
         {affiliateCapModalId && (
           <div className="space-y-4">
             <p className="text-sm text-[--color-text-muted]">
-              Set a maximum number of leads this affiliate can submit for this
+              Set a maximum number of leads this source can submit for this
               campaign. Leave blank for uncapped.
             </p>
             <div className="flex items-center gap-2">
@@ -237,7 +237,7 @@ export function AffiliateConfigModals({
       </Modal>
 
       <Modal
-        title={`${pixelConfigTab === "pixel" ? "Affiliate Sold Pixel" : pixelConfigTab === "pixel_criteria" ? "Pixel Criteria" : "Sold Criteria"}${
+        title={`${pixelConfigTab === "pixel" ? "Source Webhook" : pixelConfigTab === "pixel_criteria" ? "Webhook Fields" : "Sold Rules"}${
           pixelAffiliateId
             ? ` — ${affiliates.find((a) => a.id === pixelAffiliateId)?.name || pixelAffiliateId}`
             : ""
@@ -260,9 +260,9 @@ export function AffiliateConfigModals({
             <div className="flex gap-1 rounded-lg bg-[--color-bg-muted] p-1 shrink-0">
               {(
                 [
-                  { key: "pixel", label: "Sold Pixel" },
-                  { key: "pixel_criteria", label: "Pixel Criteria" },
-                  { key: "sold_criteria", label: "Sold Criteria" },
+                  { key: "pixel", label: "Webhook" },
+                  { key: "pixel_criteria", label: "Fields" },
+                  { key: "sold_criteria", label: "Rules" },
                 ] as const
               ).map((tab) => (
                 <button
@@ -289,10 +289,10 @@ export function AffiliateConfigModals({
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
-                            Enable Pixel
+                            Enable Webhook
                           </p>
                           <p className="mt-0.5 text-[11px] text-[--color-text-muted]">
-                            Fires only when this affiliate's lead is sold.
+                            Fires only when this source's lead is sold.
                           </p>
                         </div>
                         <button
@@ -349,7 +349,7 @@ export function AffiliateConfigModals({
                       </label>
                       <label className="space-y-1 md:col-span-1">
                         <span className="text-xs font-medium text-[--color-text-muted]">
-                          Pixel URL <span className="text-red-500">*</span>
+                          Webhook URL <span className="text-red-500">*</span>
                         </span>
                         <input
                           className={`${inputClass} ${
@@ -795,14 +795,14 @@ export function AffiliateConfigModals({
                           setPixelSaveAttempted(true);
                           const trimmedUrl = pixelDraft.url.trim();
                           if (!trimmedUrl) {
-                            toast.warning("Pixel URL is required.");
+                            toast.warning("Webhook URL is required.");
                             return;
                           }
                           try {
                             // eslint-disable-next-line no-new
                             new URL(trimmedUrl);
                           } catch {
-                            toast.warning("Enter a valid pixel URL.");
+                            toast.warning("Enter a valid webhook URL.");
                             return;
                           }
 
@@ -878,7 +878,7 @@ export function AffiliateConfigModals({
                           }
                         }}
                       >
-                        Save Pixel Config
+                        Save Webhook Config
                       </Button>
                     </DisabledTooltip>
                   </div>
@@ -895,8 +895,8 @@ export function AffiliateConfigModals({
                       <span className="font-semibold text-[--color-text]">
                         Optional.
                       </span>{" "}
-                      Pixel criteria rules determine whether the sold pixel
-                      fires for this affiliate. If any rule fails, the pixel is
+                      Webhook field rules determine whether the sold webhook
+                      fires for this source. If any rule fails, the pixel is
                       suppressed. When no rules are configured, the pixel always
                       fires (if enabled).
                     </p>
@@ -927,7 +927,7 @@ export function AffiliateConfigModals({
                     </div>
                   ) : pixelCriteriaRules.length === 0 ? (
                     <div className="animate-[fadeIn_200ms_ease-in] rounded-xl border border-dashed border-[--color-border] py-10 text-center text-sm text-[--color-text-muted]">
-                      No pixel criteria rules yet.{" "}
+                      No webhook field rules yet.{" "}
                       <button
                         type="button"
                         className="text-[--color-primary] hover:underline"
@@ -1080,11 +1080,11 @@ export function AffiliateConfigModals({
                       <span className="font-semibold text-[--color-text]">
                         Optional.
                       </span>{" "}
-                      Sold criteria rules determine whether a delivered lead
-                      counts as &quot;sold&quot; for this affiliate. If any rule
-                      fails, the lead is marked as not sold and does not count
-                      toward the lead cap. When no rules are configured, the
-                      delivery result is used as-is.
+                      Sold rules determine whether a delivered lead counts as
+                      &quot;sold&quot; for this source. If any rule fails, the
+                      lead is marked as not sold and does not count toward the
+                      lead cap. When no rules are configured, the delivery
+                      result is used as-is.
                     </p>
                   </div>
 
@@ -1113,7 +1113,7 @@ export function AffiliateConfigModals({
                     </div>
                   ) : soldCriteriaRules.length === 0 ? (
                     <div className="animate-[fadeIn_200ms_ease-in] rounded-xl border border-dashed border-[--color-border] py-10 text-center text-sm text-[--color-text-muted]">
-                      No sold criteria rules yet.{" "}
+                      No sold rules yet.{" "}
                       <button
                         type="button"
                         className="text-[--color-primary] hover:underline"

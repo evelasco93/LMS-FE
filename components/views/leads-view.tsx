@@ -896,7 +896,7 @@ export function LeadsView({
       },
       {
         key: "campaign_key",
-        label: "Affiliate",
+        label: "Source",
         width: "180px",
         render: (lead) => {
           const mapping = campaignKeyMap.get(lead.campaign_key || "");
@@ -1702,7 +1702,7 @@ export function LeadsView({
                                   Sort by: Campaign
                                 </option>
                                 <option value="affiliate">
-                                  Sort by: Affiliate
+                                  Sort by: Source
                                 </option>
                                 <option value="mode">Sort by: Mode</option>
                                 <option value="status">Sort by: Status</option>

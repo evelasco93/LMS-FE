@@ -327,7 +327,7 @@ export function ParticipantModals(props: ParticipantModalsProps) {
         leadsForCampaign.length === 1 ? "" : "s"
       }. Removing a participant would break lead history and data consistency. Set their status to DISABLED to stop receiving new leads.`
     : isOnly
-      ? `At least one ${isClient ? "client" : "affiliate"} must remain linked to the campaign.`
+      ? `At least one ${isClient ? "client" : "source"} must remain linked to the campaign.`
       : "";
   const currentLink = isClient
     ? clientLinkMap?.get(pid)
@@ -517,7 +517,7 @@ export function ParticipantModals(props: ParticipantModalsProps) {
                   Configure Lead Cap
                 </Button>
                 <p className="text-xs text-[--color-text-muted]">
-                  Set a maximum number of leads this affiliate can send per
+                  Set a maximum number of leads this source can send per
                   campaign.
                 </p>
               </div>
@@ -526,7 +526,7 @@ export function ParticipantModals(props: ParticipantModalsProps) {
             {!isClient && (
               <div className="space-y-2 border-t border-[--color-border] pt-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
-                  Fire Pixel
+                  Webhook
                 </p>
                 <Button
                   size="sm"
@@ -555,10 +555,10 @@ export function ParticipantModals(props: ParticipantModalsProps) {
                     setParticipantAction(null);
                   }}
                 >
-                  Configure Fire Pixel
+                  Configure Webhook
                 </Button>
                 <p className="text-xs text-[--color-text-muted]">
-                  Fire-and-forget callback sent only when this affiliate&apos;s
+                  Fire-and-forget callback sent only when this source&apos;s
                   lead is sold.
                 </p>
               </div>
@@ -634,7 +634,7 @@ export function ParticipantModals(props: ParticipantModalsProps) {
             {!isClient && (
               <div className="space-y-2 border-t border-[--color-border] pt-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
-                  Logic Rules
+                  Rules
                 </p>
                 <Button
                   size="sm"
@@ -644,10 +644,10 @@ export function ParticipantModals(props: ParticipantModalsProps) {
                     setParticipantAction(null);
                   }}
                 >
-                  Manage Logic Rules
+                  Manage Rules
                 </Button>
                 <p className="text-xs text-[--color-text-muted]">
-                  Override or extend the campaign logic rules for this affiliate
+                  Override or extend the campaign rules for this source
                   specifically.
                 </p>
               </div>
@@ -697,10 +697,10 @@ export function ParticipantModals(props: ParticipantModalsProps) {
                   variant="outline"
                   onClick={() => openClientLogicManager(pid)}
                 >
-                  Manage Logic Rules
+                  Manage Rules
                 </Button>
                 <p className="text-xs text-[--color-text-muted]">
-                  Override or extend the campaign logic rules for this client
+                  Override or extend the campaign rules for this client
                   specifically.
                 </p>
               </div>
@@ -744,10 +744,10 @@ export function ParticipantModals(props: ParticipantModalsProps) {
       <Modal
         title={
           pixelLogicIntroAffiliateId
-            ? `Affiliate Logic Rules — ${affiliates.find((a) => a.id === pixelLogicIntroAffiliateId)?.name || pixelLogicIntroAffiliateId}`
+            ? `Source Rules — ${affiliates.find((a) => a.id === pixelLogicIntroAffiliateId)?.name || pixelLogicIntroAffiliateId}`
             : deliveryLogicIntroClientId
-              ? `Client Logic Rules — ${clients.find((c) => c.id === deliveryLogicIntroClientId)?.name || deliveryLogicIntroClientId}`
-              : "Logic Rules"
+              ? `Client Rules — ${clients.find((c) => c.id === deliveryLogicIntroClientId)?.name || deliveryLogicIntroClientId}`
+              : "Rules"
         }
         isOpen={!!(pixelLogicIntroAffiliateId || deliveryLogicIntroClientId)}
         onClose={() => {
@@ -821,7 +821,7 @@ export function ParticipantModals(props: ParticipantModalsProps) {
             <div className="flex min-h-0 flex-1 flex-col">
               <div className="mb-3 flex items-center justify-between">
                 <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
-                  Logic Catalog
+                  Rules Catalog
                 </p>
                 <button
                   type="button"
@@ -835,7 +835,7 @@ export function ParticipantModals(props: ParticipantModalsProps) {
                 <p className="text-sm text-[--color-text-muted]">Loading…</p>
               ) : participantLogicCatalogSets.length === 0 ? (
                 <p className="text-sm text-[--color-text-muted]">
-                  No logic catalog sets found.
+                  No rules catalog sets found.
                 </p>
               ) : (
                 <div className="min-h-0 flex-1 overflow-y-auto divide-y divide-[--color-border] rounded-xl border border-[--color-border]">
@@ -861,7 +861,7 @@ export function ParticipantModals(props: ParticipantModalsProps) {
                             }
                           } catch {
                             toast.error(
-                              "Failed to load logic catalog versions.",
+                              "Failed to load rules catalog versions.",
                             );
                           } finally {
                             setParticipantLoadingVersionsFor(null);
@@ -1206,7 +1206,7 @@ export function ParticipantModals(props: ParticipantModalsProps) {
                   <p className="text-sm text-[--color-text-muted]">Loading…</p>
                 ) : participantLogicRules.length === 0 ? (
                   <div className="rounded-xl border border-dashed border-[--color-border] py-12 text-center text-sm text-[--color-text-muted]">
-                    No logic rules yet.{" "}
+                    No rules yet.{" "}
                     <button
                       type="button"
                       className="text-[--color-primary] hover:underline"
@@ -1358,7 +1358,7 @@ export function ParticipantModals(props: ParticipantModalsProps) {
                     variant="outline"
                     onClick={openParticipantLogicCatalog}
                   >
-                    Apply from Logic Catalog
+                    Apply from Rules Catalog
                   </Button>
                 </div>
               </div>

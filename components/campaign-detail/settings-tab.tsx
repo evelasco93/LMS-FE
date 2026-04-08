@@ -200,9 +200,9 @@ export default function SettingsTab({
             }`}
           >
             {sub === "base-criteria"
-              ? "Criteria"
+              ? "Fields"
               : sub === "logic"
-                ? "Logic"
+                ? "Rules"
                 : "Distribution"}
           </button>
         ))}
@@ -237,7 +237,7 @@ export default function SettingsTab({
                   </div>
                 ) : (
                   <p className="text-[11px] text-[--color-text-muted]">
-                    No active criteria catalog applied.
+                    No active fields catalog applied.
                   </p>
                 )}
               </div>
@@ -265,7 +265,7 @@ export default function SettingsTab({
                   onClick={openCriteriaCatalogModal}
                   className="shrink-0 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-3 py-1.5 text-[11px] font-medium text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg] transition-colors"
                 >
-                  Criteria Catalog
+                  Fields Catalog
                 </button>
                 <button
                   type="button"
@@ -449,7 +449,7 @@ export default function SettingsTab({
                   {criteriaFields.length === 0 ? (
                     <div className="rounded-xl border border-dashed border-[--color-border] px-6 py-10 text-center">
                       <p className="text-sm text-[--color-text-muted] mb-4">
-                        No criteria fields yet.
+                        No fields yet.
                       </p>
                       <div className="flex flex-col items-center gap-2">
                         <button
@@ -457,7 +457,7 @@ export default function SettingsTab({
                           onClick={openCriteriaCatalogModal}
                           className="rounded-md bg-[--color-primary] px-4 py-2 text-[13px] font-medium text-white hover:opacity-90 transition-opacity"
                         >
-                          Apply from Criteria Catalog
+                          Apply from Fields Catalog
                         </button>
                         <button
                           type="button"
@@ -1128,7 +1128,7 @@ export default function SettingsTab({
                   </div>
                 ) : (
                   <p className="text-[11px] text-[--color-text-muted]">
-                    No active logic catalog applied.
+                    No active rules catalog applied.
                   </p>
                 )}
               </div>
@@ -1156,7 +1156,7 @@ export default function SettingsTab({
                   onClick={openLogicCatalogModal}
                   className="shrink-0 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-3 py-1.5 text-[11px] font-medium text-[--color-text-muted] hover:bg-[--color-bg] hover:text-[--color-text] transition-colors"
                 >
-                  Logic Catalog
+                  Rules Catalog
                 </button>
                 <Button
                   size="sm"
@@ -1175,7 +1175,7 @@ export default function SettingsTab({
               <p className="text-sm text-[--color-text-muted]">Loading…</p>
             ) : logicRules.length === 0 ? (
               <div className="rounded-xl border border-dashed border-[--color-border] py-12 text-center text-sm text-[--color-text-muted]">
-                No logic rules yet.{" "}
+                No rules yet.{" "}
                 <button
                   type="button"
                   className="text-[--color-primary] hover:underline"

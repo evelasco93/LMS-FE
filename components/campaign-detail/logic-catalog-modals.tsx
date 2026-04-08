@@ -98,7 +98,7 @@ export function LogicCatalogModals({
   return (
     <>
       <Modal
-        title="Campaign Logic Catalog"
+        title="Campaign Rules Catalog"
         isOpen={logicCatalogOpen}
         onClose={() => setLogicCatalogOpen(false)}
         width={640}
@@ -107,8 +107,8 @@ export function LogicCatalogModals({
         <div className="space-y-4 text-sm">
           <div className="flex items-start justify-between gap-3">
             <p className="text-xs text-[--color-text-muted] leading-relaxed">
-              Versioned logic sets. Applying a version replaces this campaign's
-              current logic rules with that catalog version.
+              Versioned rule sets. Applying a version replaces this campaign's
+              current rules with that catalog version.
             </p>
             <Button size="sm" variant="outline" onClick={openLogicCatalogModal}>
               Refresh
@@ -132,7 +132,7 @@ export function LogicCatalogModals({
             <p className="text-sm text-[--color-text-muted]">Loading…</p>
           ) : logicCatalogSets.length === 0 ? (
             <p className="text-sm text-[--color-text-muted]">
-              No logic catalog sets yet. Save current rules as a catalog set to
+              No rules catalog sets yet. Save current rules as a catalog set to
               create one.
             </p>
           ) : (
@@ -158,7 +158,7 @@ export function LogicCatalogModals({
                           }));
                         }
                       } catch {
-                        toast.error("Failed to load logic catalog versions.");
+                        toast.error("Failed to load rules catalog versions.");
                       } finally {
                         setLoadingLogicVersionsFor(null);
                       }
@@ -479,15 +479,15 @@ export function LogicCatalogModals({
         </div>
       </Modal>
       <Modal
-        title="Save Logic Rules to Catalog"
+        title="Save Rules to Catalog"
         isOpen={saveLogicToSetOpen}
         onClose={() => setSaveLogicToSetOpen(false)}
         width={470}
       >
         <div className="space-y-4 text-sm">
           <p className="text-[13px] text-[--color-text-muted]">
-            Save these campaign logic rules as either a new version of the
-            active logic catalog entry or as a brand new logic catalog set.
+            Save these campaign rules as either a new version of the active
+            rules catalog entry or as a brand new rules catalog set.
           </p>
 
           <div className="space-y-2">

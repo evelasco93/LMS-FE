@@ -90,16 +90,14 @@ export function AffiliatesView({
       (async () => {
         const res = await createAffiliate(payload);
         if (!(res as any)?.success)
-          throw new Error(
-            (res as any)?.message || "Unable to create affiliate",
-          );
+          throw new Error((res as any)?.message || "Unable to create source");
         await refresh();
         setAffiliateModal(false);
       })(),
       {
-        loading: "Creating affiliate…",
-        success: "Affiliate created",
-        error: (err) => err?.message || "Unable to create affiliate",
+        loading: "Creating source…",
+        success: "Source created",
+        error: (err) => err?.message || "Unable to create source",
       },
     );
   };
@@ -109,17 +107,15 @@ export function AffiliatesView({
       (async () => {
         const res = await updateAffiliate(id, payload);
         if (!(res as any)?.success)
-          throw new Error(
-            (res as any)?.message || "Unable to update affiliate",
-          );
+          throw new Error((res as any)?.message || "Unable to update source");
         await refresh();
         setEditAffiliateModal(false);
         setEditingAffiliate(null);
       })(),
       {
-        loading: "Updating affiliate…",
-        success: "Affiliate updated",
-        error: (err) => err?.message || "Unable to update affiliate",
+        loading: "Updating source…",
+        success: "Source updated",
+        error: (err) => err?.message || "Unable to update source",
       },
     );
   };
@@ -133,7 +129,7 @@ export function AffiliatesView({
     );
     if (activeCampaigns.length === 0) return undefined;
     const names = activeCampaigns.map((c) => `"${c.name}"`).join(", ");
-    return `This affiliate is active (TEST or LIVE) in ${names}. Set its status to DISABLED in all campaigns before deactivating.`;
+    return `This source is active (TEST or LIVE) in ${names}. Set its status to DISABLED in all campaigns before deactivating.`;
   }, [deleteTarget, campaigns]);
 
   const hardDeleteDisabledReason = useMemo(() => {
@@ -143,7 +139,7 @@ export function AffiliatesView({
     );
     if (linked.length === 0) return undefined;
     const count = linked.length;
-    return `This affiliate is still linked to ${count} campaign${count !== 1 ? "s" : ""}. Remove it from all campaigns before permanently deleting.`;
+    return `This source is still linked to ${count} campaign${count !== 1 ? "s" : ""}. Remove it from all campaigns before permanently deleting.`;
   }, [deleteTarget, campaigns]);
 
   const onDeleteAffiliate = async (permanent: boolean) => {
@@ -155,19 +151,19 @@ export function AffiliatesView({
           throw new Error(
             (res as any)?.error ||
               (res as any)?.message ||
-              "Unable to delete affiliate",
+              "Unable to delete source",
           );
         await refresh();
         setDeleteTarget(null);
       })(),
       {
         loading: permanent
-          ? "Permanently deleting affiliate…"
-          : "Deactivating affiliate…",
+          ? "Permanently deleting source…"
+          : "Deactivating source…",
         success: permanent
-          ? "Affiliate permanently deleted"
-          : "Affiliate deactivated",
-        error: (err) => err?.message || "Unable to delete affiliate",
+          ? "Source permanently deleted"
+          : "Source deactivated",
+        error: (err) => err?.message || "Unable to delete source",
       },
     );
   };
@@ -201,7 +197,7 @@ export function AffiliatesView({
           onClick={() => setAffiliateModal(true)}
           data-tour="btn-new-affiliate"
         >
-          New Affiliate
+          New Source
         </Button>
       </div>
 
@@ -278,9 +274,7 @@ export function AffiliatesView({
         ]}
         data={displayedAffiliates}
         emptyLabel={
-          displayedLoading
-            ? "Loading affiliates…"
-            : "No affiliates yet. Add one."
+          displayedLoading ? "Loading sources…" : "No sources yet. Add one."
         }
       />
 

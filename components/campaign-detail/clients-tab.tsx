@@ -214,8 +214,8 @@ export function ClientsTab({
                           />
                           <span className="group-hover:underline">
                             {ruleCount > 0
-                              ? `${ruleCount} logic rule${ruleCount !== 1 ? "s" : ""}`
-                              : "Logic rules"}
+                              ? `${ruleCount} rule${ruleCount !== 1 ? "s" : ""}`
+                              : "Rules"}
                           </span>
                           {hasOverride && (
                             <span className="rounded px-1 py-px text-[10px] font-semibold bg-amber-500/15 text-amber-500 leading-tight">

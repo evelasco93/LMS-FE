@@ -2,6 +2,8 @@
 
 This doc summarizes how the LMS API behaves so the frontend can model the UI. API reference source: [api/openapi.json](api/openapi.json).
 
+> **Terminology note:** The backend API uses `affiliate`, `criteria`, `logic`, and `pixel` in endpoint paths, field names, and response bodies. The frontend displays these as **Source**, **Fields**, **Rules**, and **Webhook** respectively. This guide uses the backend terminology to match the actual API contracts.
+
 ## High-level flow
 
 - Create client(s) and affiliate(s).

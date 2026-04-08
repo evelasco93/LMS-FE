@@ -156,7 +156,7 @@ export function CriteriaCatalogModal({
             ? "New Catalog Set"
             : catalogFormMode === "edit"
               ? `Edit: ${editingCatalogSet?.name ?? ""}`
-              : "Criteria Catalog"
+              : "Fields Catalog"
         }
         isOpen={catalogOpen}
         onClose={() => {

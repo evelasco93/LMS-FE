@@ -193,7 +193,7 @@ function getEntityTypeMeta(type: string) {
     case "affiliate":
       return {
         icon: <Users size={s} />,
-        label: "Affiliate",
+        label: "Source",
         color: "bg-pink-500/10 text-pink-600 dark:text-pink-400",
       };
     case "credential":
@@ -229,13 +229,13 @@ function getEntityTypeMeta(type: string) {
     case "criteria_catalog":
       return {
         icon: <LayoutTemplate size={s} />,
-        label: "Criteria Catalog",
+        label: "Fields Catalog",
         color: "bg-teal-500/10 text-teal-600 dark:text-teal-400",
       };
     case "logic_catalog":
       return {
         icon: <GitBranch size={s} />,
-        label: "Logic Catalog",
+        label: "Rules Catalog",
         color: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400",
       };
     default:
@@ -1893,7 +1893,7 @@ export function AdminView({
   const openCatalogNewVersion = (kind: CatalogTabKey) => {
     if (kind === "criteria") {
       if (!criteriaCatalogDetail?.set) {
-        toast.error("Select a criteria catalog set first");
+        toast.error("Select a fields catalog set first");
         return;
       }
       const latestVersion = criteriaCatalogVersions[0];
@@ -1910,7 +1910,7 @@ export function AdminView({
     }
 
     if (!logicCatalogDetail?.set) {
-      toast.error("Select a logic catalog set first");
+      toast.error("Select a rules catalog set first");
       return;
     }
     const latestVersion = logicCatalogVersions[0];
@@ -1990,7 +1990,7 @@ export function AdminView({
           if (createdId) {
             setSelectedCriteriaSetId(createdId);
           }
-          toast.success("Criteria catalog set created");
+          toast.success("Fields catalog set created");
         } else {
           if (!catalogEditorTargetId) {
             throw new Error("Missing criteria catalog set id");
@@ -2009,7 +2009,7 @@ export function AdminView({
             refreshCriteriaCatalog(),
             refreshCriteriaCatalogDetail(),
           ]);
-          toast.success("Criteria catalog version created");
+          toast.success("Fields catalog version created");
         }
       } else {
         if (catalogEditorMode === "create") {
@@ -2029,7 +2029,7 @@ export function AdminView({
           if (createdId) {
             setSelectedLogicSetId(createdId);
           }
-          toast.success("Logic catalog set created");
+          toast.success("Rules catalog set created");
         } else {
           if (!catalogEditorTargetId) {
             throw new Error("Missing logic catalog set id");
@@ -2048,7 +2048,7 @@ export function AdminView({
             refreshLogicCatalog(),
             refreshLogicCatalogDetail(),
           ]);
-          toast.success("Logic catalog version created");
+          toast.success("Rules catalog version created");
         }
       }
 
@@ -2078,7 +2078,7 @@ export function AdminView({
         if (selectedCriteriaSetId === setId) {
           setSelectedCriteriaSetId(null);
         }
-        toast.success("Criteria catalog set deleted");
+        toast.success("Fields catalog set deleted");
       } else {
         const res = await deleteLogicCatalogSet(setId);
         if (!(res as any)?.success) {
@@ -2088,7 +2088,7 @@ export function AdminView({
         if (selectedLogicSetId === setId) {
           setSelectedLogicSetId(null);
         }
-        toast.success("Logic catalog set deleted");
+        toast.success("Rules catalog set deleted");
       }
     } catch (err: any) {
       toast.error(err?.message || "Failed to delete catalog set");
@@ -2780,7 +2780,7 @@ export function AdminView({
               >
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <p className="text-sm text-[--color-text-muted]">
-                    Manage reusable criteria and logic catalog sets and their
+                    Manage reusable fields and rules catalog sets and their
                     versions.
                   </p>
                   <div className="flex items-center gap-2">
@@ -2883,8 +2883,8 @@ export function AdminView({
                         data={criteriaCatalogSets}
                         emptyLabel={
                           showCriteriaCatalogLoading
-                            ? "Loading criteria catalogs…"
-                            : "No criteria catalog sets yet."
+                            ? "Loading fields catalogs…"
+                            : "No fields catalog sets yet."
                         }
                       />
                     ) : (
@@ -2936,8 +2936,8 @@ export function AdminView({
                         data={logicCatalogSets}
                         emptyLabel={
                           showLogicCatalogLoading
-                            ? "Loading logic catalogs…"
-                            : "No logic catalog sets yet."
+                            ? "Loading rules catalogs…"
+                            : "No rules catalog sets yet."
                         }
                       />
                     )}
@@ -2947,17 +2947,17 @@ export function AdminView({
                     {catalogTab === "criteria" ? (
                       criteriaCatalogDetailLoading && selectedCriteriaSetId ? (
                         <p className="text-sm text-[--color-text-muted]">
-                          Loading criteria set details…
+                          Loading fields set details…
                         </p>
                       ) : !criteriaCatalogDetail?.set ? (
                         <p className="text-sm text-[--color-text-muted]">
-                          Select a criteria catalog set to view versions.
+                          Select a fields catalog set to view versions.
                         </p>
                       ) : (
                         <>
                           <div>
                             <p className="text-xs uppercase tracking-wider text-[--color-text-muted]">
-                              Criteria Set
+                              Fields Set
                             </p>
                             <p className="font-semibold text-[--color-text-strong]">
                               {criteriaCatalogDetail.set.name}
@@ -3151,17 +3151,17 @@ export function AdminView({
                       )
                     ) : logicCatalogDetailLoading && selectedLogicSetId ? (
                       <p className="text-sm text-[--color-text-muted]">
-                        Loading logic set details…
+                        Loading rules set details…
                       </p>
                     ) : !logicCatalogDetail?.set ? (
                       <p className="text-sm text-[--color-text-muted]">
-                        Select a logic catalog set to view versions.
+                        Select a rules catalog set to view versions.
                       </p>
                     ) : (
                       <>
                         <div>
                           <p className="text-xs uppercase tracking-wider text-[--color-text-muted]">
-                            Logic Set
+                            Rules Set
                           </p>
                           <p className="font-semibold text-[--color-text-strong]">
                             {logicCatalogDetail.set.name}
@@ -3722,17 +3722,17 @@ export function AdminView({
                               { value: "lead", label: "Lead" },
                               { value: "campaign", label: "Campaign" },
                               { value: "client", label: "Client" },
-                              { value: "affiliate", label: "Affiliate" },
+                              { value: "affiliate", label: "Source" },
                               { value: "credential", label: "Credential" },
                               { value: "credential_schema", label: "Schema" },
                               { value: "plugin_setting", label: "Integration" },
                               {
                                 value: "criteria_catalog",
-                                label: "Criteria Catalog",
+                                label: "Fields Catalog",
                               },
                               {
                                 value: "logic_catalog",
-                                label: "Logic Catalog",
+                                label: "Rules Catalog",
                               },
                               { value: "user", label: "User" },
                             ].map(({ value, label }) => {
@@ -4645,7 +4645,7 @@ export function AdminView({
               >
                 <div className="flex items-center gap-3 border-b border-[--color-border] px-5 py-4">
                   <Badge tone="info">
-                    {catalogEditorKind === "criteria" ? "Criteria" : "Logic"}
+                    {catalogEditorKind === "criteria" ? "Fields" : "Rules"}
                   </Badge>
                   <span className="text-base font-semibold text-[--color-text-strong]">
                     {catalogEditorMode === "create"

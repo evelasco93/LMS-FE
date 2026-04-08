@@ -296,16 +296,16 @@ function formatAuditFieldLabel(
     const affiliateName = affiliateNameById.get(affiliateId) ?? affiliateId;
     const baseLabel =
       suffix === "affiliate_id"
-        ? "Linked Affiliate"
+        ? "Linked Source"
         : suffix === "status"
-          ? "Affiliate Status"
+          ? "Source Status"
           : suffix === "campaign_key"
-            ? "Affiliate Campaign Key"
+            ? "Source Campaign Key"
             : suffix === "sold_pixel_config"
-              ? "Affiliate Sold Pixel Config"
+              ? "Source Sold Webhook Config"
               : suffix === "lead_cap"
-                ? "Affiliate Lead Cap"
-                : `Affiliate ${normalizeFieldLabel(suffix)}`;
+                ? "Source Lead Cap"
+                : `Source ${normalizeFieldLabel(suffix)}`;
     return `${baseLabel} · ${affiliateName}`;
   }
 
@@ -1461,14 +1461,14 @@ export function CampaignDetailModal({
           toast.error((res as any)?.message || "Failed to update rule.");
           return;
         }
-        toast.success("Logic rule updated.");
+        toast.success("Rule updated.");
       } else {
         const res = await createLogicRule(campaign.id, draft);
         if ((res as any)?.result === false) {
           toast.error((res as any)?.message || "Failed to create rule.");
           return;
         }
-        toast.success("Logic rule created.");
+        toast.success("Rule created.");
       }
       await refreshLogicRules();
       // Manual rule edits de-sync the campaign from any applied logic catalog.
@@ -1494,7 +1494,7 @@ export function CampaignDetailModal({
         toast.error((res as any)?.message || "Failed to delete rule.");
         return;
       }
-      toast.success("Logic rule deleted.");
+      toast.success("Rule deleted.");
       await refreshLogicRules();
       setLocalLogicSetId(null);
       setLocalLogicSetVersion(null);
@@ -1598,7 +1598,7 @@ export function CampaignDetailModal({
           toast.error((res as any)?.message || "Failed to update rule.");
           return;
         }
-        toast.success("Pixel criteria rule updated.");
+        toast.success("Webhook field rule updated.");
       } else {
         const res = await createAffiliatePixelCriterion(
           campaign.id,
@@ -1609,7 +1609,7 @@ export function CampaignDetailModal({
           toast.error((res as any)?.message || "Failed to create rule.");
           return;
         }
-        toast.success("Pixel criteria rule created.");
+        toast.success("Webhook field rule created.");
       }
       await refreshPixelCriteria(pixelCriteriaAffiliateId);
       setPixelCriteriaBuilderOpen(false);
@@ -1634,7 +1634,7 @@ export function CampaignDetailModal({
         toast.error((res as any)?.message || "Failed to delete rule.");
         return;
       }
-      toast.success("Pixel criteria rule deleted.");
+      toast.success("Webhook field rule deleted.");
       await refreshPixelCriteria(pixelCriteriaAffiliateId);
     } catch (err: any) {
       toast.error(err?.message || "An error occurred.");
@@ -1710,7 +1710,7 @@ export function CampaignDetailModal({
           toast.error((res as any)?.message || "Failed to update rule.");
           return;
         }
-        toast.success("Sold criteria rule updated.");
+        toast.success("Sold rule updated.");
       } else {
         const res = await createAffiliateSoldCriterion(
           campaign.id,
@@ -1721,7 +1721,7 @@ export function CampaignDetailModal({
           toast.error((res as any)?.message || "Failed to create rule.");
           return;
         }
-        toast.success("Sold criteria rule created.");
+        toast.success("Sold rule created.");
       }
       await refreshSoldCriteria(soldCriteriaAffiliateId);
       setSoldCriteriaBuilderOpen(false);
@@ -1746,7 +1746,7 @@ export function CampaignDetailModal({
         toast.error((res as any)?.message || "Failed to delete rule.");
         return;
       }
-      toast.success("Sold criteria rule deleted.");
+      toast.success("Sold rule deleted.");
       await refreshSoldCriteria(soldCriteriaAffiliateId);
     } catch (err: any) {
       toast.error(err?.message || "An error occurred.");
@@ -1914,7 +1914,7 @@ export function CampaignDetailModal({
           toast.error((res as any)?.message || "Failed to update rule.");
           return;
         }
-        toast.success("Logic rule updated.");
+        toast.success("Rule updated.");
       } else {
         const res =
           participantLogicType === "affiliate"
@@ -1924,7 +1924,7 @@ export function CampaignDetailModal({
           toast.error((res as any)?.message || "Failed to create rule.");
           return;
         }
-        toast.success("Logic rule created.");
+        toast.success("Rule created.");
       }
       await refreshParticipantLogicRules(participantLogicType!, participantId);
       setParticipantLogicSetId(null);
@@ -1956,7 +1956,7 @@ export function CampaignDetailModal({
         toast.error((res as any)?.message || "Failed to delete rule.");
         return;
       }
-      toast.success("Logic rule deleted.");
+      toast.success("Rule deleted.");
       await refreshParticipantLogicRules(participantLogicType!, participantId);
       setParticipantLogicSetId(null);
       setParticipantLogicSetVersion(null);
@@ -2019,7 +2019,7 @@ export function CampaignDetailModal({
         }
       }
     } catch {
-      toast.error("Failed to load logic catalog.");
+      toast.error("Failed to load rules catalog.");
     } finally {
       setParticipantLogicCatalogLoading(false);
     }
@@ -2206,7 +2206,7 @@ export function CampaignDetailModal({
           ...(rules.length > 0 ? { rules } : {}),
         });
         if (!createRes.success) {
-          throw new Error("Failed to create logic catalog set");
+          throw new Error("Failed to create rules catalog set");
         }
         targetSet = createRes.data.set;
         targetVersion = 1;
@@ -2244,7 +2244,7 @@ export function CampaignDetailModal({
         }
       }
     } catch {
-      toast.error("Failed to load logic catalog.");
+      toast.error("Failed to load rules catalog.");
     } finally {
       setLogicCatalogLoading(false);
     }
@@ -2257,7 +2257,7 @@ export function CampaignDetailModal({
       return;
     }
     if (saveLogicToSetMode === "new_version" && !localLogicSetId) {
-      toast.warning("No active logic catalog set to version.");
+      toast.warning("No active rules catalog set to version.");
       return;
     }
 
@@ -2278,7 +2278,7 @@ export function CampaignDetailModal({
           rules,
         });
         if (!updateRes.success) {
-          throw new Error("Failed to create new logic catalog version.");
+          throw new Error("Failed to create new rules catalog version.");
         }
         targetSet = updateRes.data.set;
         targetVersion = targetSet.latest_version;
@@ -2291,7 +2291,7 @@ export function CampaignDetailModal({
           ...(rules.length > 0 ? { rules } : {}),
         });
         if (!createRes.success) {
-          throw new Error("Failed to create logic catalog set.");
+          throw new Error("Failed to create rules catalog set.");
         }
         targetSet = createRes.data.set;
         targetVersion = 1;
@@ -2315,7 +2315,7 @@ export function CampaignDetailModal({
       setSaveLogicToSetDraft({ name: "", description: "" });
       setSaveLogicToSetMode("new_version");
     } catch (err: any) {
-      toast.error(err?.message || "Failed to save logic catalog set.");
+      toast.error(err?.message || "Failed to save rules catalog set.");
     } finally {
       setSavingLogicToSet(false);
     }
@@ -2365,7 +2365,7 @@ export function CampaignDetailModal({
       onCampaignUpdate?.({ logic_set_id: setId, logic_set_version: version });
       toast.success(`Applied "${setName}" v${version}.`);
     } catch (err: any) {
-      toast.error(err?.message || "Failed to apply logic catalog version.");
+      toast.error(err?.message || "Failed to apply rules catalog version.");
     } finally {
       setApplyingLogicCatalog(null);
     }
@@ -2402,7 +2402,7 @@ export function CampaignDetailModal({
       return;
     }
     if (saveCriteriaToSetMode === "new_version" && !localCriteriaSetId) {
-      toast.warning("No active criteria catalog set to version.");
+      toast.warning("No active fields catalog set to version.");
       return;
     }
 
@@ -2469,7 +2469,7 @@ export function CampaignDetailModal({
       setSaveCriteriaToSetMode(localCriteriaSetId ? "new_version" : "new_set");
       await refreshCriteria();
     } catch (err: any) {
-      toast.error(err?.message || "Failed to save criteria catalog.");
+      toast.error(err?.message || "Failed to save fields catalog.");
     } finally {
       setSavingCriteriaToSet(false);
     }
@@ -2883,7 +2883,7 @@ export function CampaignDetailModal({
                 [
                   { key: "overview", label: "Overview", icon: LayoutGrid },
                   { key: "clients", label: "Clients", icon: Users },
-                  { key: "affiliates", label: "Affiliates", icon: HandHeart },
+                  { key: "affiliates", label: "Sources", icon: HandHeart },
                   { key: "integrations", label: "Integrations", icon: Plug },
                   { key: "settings", label: "Configuration", icon: Settings2 },
                   { key: "history", label: "History", icon: History },

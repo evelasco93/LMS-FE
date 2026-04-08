@@ -730,7 +730,7 @@ export function CherryPickModal({
                     className="cursor-pointer text-[11px] leading-relaxed"
                   >
                     <span className="font-semibold text-[--color-text-strong]">
-                      Fire source affiliate sold pixel for this cherry-pick
+                      Fire source webhook for this cherry-pick
                     </span>
                     <span className="block text-[--color-text-muted] mt-0.5">
                       Default is OFF. The pixel only fires when this cherry-pick
@@ -742,7 +742,7 @@ export function CherryPickModal({
                 <div className="grid grid-cols-2 gap-2 text-[11px]">
                   <div>
                     <p className="text-[10px] uppercase tracking-wide text-[--color-text-muted] font-semibold">
-                      Source Affiliate
+                      Source
                     </p>
                     <p className="font-mono text-[--color-text]">
                       {sourceAffiliatePixel?.affiliate_id ?? "Not resolved"}
@@ -760,7 +760,7 @@ export function CherryPickModal({
 
                 <div className="space-y-1">
                   <p className="text-[10px] uppercase tracking-wide text-[--color-text-muted] font-semibold">
-                    Pixel Destination
+                    Webhook Destination
                   </p>
                   {sourceAffiliatePixel?.pixel_url ? (
                     <p className="font-mono text-[11px] text-[--color-text] break-all rounded bg-[--color-bg] border border-[--color-border] px-2.5 py-1.5">
@@ -769,8 +769,8 @@ export function CherryPickModal({
                     </p>
                   ) : (
                     <p className="text-[11px] text-amber-600 dark:text-amber-400">
-                      No source affiliate pixel destination is configured for
-                      this lead. Pixel firing is unavailable.
+                      No source webhook destination is configured for this lead.
+                      Webhook firing is unavailable.
                     </p>
                   )}
                 </div>
@@ -782,7 +782,7 @@ export function CherryPickModal({
                       : "text-[--color-text-muted]"
                   }`}
                 >
-                  Affiliate pixel: {fireAffiliatePixel ? "ON" : "OFF"}
+                  Source webhook: {fireAffiliatePixel ? "ON" : "OFF"}
                 </p>
               </div>
 

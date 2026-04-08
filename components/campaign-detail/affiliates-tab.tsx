@@ -117,14 +117,14 @@ export function AffiliatesTab({
           <div>
             <p className="font-medium">Missing configuration</p>
             <p className="mt-0.5 text-xs text-[--color-text-muted]">
-              Before adding affiliates you need to set up{" "}
+              Before adding sources you need to set up{" "}
               {missingCriteria && (
                 <button
                   type="button"
                   className="font-semibold text-[--color-primary] hover:underline"
                   onClick={() => onNavigateToSettings?.("base-criteria")}
                 >
-                  criteria questions
+                  field definitions
                 </button>
               )}
               {missingCriteria && missingLogic && " and "}
@@ -134,7 +134,7 @@ export function AffiliatesTab({
                   className="font-semibold text-[--color-primary] hover:underline"
                   onClick={() => onNavigateToSettings?.("logic")}
                 >
-                  logical validations
+                  validation rules
                 </button>
               )}
               .
@@ -143,7 +143,7 @@ export function AffiliatesTab({
         </div>
       )}
       <div className="mb-2 flex items-center justify-between gap-3">
-        <SectionLabel>Linked Affiliates</SectionLabel>
+        <SectionLabel>Linked Sources</SectionLabel>
         <Button
           size="sm"
           iconLeft={<UserPlus size={14} />}
@@ -151,12 +151,12 @@ export function AffiliatesTab({
           onClick={() => setLinkAffiliateModalOpen(true)}
           data-tour="btn-add-affiliate"
         >
-          Add Affiliate
+          Add Source
         </Button>
       </div>
       <div className="space-y-2 text-sm">
         {linkedAffiliates.length === 0 ? (
-          <p className="text-[--color-text-muted]">No linked affiliates yet.</p>
+          <p className="text-[--color-text-muted]">No linked sources yet.</p>
         ) : (
           linkedAffiliates.map((a) => {
             const link = affiliateLinkMap.get(a.id);
@@ -199,7 +199,7 @@ export function AffiliatesTab({
                     {link?.campaign_key ? (
                       <div className="flex flex-col gap-0.5 mt-1">
                         <div className="flex items-center gap-1 text-xs text-[--color-text-muted]">
-                          <HoverTooltip message="Affiliate Campaign Key">
+                          <HoverTooltip message="Source Campaign Key">
                             <span className="font-mono cursor-help">
                               {link.campaign_key}
                             </span>
@@ -324,7 +324,7 @@ export function AffiliatesTab({
                               type="button"
                               onClick={() => openAffiliateLogicManager(a.id)}
                               className="flex items-center gap-1.5 text-left text-xs text-[--color-text-muted] hover:text-[--color-primary] transition-colors group w-fit"
-                              title="Manage logic rules for this affiliate"
+                              title="Manage rules for this source"
                             >
                               <GitBranch
                                 size={11}
@@ -332,8 +332,8 @@ export function AffiliatesTab({
                               />
                               <span className="group-hover:underline">
                                 {ruleCount > 0
-                                  ? `${ruleCount} logic rule${ruleCount !== 1 ? "s" : ""}`
-                                  : "Logic rules"}
+                                  ? `${ruleCount} rule${ruleCount !== 1 ? "s" : ""}`
+                                  : "Rules"}
                               </span>
                               {hasOverride && (
                                 <span className="rounded px-1 py-px text-[10px] font-semibold bg-amber-500/15 text-amber-500 leading-tight">
@@ -347,7 +347,7 @@ export function AffiliatesTab({
                               )}
                               <span
                                 className="rounded px-1 py-px text-[10px] font-semibold leading-tight bg-purple-500/15 text-purple-400"
-                                title="Uses current campaign logic rules"
+                                title="Uses current campaign rules"
                               >
                                 inherits
                               </span>
@@ -357,7 +357,7 @@ export function AffiliatesTab({
                         <div className="flex items-center gap-1.5 text-xs text-[--color-text-muted]">
                           <button
                             type="button"
-                            title="Configure fire pixel"
+                            title="Configure webhook"
                             onClick={() => {
                               const existing = link?.sold_pixel_config;
                               setPixelDraft(
@@ -561,7 +561,7 @@ export function AffiliatesTab({
                           {a.affiliate_code ? (
                             <div>
                               <p className="uppercase tracking-wide text-[--color-text-muted] mb-1">
-                                Affiliate Code
+                                Source Code
                               </p>
                               <p className="font-medium font-mono text-[--color-text-strong]">
                                 {a.affiliate_code}

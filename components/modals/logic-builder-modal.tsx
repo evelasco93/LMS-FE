@@ -347,7 +347,10 @@ export function LogicBuilderModal({
 
   const addGroup = () => {
     const newKey = keyCounter.current++;
-    setGroups((g) => [...g, { _key: newKey, conditions: [{ ...EMPTY_CONDITION }] }]);
+    setGroups((g) => [
+      ...g,
+      { _key: newKey, conditions: [{ ...EMPTY_CONDITION }] },
+    ]);
   };
 
   const removeGroup = (gi: number) =>
@@ -445,7 +448,7 @@ export function LogicBuilderModal({
       title={
         <div>
           <p className="text-lg font-semibold text-[--color-text-strong]">
-            Logic Builder
+            Rules Builder
           </p>
           <p className="text-xs font-normal text-[--color-text-muted] mt-0.5">
             {rule ? rule.name || rule.id : "New Rule"}
@@ -505,133 +508,133 @@ export function LogicBuilderModal({
         {/* Groups */}
         <div className="space-y-3">
           <AnimatePresence initial={false}>
-          {groups.map((group, gi) => (
-            <motion.div
-              key={group._key}
-              initial={{ opacity: 0, y: -8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8, scale: 0.97 }}
-              transition={{ duration: 0.18, ease: "easeOut" }}
-            >
-              {gi > 0 && (
-                <div className="flex items-center gap-2 py-1 mb-3">
-                  <div className="flex-1 border-t border-dashed border-[--color-border]" />
-                  <span className="text-[10px] font-bold tracking-widest text-[--color-text-muted] bg-[--color-bg-muted] border border-[--color-border] rounded px-2 py-0.5">
-                    OR
-                  </span>
-                  <div className="flex-1 border-t border-dashed border-[--color-border]" />
-                </div>
-              )}
-            <div
-              className="rounded-xl border border-[--color-border] border-l-[3px] border-l-red-400 pl-4 pr-3 py-3 space-y-2"
-            >
-              {/* Group header */}
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[10px] font-semibold text-[--color-text-muted] uppercase tracking-widest">
-                  Group {gi + 1}
-                </span>
-                {groups.length > 1 && (
+            {groups.map((group, gi) => (
+              <motion.div
+                key={group._key}
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8, scale: 0.97 }}
+                transition={{ duration: 0.18, ease: "easeOut" }}
+              >
+                {gi > 0 && (
+                  <div className="flex items-center gap-2 py-1 mb-3">
+                    <div className="flex-1 border-t border-dashed border-[--color-border]" />
+                    <span className="text-[10px] font-bold tracking-widest text-[--color-text-muted] bg-[--color-bg-muted] border border-[--color-border] rounded px-2 py-0.5">
+                      OR
+                    </span>
+                    <div className="flex-1 border-t border-dashed border-[--color-border]" />
+                  </div>
+                )}
+                <div className="rounded-xl border border-[--color-border] border-l-[3px] border-l-red-400 pl-4 pr-3 py-3 space-y-2">
+                  {/* Group header */}
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] font-semibold text-[--color-text-muted] uppercase tracking-widest">
+                      Group {gi + 1}
+                    </span>
+                    {groups.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeGroup(gi)}
+                        className="text-[--color-text-muted] hover:text-red-500 transition-colors"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Condition rows */}
+                  {group.conditions.map((cond, ci) => {
+                    const field = criteriaFields.find(
+                      (f) => f.field_name === cond.field_name,
+                    );
+                    const isLast = ci === group.conditions.length - 1;
+                    const onlyOne =
+                      group.conditions.length === 1 && groups.length === 1;
+                    return (
+                      <div key={ci} className="flex items-center gap-2">
+                        {/* Field */}
+                        <select
+                          className={`${inputClass} flex-[2] min-w-0`}
+                          value={cond.field_name}
+                          onChange={(e) =>
+                            handleFieldChange(gi, ci, e.target.value)
+                          }
+                        >
+                          <option value="">Select field…</option>
+                          {criteriaFields.map((f) => (
+                            <option key={f.id} value={f.field_name}>
+                              {f.field_label}
+                            </option>
+                          ))}
+                        </select>
+
+                        {/* Operator */}
+                        <select
+                          className={`${inputClass} flex-[1.5] min-w-0`}
+                          value={cond.operator}
+                          onChange={(e) =>
+                            handleOperatorChange(
+                              gi,
+                              ci,
+                              e.target.value as LogicRuleOperator,
+                            )
+                          }
+                        >
+                          {ALL_OPERATORS.map((op) => (
+                            <option key={op} value={op}>
+                              {OPERATOR_LABELS[op]}
+                            </option>
+                          ))}
+                        </select>
+
+                        {/* Value */}
+                        <ConditionValueInput
+                          field={field}
+                          operator={cond.operator}
+                          value={cond.value}
+                          onChange={(v) =>
+                            updateCondition(gi, ci, { value: v })
+                          }
+                        />
+
+                        {/* AND badge — between conditions (not after the last one) */}
+                        {!isLast && (
+                          <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold bg-red-500 text-white">
+                            AND
+                          </span>
+                        )}
+
+                        {/* Delete */}
+                        <button
+                          type="button"
+                          disabled={onlyOne}
+                          onClick={() => {
+                            if (group.conditions.length === 1) {
+                              removeGroup(gi);
+                            } else {
+                              removeCondition(gi, ci);
+                            }
+                          }}
+                          className="shrink-0 text-[--color-text-muted] hover:text-red-500 transition-colors disabled:opacity-25"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    );
+                  })}
+
+                  {/* Add condition */}
                   <button
                     type="button"
-                    onClick={() => removeGroup(gi)}
-                    className="text-[--color-text-muted] hover:text-red-500 transition-colors"
+                    onClick={() => addCondition(gi)}
+                    className="mt-1 text-[11px] text-[--color-primary] hover:opacity-75 flex items-center gap-1 transition-opacity"
                   >
-                    <Trash2 size={13} />
+                    <Plus size={11} />
+                    Add condition
                   </button>
-                )}
-              </div>
-
-              {/* Condition rows */}
-              {group.conditions.map((cond, ci) => {
-                const field = criteriaFields.find(
-                  (f) => f.field_name === cond.field_name,
-                );
-                const isLast = ci === group.conditions.length - 1;
-                const onlyOne =
-                  group.conditions.length === 1 && groups.length === 1;
-                return (
-                  <div key={ci} className="flex items-center gap-2">
-                    {/* Field */}
-                    <select
-                      className={`${inputClass} flex-[2] min-w-0`}
-                      value={cond.field_name}
-                      onChange={(e) =>
-                        handleFieldChange(gi, ci, e.target.value)
-                      }
-                    >
-                      <option value="">Select field…</option>
-                      {criteriaFields.map((f) => (
-                        <option key={f.id} value={f.field_name}>
-                          {f.field_label}
-                        </option>
-                      ))}
-                    </select>
-
-                    {/* Operator */}
-                    <select
-                      className={`${inputClass} flex-[1.5] min-w-0`}
-                      value={cond.operator}
-                      onChange={(e) =>
-                        handleOperatorChange(
-                          gi,
-                          ci,
-                          e.target.value as LogicRuleOperator,
-                        )
-                      }
-                    >
-                      {ALL_OPERATORS.map((op) => (
-                        <option key={op} value={op}>
-                          {OPERATOR_LABELS[op]}
-                        </option>
-                      ))}
-                    </select>
-
-                    {/* Value */}
-                    <ConditionValueInput
-                      field={field}
-                      operator={cond.operator}
-                      value={cond.value}
-                      onChange={(v) => updateCondition(gi, ci, { value: v })}
-                    />
-
-                    {/* AND badge — only on last condition when >1 exist */}
-                    {isLast && group.conditions.length > 1 && (
-                      <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold bg-red-500 text-white">
-                        AND
-                      </span>
-                    )}
-
-                    {/* Delete */}
-                    <button
-                      type="button"
-                      disabled={onlyOne}
-                      onClick={() => {
-                        if (group.conditions.length === 1) {
-                          removeGroup(gi);
-                        } else {
-                          removeCondition(gi, ci);
-                        }
-                      }}
-                      className="shrink-0 text-[--color-text-muted] hover:text-red-500 transition-colors disabled:opacity-25"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                );
-              })}
-
-              {/* Add condition */}
-              <button
-                type="button"
-                onClick={() => addCondition(gi)}
-                className="mt-1 text-[11px] text-[--color-primary] hover:opacity-75 flex items-center gap-1 transition-opacity"
-              >
-                <Plus size={11} />
-                Add condition
-              </button>
-            </div>
-            </motion.div>
-          ))}
+                </div>
+              </motion.div>
+            ))}
           </AnimatePresence>
 
           {/* Add group (OR) */}

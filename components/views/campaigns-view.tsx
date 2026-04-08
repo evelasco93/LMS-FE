@@ -64,7 +64,7 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: "name", label: "Name" },
   { value: "status", label: "Status" },
   { value: "clients", label: "Clients" },
-  { value: "affiliates", label: "Affiliates" },
+  { value: "affiliates", label: "Sources" },
   { value: "created_at", label: "Created" },
 ];
 
@@ -515,7 +515,7 @@ export function CampaignsView({
           },
           {
             key: "affiliates",
-            label: "Affiliates",
+            label: "Sources",
             render: (c) => c.affiliates?.length || 0,
           },
           {

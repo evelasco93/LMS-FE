@@ -500,7 +500,7 @@ export async function generatePostingInstructions({
         View,
         { style: s.titleBanner },
         e(Text, { style: s.titleText }, "Posting Instructions"),
-        e(Text, { style: s.titleSub }, `Affiliate: ${affiliate.name}`),
+        e(Text, { style: s.titleSub }, `Source: ${affiliate.name}`),
       ),
 
       // ── Campaign ──
@@ -535,7 +535,7 @@ export async function generatePostingInstructions({
           e(
             Text,
             { style: s.testBannerBody },
-            "This affiliate is currently in TEST mode. Leads sent will be treated as test traffic automatically. No separate test endpoint is needed.",
+            "This source is currently in TEST mode. Leads sent will be treated as test traffic automatically. No separate test endpoint is needed.",
           ),
         ),
 
@@ -544,7 +544,7 @@ export async function generatePostingInstructions({
         url: submitUrl,
         color: C.green600,
         note: isCampaignTest
-          ? "Test leads are auto-detected when your affiliate status is TEST."
+          ? "Test leads are auto-detected when your source status is TEST."
           : undefined,
       }),
 
@@ -575,7 +575,7 @@ export async function generatePostingInstructions({
         e(
           Text,
           { style: s.structureVal },
-          "Your unique affiliate key — see Campaign section above",
+          "Your unique source key — see Campaign section above",
         ),
       ),
       e(
@@ -666,7 +666,7 @@ export async function generatePostingInstructions({
         },
       }),
       e(ResponseBox, {
-        title: "Rejected (validation / logic rule)",
+        title: "Rejected (validation / rule)",
         color: C.red600,
         json: {
           result: "failed",
@@ -750,7 +750,7 @@ export async function generatePostingInstructions({
           },
           {
             q: "My leads are accepted but not appearing in live reporting.",
-            a: "Your affiliate status may still be in TEST mode. Leads from TEST affiliates are not forwarded to clients. Contact your campaign manager to promote your status to LIVE.",
+            a: "Your source status may still be in TEST mode. Leads from TEST sources are not forwarded to clients. Contact your campaign manager to promote your status to LIVE.",
           },
           {
             q: "I receive required field validation errors.",
@@ -775,10 +775,10 @@ export async function generatePostingInstructions({
       e(
         Text,
         { style: s.contactText },
-        "For any questions or issues during integration testing, please contact Summit Edge Legal. Reference your Campaign ID and Affiliate ID in all correspondence.",
+        "For any questions or issues during integration testing, please contact Summit Edge Legal. Reference your Campaign ID and Source ID in all correspondence.",
       ),
       e(Text, { style: s.contactMeta }, `Campaign ID: ${campaign.id}`),
-      e(Text, { style: s.contactMeta }, `Affiliate ID: ${affiliate.id}`),
+      e(Text, { style: s.contactMeta }, `Source ID: ${affiliate.id}`),
       e(Text, { style: s.contactMeta }, "jeff.flores@summitedgelegal.com"),
     ),
   );

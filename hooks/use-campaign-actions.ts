@@ -60,9 +60,9 @@ export function useCampaignActions({
     async (campaignId: string, affiliateId: string) => {
       const promise = linkAffiliateToCampaign(campaignId, affiliateId);
       toast.promise(promise, {
-        loading: "Linking affiliate…",
-        success: "Affiliate linked (campaign key refreshed)",
-        error: (err) => err?.message || "Unable to link affiliate",
+        loading: "Linking source…",
+        success: "Source linked (campaign key refreshed)",
+        error: (err) => err?.message || "Unable to link source",
       });
       try {
         await promise;
@@ -109,9 +109,9 @@ export function useCampaignActions({
         status,
       );
       toast.promise(promise, {
-        loading: "Updating affiliate status…",
-        success: "Affiliate status updated",
-        error: (err) => err?.message || "Unable to update affiliate status",
+        loading: "Updating source status…",
+        success: "Source status updated",
+        error: (err) => err?.message || "Unable to update source status",
       });
       try {
         await promise;
@@ -145,9 +145,9 @@ export function useCampaignActions({
     async (campaignId: string, affiliateId: string) => {
       const promise = removeAffiliateFromCampaign(campaignId, affiliateId);
       toast.promise(promise, {
-        loading: "Removing affiliate…",
-        success: "Affiliate removed from campaign",
-        error: (err) => err?.message || "Unable to remove affiliate",
+        loading: "Removing source…",
+        success: "Source removed from campaign",
+        error: (err) => err?.message || "Unable to remove source",
       });
       try {
         await promise;
@@ -216,7 +216,7 @@ export function useCampaignActions({
       } catch (error: any) {
         toast.warning(
           error?.message ||
-            "Unable to update status. Add a client or affiliate first.",
+            "Unable to update status. Add a client or source first.",
           { id: toastId },
         );
         return false;
@@ -306,11 +306,11 @@ export function useCampaignActions({
         payload,
       );
       toast.promise(promise, {
-        loading: "Saving sold pixel config…",
+        loading: "Saving sold webhook config\u2026",
         success: payload.enabled
-          ? "Affiliate sold pixel enabled"
-          : "Affiliate sold pixel config saved",
-        error: (err) => err?.message || "Unable to update sold pixel config",
+          ? "Source sold webhook enabled"
+          : "Source sold webhook config saved",
+        error: (err) => err?.message || "Unable to update sold webhook config",
       });
       try {
         await promise;

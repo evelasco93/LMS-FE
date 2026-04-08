@@ -140,16 +140,16 @@ export function formatAuditFieldLabel(
     const affiliateName = affiliateNameById.get(affiliateId) ?? affiliateId;
     const baseLabel =
       suffix === "affiliate_id"
-        ? "Linked Affiliate"
+        ? "Linked Source"
         : suffix === "status"
-          ? "Affiliate Status"
+          ? "Source Status"
           : suffix === "campaign_key"
-            ? "Affiliate Campaign Key"
+            ? "Source Campaign Key"
             : suffix === "sold_pixel_config"
-              ? "Affiliate Sold Pixel Config"
+              ? "Source Sold Webhook Config"
               : suffix === "lead_cap"
-                ? "Affiliate Lead Cap"
-                : `Affiliate ${normalizeFieldLabel(suffix)}`;
+                ? "Source Lead Cap"
+                : `Source ${normalizeFieldLabel(suffix)}`;
     return `${baseLabel} · ${affiliateName}`;
   }
 

@@ -246,7 +246,7 @@ function DashboardContent({
       home: "Home",
       leads: "Leads",
       clients: "Clients",
-      affiliates: "Affiliates",
+      affiliates: "Sources",
       campaigns: "Campaigns",
       tools: "Tools",
       admin: "Admin",
@@ -622,7 +622,7 @@ function DashboardContent({
       home: "Home",
       leads: "Leads",
       clients: "Clients",
-      affiliates: "Affiliates",
+      affiliates: "Sources",
       campaigns: "Campaigns",
       tools: "Tools",
       admin: "Admin",
@@ -637,9 +637,9 @@ function DashboardContent({
       case "clients":
         return "Manage clients, their details, and status";
       case "affiliates":
-        return "Manage affiliates, their details, and status";
+        return "Manage sources, their details, and status";
       case "campaigns":
-        return "Create, configure, link clients/affiliates, and manage campaign settings";
+        return "Create, configure, link clients/sources, and manage campaign settings";
       case "admin":
         return "View and manage system settings, credentials, users, and logs";
       case "tools":

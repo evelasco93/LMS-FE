@@ -89,7 +89,7 @@ export function getSiteOverviewTour(
       target: '[data-tour="nav-leads"]',
       title: "Leads",
       content:
-        "Browse every lead across all campaigns. Filter by campaign, affiliate, test/live mode, and status. Click a lead to see its full decision trace and delivery result.",
+        "Browse every lead across all campaigns. Filter by campaign, source, test/live mode, and status. Click a lead to see its full decision trace and delivery result.",
       placement: "right",
       beforeStep: () => navigate("leads"),
     },
@@ -103,9 +103,9 @@ export function getSiteOverviewTour(
     },
     {
       target: '[data-tour="nav-affiliates"]',
-      title: "Affiliates",
+      title: "Sources",
       content:
-        "Affiliates are your lead sources. Manage partners that submit leads. Each affiliate gets a campaign key to send leads through.",
+        "Sources are your lead providers. Manage partners that submit leads. Each source gets a campaign key to send leads through.",
       placement: "right",
       beforeStep: () => navigate("affiliates"),
     },
@@ -113,7 +113,7 @@ export function getSiteOverviewTour(
       target: '[data-tour="nav-campaigns"]',
       title: "Campaigns",
       content:
-        "Campaigns tie everything together. Create campaigns, link clients and affiliates, set up criteria, logic rules, and integrations. Search, filter, and sort from the toolbar.",
+        "Campaigns tie everything together. Create campaigns, link clients and sources, set up fields, rules, and integrations. Search, filter, and sort from the toolbar.",
       placement: "right",
       beforeStep: () => navigate("campaigns"),
     },
@@ -129,7 +129,7 @@ export function getSiteOverviewTour(
       target: '[data-tour="nav-admin"]',
       title: "Admin",
       content:
-        "Admin-only section for user management, API credentials, plugin settings, criteria/logic catalogs, tags, and audit logs.",
+        "Admin-only section for user management, API credentials, plugin settings, fields/rules catalogs, tags, and audit logs.",
       placement: "right",
       beforeStep: () => navigate("admin"),
     },
@@ -162,7 +162,7 @@ export function getCampaignCreationTour(
       target: "",
       title: "Create Your First Campaign",
       content:
-        "This interactive guide walks you through the full campaign setup. You'll create a client, an affiliate, and a campaign — then wire everything together. Let's start!",
+        "This interactive guide walks you through the full campaign setup. You'll create a client, a source, and a campaign — then wire everything together. Let's start!",
       centered: true,
       hideBack: true,
       beforeStep: () => {
@@ -200,12 +200,12 @@ export function getCampaignCreationTour(
     // 3 — Click "New Affiliate"
     {
       target: '[data-tour="btn-new-affiliate"]',
-      title: "Step 2 — Create an Affiliate",
+      title: "Step 2 — Create a Source",
       content:
-        'Affiliates submit leads into campaigns. Click "New Affiliate" to create one.',
+        'Sources submit leads into campaigns. Click "New Source" to create one.',
       placement: "bottom",
       waitForAction: true,
-      actionLabel: "Click 'New Affiliate'",
+      actionLabel: "Click 'New Source'",
       hideBack: true,
       delay: 400,
       beforeStep: () => navigate("affiliates"),
@@ -214,7 +214,7 @@ export function getCampaignCreationTour(
     // 4 — Fill in affiliate form (free interact)
     {
       target: "",
-      title: "Fill in Affiliate Details",
+      title: "Fill in Source Details",
       content:
         "Enter the name, email, and phone, then click Create. Click Next when you're done.",
       freeInteract: true,
@@ -225,7 +225,7 @@ export function getCampaignCreationTour(
       target: '[data-tour="btn-new-campaign"]',
       title: "Step 3 — Create a Campaign",
       content:
-        'Campaigns tie clients and affiliates together. Click "New Campaign" to create one.',
+        'Campaigns tie clients and sources together. Click "New Campaign" to create one.',
       placement: "bottom",
       waitForAction: true,
       actionLabel: "Click 'New Campaign'",
@@ -262,7 +262,7 @@ export function getCampaignCreationTour(
       target: '[data-tour="campaign-tab-settings"]',
       title: "Step 5 — Set Up Configuration",
       content:
-        "First, set up criteria and logic rules. Clients and affiliates require this to be configured first.",
+        "First, set up fields and rules. Clients and sources require this to be configured first.",
       placement: "right",
       waitForAction: true,
       actionLabel: "Click 'Configuration' tab",
@@ -273,9 +273,9 @@ export function getCampaignCreationTour(
     // 9 — Explain settings (free interact)
     {
       target: "",
-      title: "Criteria & Logic Rules",
+      title: "Fields & Rules",
       content:
-        "Define what data leads must contain (criteria) and conditional accept/reject rules (logic). You can apply pre-built sets from catalogs. Click Next when you're done.",
+        "Define what data leads must contain (fields) and conditional accept/reject rules. You can apply pre-built sets from catalogs. Click Next when you're done.",
       freeInteract: true,
     },
 
@@ -317,12 +317,11 @@ export function getCampaignCreationTour(
     // 13 — Click Affiliates tab
     {
       target: '[data-tour="campaign-tab-affiliates"]',
-      title: "Step 7 — Link an Affiliate",
-      content:
-        "Go to the Affiliates tab to add a lead source to this campaign.",
+      title: "Step 7 — Link a Source",
+      content: "Go to the Sources tab to add a lead source to this campaign.",
       placement: "right",
       waitForAction: true,
-      actionLabel: "Click 'Affiliates' tab",
+      actionLabel: "Click 'Sources' tab",
       hideBack: true,
       delay: 300,
     },
@@ -330,12 +329,12 @@ export function getCampaignCreationTour(
     // 14 — Click "Add Affiliate"
     {
       target: '[data-tour="btn-add-affiliate"]',
-      title: "Add an Affiliate",
+      title: "Add a Source",
       content:
-        'Click "Add Affiliate" to link one of your affiliates. They\'ll get a campaign key to submit leads.',
+        'Click "Add Source" to link one of your sources. They\'ll get a campaign key to submit leads.',
       placement: "bottom",
       waitForAction: true,
-      actionLabel: "Click 'Add Affiliate'",
+      actionLabel: "Click 'Add Source'",
       hideBack: true,
       delay: 300,
     },
@@ -343,9 +342,9 @@ export function getCampaignCreationTour(
     // 15 — Configure affiliate (free interact)
     {
       target: "",
-      title: "Configure Affiliate",
+      title: "Configure Source",
       content:
-        "Select your affiliate, configure lead caps and pixel settings if needed. Click Next when you're done.",
+        "Select your source, configure lead caps and webhook settings if needed. Click Next when you're done.",
       freeInteract: true,
     },
 

@@ -39,7 +39,7 @@ export interface DeleteConfirmModalProps {
 const ENTITY_LABEL: Record<DeleteEntityType, string> = {
   user: "user",
   client: "client",
-  affiliate: "affiliate",
+  affiliate: "source",
   campaign: "campaign",
   credential: "credential",
   "credential-schema": "credential schema",

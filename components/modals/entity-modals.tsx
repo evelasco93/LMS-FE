@@ -432,7 +432,7 @@ export function AffiliateModal({
   }, [isOpen]);
 
   return (
-    <Modal title="Create Affiliate" isOpen={isOpen} onClose={onClose}>
+    <Modal title="Create Source" isOpen={isOpen} onClose={onClose}>
       <form
         className="space-y-3"
         onSubmit={(e) => {
@@ -583,7 +583,7 @@ export function EditAffiliateModal({
             onChange={(value) => setForm({ ...form, phone: value })}
           />
         </Field>
-        <Field label="Affiliate Code">
+        <Field label="Source Code">
           <div className="flex gap-2">
             <input
               className={inputClass}

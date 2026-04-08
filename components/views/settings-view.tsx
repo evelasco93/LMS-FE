@@ -307,7 +307,7 @@ function getEntityTypeMeta(type: string) {
     case "affiliate":
       return {
         icon: <Users size={s} />,
-        label: "Affiliate",
+        label: "Source",
         color: "bg-pink-500/10 text-pink-600 dark:text-pink-400",
       };
     case "credential":
@@ -1361,7 +1361,7 @@ export function SettingsView({ role }: SettingsViewProps) {
                     { value: "lead", label: "Lead" },
                     { value: "campaign", label: "Campaign" },
                     { value: "client", label: "Client" },
-                    { value: "affiliate", label: "Affiliate" },
+                    { value: "affiliate", label: "Source" },
                     { value: "credential", label: "Credential" },
                     { value: "credential_schema", label: "Schema" },
                     { value: "plugin_setting", label: "Integration" },

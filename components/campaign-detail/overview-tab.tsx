@@ -46,15 +46,15 @@ export function OverviewTab({
           onClick={() => onTabChange("clients")}
         />
         <InfoItem
-          label="Linked Affiliates"
+          label="Linked Sources"
           value={linkedAffiliatesCount.toString()}
           onClick={() => onTabChange("affiliates")}
         />
       </div>
 
-      {/* Overview shortcuts → Criteria, Logic, Distribution */}
+      {/* Overview shortcuts → Fields, Rules, Distribution */}
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        {/* Criteria */}
+        {/* Fields */}
         <button
           type="button"
           onClick={() => {
@@ -69,7 +69,7 @@ export function OverviewTab({
           />
           <div className="min-w-0">
             <p className="text-xs font-semibold text-[--color-text-strong]">
-              Criteria
+              Fields
             </p>
             <p className="mt-0.5 text-[11px] text-[--color-text-muted]">
               {criteriaFields.length} field
@@ -82,7 +82,7 @@ export function OverviewTab({
           />
         </button>
 
-        {/* Logic */}
+        {/* Rules */}
         <button
           type="button"
           onClick={() => {
@@ -97,7 +97,7 @@ export function OverviewTab({
           />
           <div className="min-w-0">
             <p className="text-xs font-semibold text-[--color-text-strong]">
-              Logic
+              Rules
             </p>
             <p className="mt-0.5 text-[11px] text-[--color-text-muted]">
               {logicRules.length} rule{logicRules.length !== 1 ? "s" : ""}{" "}

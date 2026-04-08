@@ -883,14 +883,14 @@ export function CriteriaFieldModals({
         )}
       </Modal>
       <Modal
-        title="Save Criteria to Catalog"
+        title="Save Fields to Catalog"
         isOpen={saveCriteriaToSetOpen}
         onClose={() => setSaveCriteriaToSetOpen(false)}
         width={470}
       >
         <div className="space-y-4 text-sm">
           <p className="text-[13px] text-[--color-text-muted]">
-            Save this campaign's {criteriaFields.length} criteria field
+            Save this campaign's {criteriaFields.length} field
             {criteriaFields.length !== 1 ? "s" : ""} as either a new version of
             the active catalog entry or as a brand new set.
           </p>
