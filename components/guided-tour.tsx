@@ -105,7 +105,7 @@ export function getSiteOverviewTour(
       target: '[data-tour="nav-affiliates"]',
       title: "Sources",
       content:
-        "Sources are your lead providers. Manage partners that submit leads. Each source gets a campaign key to send leads through.",
+        "Sources are your lead providers. Each source gets a campaign key to send leads through.",
       placement: "right",
       beforeStep: () => navigate("affiliates"),
     },
