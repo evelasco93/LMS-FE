@@ -6,7 +6,12 @@ import { ChevronDown, Plus, Trash2 } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { Button } from "@/components/button";
 import { inputClass } from "@/lib/utils";
-import type { CriteriaField, LogicRule, LogicRuleOperator } from "@/lib/types";
+import type {
+  CriteriaField,
+  CriteriaFieldType,
+  LogicRule,
+  LogicRuleOperator,
+} from "@/lib/types";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -36,7 +41,33 @@ const ALL_OPERATORS: LogicRuleOperator[] = [
   "is_not_empty",
 ];
 
-const US_STATES = [
+export function getOperatorsForType(
+  dataType: CriteriaFieldType | undefined,
+): LogicRuleOperator[] {
+  switch (dataType) {
+    case "Number":
+    case "Date":
+      return [
+        "is",
+        "is_not",
+        "greater_than",
+        "less_than",
+        "is_empty",
+        "is_not_empty",
+      ];
+    case "Boolean":
+    case "Yes/No":
+      return ["is", "is_not"];
+    case "List":
+      return ["is", "is_not", "is_empty", "is_not_empty"];
+    case "US State":
+      return ["is", "is_not", "is_empty", "is_not_empty"];
+    default:
+      return ALL_OPERATORS;
+  }
+}
+
+export const US_STATES = [
   "Alabama",
   "Alaska",
   "Arizona",
@@ -91,18 +122,13 @@ const US_STATES = [
 
 // ─── Draft types ─────────────────────────────────────────────────────────────
 
-interface DraftCondition {
+export interface DraftCondition {
   field_name: string;
   operator: LogicRuleOperator;
   value: string | string[];
 }
 
-interface DraftGroup {
-  _key: number;
-  conditions: DraftCondition[];
-}
-
-const EMPTY_CONDITION: DraftCondition = {
+export const EMPTY_CONDITION: DraftCondition = {
   field_name: "",
   operator: "is",
   value: "",
@@ -110,7 +136,7 @@ const EMPTY_CONDITION: DraftCondition = {
 
 // ─── MultiSelectDropdown ─────────────────────────────────────────────────────
 
-function MultiSelectDropdown({
+export function MultiSelectDropdown({
   options,
   value,
   onChange,
@@ -216,7 +242,7 @@ function MultiSelectDropdown({
 
 // ─── ConditionValueInput ──────────────────────────────────────────────────────
 
-function ConditionValueInput({
+export function ConditionValueInput({
   field,
   operator,
   value,
@@ -254,7 +280,7 @@ function ConditionValueInput({
     );
   }
 
-  if (field?.data_type === "Boolean") {
+  if (field?.data_type === "Boolean" || field?.data_type === "Yes/No") {
     return (
       <select
         className={`${inputClass} flex-[2] min-w-0`}
@@ -282,14 +308,11 @@ function ConditionValueInput({
 
 export interface LogicRuleDraft {
   name: string;
-  action: "pass" | "fail";
   enabled: boolean;
-  groups: {
-    conditions: {
-      field_name: string;
-      operator: string;
-      value?: string | string[];
-    }[];
+  conditions: {
+    field_name: string;
+    operator: string;
+    value?: string | string[];
   }[];
 }
 
@@ -311,97 +334,61 @@ export function LogicBuilderModal({
   saving?: boolean;
 }) {
   const [name, setName] = useState("");
-  const [action, setAction] = useState<"pass" | "fail">("pass");
-  const [groups, setGroups] = useState<DraftGroup[]>([
-    { _key: 0, conditions: [{ ...EMPTY_CONDITION }] },
+  const [conditions, setConditions] = useState<DraftCondition[]>([
+    { ...EMPTY_CONDITION },
   ]);
-  const keyCounter = useRef(1);
 
   // Sync from rule when modal opens
   useEffect(() => {
     if (!isOpen) return;
     if (rule) {
       setName(rule.name);
-      setAction(rule.action);
-      const nextKey = rule.groups.length;
-      keyCounter.current = nextKey;
-      setGroups(
-        rule.groups.map((g, i) => ({
-          _key: i,
-          conditions: g.conditions.map((c) => ({
-            field_name: c.field_name,
-            operator: c.operator,
-            value: c.value ?? "",
-          })),
+      setConditions(
+        (rule.conditions ?? []).map((c) => ({
+          field_name: c.field_name,
+          operator: c.operator as LogicRuleOperator,
+          value: c.value ?? "",
         })),
       );
     } else {
       setName("");
-      setAction("pass");
-      keyCounter.current = 1;
-      setGroups([{ _key: 0, conditions: [{ ...EMPTY_CONDITION }] }]);
+      setConditions([{ ...EMPTY_CONDITION }]);
     }
   }, [isOpen, rule]);
 
-  // ─── Group/condition helpers ─────────────────────────────────────────────
+  // ─── Condition helpers ───────────────────────────────────────────────────
 
-  const addGroup = () => {
-    const newKey = keyCounter.current++;
-    setGroups((g) => [
-      ...g,
-      { _key: newKey, conditions: [{ ...EMPTY_CONDITION }] },
-    ]);
+  const addCondition = () =>
+    setConditions((c) => [...c, { ...EMPTY_CONDITION }]);
+
+  const removeCondition = (ci: number) =>
+    setConditions((c) => c.filter((_, i) => i !== ci));
+
+  const updateCondition = (ci: number, patch: Partial<DraftCondition>) =>
+    setConditions((c) =>
+      c.map((cond, i) => (i === ci ? { ...cond, ...patch } : cond)),
+    );
+
+  const handleFieldChange = (ci: number, field_name: string) => {
+    const newField = criteriaFields.find((f) => f.field_name === field_name);
+    const validOps = getOperatorsForType(newField?.data_type);
+    setConditions((c) =>
+      c.map((cond, i) => {
+        if (i !== ci) return cond;
+        const needsReset = !validOps.includes(cond.operator);
+        return {
+          ...cond,
+          field_name,
+          value: "",
+          ...(needsReset ? { operator: validOps[0] } : {}),
+        };
+      }),
+    );
   };
 
-  const removeGroup = (gi: number) =>
-    setGroups((g) => g.filter((_, i) => i !== gi));
-
-  const addCondition = (gi: number) =>
-    setGroups((g) =>
-      g.map((grp, i) =>
-        i === gi
-          ? { ...grp, conditions: [...grp.conditions, { ...EMPTY_CONDITION }] }
-          : grp,
-      ),
-    );
-
-  const removeCondition = (gi: number, ci: number) =>
-    setGroups((g) =>
-      g.map((grp, i) =>
-        i === gi
-          ? { ...grp, conditions: grp.conditions.filter((_, j) => j !== ci) }
-          : grp,
-      ),
-    );
-
-  const updateCondition = (
-    gi: number,
-    ci: number,
-    patch: Partial<DraftCondition>,
-  ) =>
-    setGroups((g) =>
-      g.map((grp, i) =>
-        i === gi
-          ? {
-              ...grp,
-              conditions: grp.conditions.map((c, j) =>
-                j === ci ? { ...c, ...patch } : c,
-              ),
-            }
-          : grp,
-      ),
-    );
-
-  const handleFieldChange = (gi: number, ci: number, field_name: string) =>
-    updateCondition(gi, ci, { field_name, value: "" });
-
-  const handleOperatorChange = (
-    gi: number,
-    ci: number,
-    operator: LogicRuleOperator,
-  ) => {
+  const handleOperatorChange = (ci: number, operator: LogicRuleOperator) => {
     const noValue = operator === "is_empty" || operator === "is_not_empty";
-    updateCondition(gi, ci, { operator, ...(noValue ? { value: "" } : {}) });
+    updateCondition(ci, { operator, ...(noValue ? { value: "" } : {}) });
   };
 
   // ─── Save ────────────────────────────────────────────────────────────────
@@ -409,39 +396,33 @@ export function LogicBuilderModal({
   const handleSave = () => {
     const draft: LogicRuleDraft = {
       name: name.trim(),
-      action,
       enabled: rule?.enabled ?? true,
-      groups: groups
-        .map((g) => ({
-          conditions: g.conditions
-            .filter((c) => c.field_name && c.operator)
-            .map((c) => {
-              const noValue =
-                c.operator === "is_empty" || c.operator === "is_not_empty";
-              const val = Array.isArray(c.value)
-                ? c.value.filter(Boolean)
-                : typeof c.value === "string"
-                  ? c.value.trim()
-                  : c.value;
-              return {
-                field_name: c.field_name,
-                operator: c.operator,
-                ...(!noValue &&
-                val !== "" &&
-                !(Array.isArray(val) && val.length === 0)
-                  ? { value: val }
-                  : {}),
-              };
-            }),
-        }))
-        .filter((g) => g.conditions.length > 0),
+      conditions: conditions
+        .filter((c) => c.field_name && c.operator)
+        .map((c) => {
+          const noValue =
+            c.operator === "is_empty" || c.operator === "is_not_empty";
+          const val = Array.isArray(c.value)
+            ? c.value.filter(Boolean)
+            : typeof c.value === "string"
+              ? c.value.trim()
+              : c.value;
+          return {
+            field_name: c.field_name,
+            operator: c.operator,
+            ...(!noValue &&
+            val !== "" &&
+            !(Array.isArray(val) && val.length === 0)
+              ? { value: val }
+              : {}),
+          };
+        }),
     };
     onSave(draft);
   };
 
   const canSave =
-    name.trim().length > 0 &&
-    groups.some((g) => g.conditions.some((c) => c.field_name));
+    name.trim().length > 0 && conditions.some((c) => c.field_name);
 
   return (
     <Modal
@@ -474,177 +455,98 @@ export function LogicBuilderModal({
           />
         </div>
 
-        {/* Action toggle */}
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-medium text-[--color-text-muted]">
-            Action:
-          </span>
-          <div className="flex items-center gap-0.5 rounded-lg border border-[--color-border] p-0.5 bg-[--color-bg-muted]">
+        {/* Conditions */}
+        <div className="space-y-2">
+          <p className="text-[11px] font-medium text-[--color-text-muted] uppercase tracking-wide">
+            Conditions
+          </p>
+          <div className="rounded-xl border border-[--color-border] border-l-[3px] border-l-red-400 pl-4 pr-3 py-3 space-y-2">
+            <AnimatePresence initial={false}>
+              {conditions.map((cond, ci) => {
+                const field = criteriaFields.find(
+                  (f) => f.field_name === cond.field_name,
+                );
+                const isLast = ci === conditions.length - 1;
+                return (
+                  <motion.div
+                    key={ci}
+                    initial={{ opacity: 0, y: -8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8, scale: 0.97 }}
+                    transition={{ duration: 0.18, ease: "easeOut" }}
+                    className="flex items-center gap-2"
+                  >
+                    {/* Field */}
+                    <select
+                      className={`${inputClass} flex-[2] min-w-0`}
+                      value={cond.field_name}
+                      onChange={(e) => handleFieldChange(ci, e.target.value)}
+                    >
+                      <option value="">Select field…</option>
+                      {criteriaFields.map((f) => (
+                        <option key={f.id} value={f.field_name}>
+                          {f.field_label}
+                        </option>
+                      ))}
+                    </select>
+
+                    {/* Operator */}
+                    <select
+                      className={`${inputClass} flex-[1.5] min-w-0`}
+                      value={cond.operator}
+                      onChange={(e) =>
+                        handleOperatorChange(
+                          ci,
+                          e.target.value as LogicRuleOperator,
+                        )
+                      }
+                    >
+                      {getOperatorsForType(field?.data_type).map((op) => (
+                        <option key={op} value={op}>
+                          {OPERATOR_LABELS[op]}
+                        </option>
+                      ))}
+                    </select>
+
+                    {/* Value */}
+                    <ConditionValueInput
+                      field={field}
+                      operator={cond.operator}
+                      value={cond.value}
+                      onChange={(v) => updateCondition(ci, { value: v })}
+                    />
+
+                    {/* AND badge */}
+                    {!isLast && (
+                      <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold bg-red-500 text-white">
+                        AND
+                      </span>
+                    )}
+
+                    {/* Delete */}
+                    <button
+                      type="button"
+                      disabled={conditions.length === 1}
+                      onClick={() => removeCondition(ci)}
+                      className="shrink-0 text-[--color-text-muted] hover:text-red-500 transition-colors disabled:opacity-25"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
+
+            {/* Add condition */}
             <button
               type="button"
-              onClick={() => setAction("pass")}
-              className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-all ${
-                action === "pass"
-                  ? "bg-green-500 text-white shadow-sm"
-                  : "text-[--color-text-muted] hover:text-[--color-text]"
-              }`}
+              onClick={addCondition}
+              className="mt-1 text-[11px] text-[--color-primary] hover:opacity-75 flex items-center gap-1 transition-opacity"
             >
-              Pass
-            </button>
-            <button
-              type="button"
-              onClick={() => setAction("fail")}
-              className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-all ${
-                action === "fail"
-                  ? "bg-red-500 text-white shadow-sm"
-                  : "text-[--color-text-muted] hover:text-[--color-text]"
-              }`}
-            >
-              Fail
+              <Plus size={11} />
+              Add condition
             </button>
           </div>
-        </div>
-
-        {/* Groups */}
-        <div className="space-y-3">
-          <AnimatePresence initial={false}>
-            {groups.map((group, gi) => (
-              <motion.div
-                key={group._key}
-                initial={{ opacity: 0, y: -8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8, scale: 0.97 }}
-                transition={{ duration: 0.18, ease: "easeOut" }}
-              >
-                {gi > 0 && (
-                  <div className="flex items-center gap-2 py-1 mb-3">
-                    <div className="flex-1 border-t border-dashed border-[--color-border]" />
-                    <span className="text-[10px] font-bold tracking-widest text-[--color-text-muted] bg-[--color-bg-muted] border border-[--color-border] rounded px-2 py-0.5">
-                      OR
-                    </span>
-                    <div className="flex-1 border-t border-dashed border-[--color-border]" />
-                  </div>
-                )}
-                <div className="rounded-xl border border-[--color-border] border-l-[3px] border-l-red-400 pl-4 pr-3 py-3 space-y-2">
-                  {/* Group header */}
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[10px] font-semibold text-[--color-text-muted] uppercase tracking-widest">
-                      Group {gi + 1}
-                    </span>
-                    {groups.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeGroup(gi)}
-                        className="text-[--color-text-muted] hover:text-red-500 transition-colors"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Condition rows */}
-                  {group.conditions.map((cond, ci) => {
-                    const field = criteriaFields.find(
-                      (f) => f.field_name === cond.field_name,
-                    );
-                    const isLast = ci === group.conditions.length - 1;
-                    const onlyOne =
-                      group.conditions.length === 1 && groups.length === 1;
-                    return (
-                      <div key={ci} className="flex items-center gap-2">
-                        {/* Field */}
-                        <select
-                          className={`${inputClass} flex-[2] min-w-0`}
-                          value={cond.field_name}
-                          onChange={(e) =>
-                            handleFieldChange(gi, ci, e.target.value)
-                          }
-                        >
-                          <option value="">Select field…</option>
-                          {criteriaFields.map((f) => (
-                            <option key={f.id} value={f.field_name}>
-                              {f.field_label}
-                            </option>
-                          ))}
-                        </select>
-
-                        {/* Operator */}
-                        <select
-                          className={`${inputClass} flex-[1.5] min-w-0`}
-                          value={cond.operator}
-                          onChange={(e) =>
-                            handleOperatorChange(
-                              gi,
-                              ci,
-                              e.target.value as LogicRuleOperator,
-                            )
-                          }
-                        >
-                          {ALL_OPERATORS.map((op) => (
-                            <option key={op} value={op}>
-                              {OPERATOR_LABELS[op]}
-                            </option>
-                          ))}
-                        </select>
-
-                        {/* Value */}
-                        <ConditionValueInput
-                          field={field}
-                          operator={cond.operator}
-                          value={cond.value}
-                          onChange={(v) =>
-                            updateCondition(gi, ci, { value: v })
-                          }
-                        />
-
-                        {/* AND badge — between conditions (not after the last one) */}
-                        {!isLast && (
-                          <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold bg-red-500 text-white">
-                            AND
-                          </span>
-                        )}
-
-                        {/* Delete */}
-                        <button
-                          type="button"
-                          disabled={onlyOne}
-                          onClick={() => {
-                            if (group.conditions.length === 1) {
-                              removeGroup(gi);
-                            } else {
-                              removeCondition(gi, ci);
-                            }
-                          }}
-                          className="shrink-0 text-[--color-text-muted] hover:text-red-500 transition-colors disabled:opacity-25"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    );
-                  })}
-
-                  {/* Add condition */}
-                  <button
-                    type="button"
-                    onClick={() => addCondition(gi)}
-                    className="mt-1 text-[11px] text-[--color-primary] hover:opacity-75 flex items-center gap-1 transition-opacity"
-                  >
-                    <Plus size={11} />
-                    Add condition
-                  </button>
-                </div>
-              </motion.div>
-            ))}
-          </AnimatePresence>
-
-          {/* Add group (OR) */}
-          <button
-            type="button"
-            onClick={addGroup}
-            className="w-full rounded-xl border border-dashed border-[--color-border] py-3 text-sm text-[--color-text-muted] hover:border-[--color-primary] hover:text-[--color-primary] transition-colors"
-          >
-            + Add New Group (OR)
-          </button>
         </div>
 
         {/* Footer */}

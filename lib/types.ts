@@ -620,7 +620,8 @@ export type CriteriaFieldType =
   | "Boolean"
   | "Date"
   | "List"
-  | "US State";
+  | "US State"
+  | "Yes/No";
 
 export interface CriteriaValueMapping {
   from: string[];
@@ -735,17 +736,11 @@ export interface LogicRuleCondition {
   value?: string | string[];
 }
 
-export interface LogicRuleGroup {
-  id?: string;
-  conditions: LogicRuleCondition[];
-}
-
 export interface LogicRule {
   id: string;
   name: string;
-  action: "pass" | "fail";
   enabled: boolean;
-  groups: LogicRuleGroup[];
+  conditions: LogicRuleCondition[];
   created_at?: string;
   updated_at?: string;
   created_by?: string;

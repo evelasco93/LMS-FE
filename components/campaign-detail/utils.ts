@@ -266,14 +266,11 @@ export function formatLogicConditionValue(value?: string | string[]): string {
 export function toLogicCatalogRulesPayload(rules: LogicRule[]) {
   return rules.map((rule) => ({
     name: rule.name,
-    action: rule.action,
     enabled: rule.enabled,
-    groups: rule.groups.map((group) => ({
-      conditions: group.conditions.map((condition) => ({
-        field_name: condition.field_name,
-        operator: condition.operator,
-        ...(condition.value !== undefined ? { value: condition.value } : {}),
-      })),
+    conditions: (rule.conditions ?? []).map((condition) => ({
+      field_name: condition.field_name,
+      operator: condition.operator,
+      ...(condition.value !== undefined ? { value: condition.value } : {}),
     })),
   }));
 }

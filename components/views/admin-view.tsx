@@ -187,7 +187,7 @@ function getEntityTypeMeta(type: string) {
     case "client":
       return {
         icon: <Building2 size={s} />,
-        label: "Client",
+        label: "End User",
         color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
       };
     case "affiliate":
@@ -3289,10 +3289,7 @@ export function AdminView({
                                                       Rule
                                                     </th>
                                                     <th className="pb-1 pr-2 font-medium">
-                                                      Action
-                                                    </th>
-                                                    <th className="pb-1 pr-2 font-medium">
-                                                      Groups
+                                                      Conditions
                                                     </th>
                                                     <th className="pb-1 font-medium">
                                                       Enabled
@@ -3309,18 +3306,7 @@ export function AdminView({
                                                         {r.name}
                                                       </td>
                                                       <td className="py-1 pr-2">
-                                                        <Badge
-                                                          tone={
-                                                            r.action === "pass"
-                                                              ? "success"
-                                                              : "danger"
-                                                          }
-                                                        >
-                                                          {r.action}
-                                                        </Badge>
-                                                      </td>
-                                                      <td className="py-1 pr-2">
-                                                        {r.groups.length}
+                                                        {r.conditions.length}
                                                       </td>
                                                       <td className="py-1">
                                                         {r.enabled
@@ -3721,7 +3707,7 @@ export function AdminView({
                               { value: "", label: "All" },
                               { value: "lead", label: "Lead" },
                               { value: "campaign", label: "Campaign" },
-                              { value: "client", label: "Client" },
+                              { value: "client", label: "End User" },
                               { value: "affiliate", label: "Source" },
                               { value: "credential", label: "Credential" },
                               { value: "credential_schema", label: "Schema" },

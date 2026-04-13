@@ -170,6 +170,7 @@ export function CriteriaFieldModals({
     List: "List",
     "US State": "US State",
     Boolean: "Boolean",
+    "Yes/No": "Yes/No",
   };
 
   return (
@@ -188,6 +189,9 @@ export function CriteriaFieldModals({
             <div className="space-y-1">
               <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
                 Field Label
+              </p>
+              <p className="text-[10px] text-[--color-text-muted] -mt-0.5 mb-1">
+                The display name shown in the UI for this field.
               </p>
               <input
                 className={inputClass}
@@ -217,7 +221,11 @@ export function CriteriaFieldModals({
             </div>
             <div className="space-y-1">
               <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
-                Field Name (internal key)
+                Field Key
+              </p>
+              <p className="text-[10px] text-[--color-text-muted] -mt-0.5 mb-1">
+                The key used for this value in incoming leads. Auto-generated
+                from label.
               </p>
               <input
                 className={inputClass}
@@ -241,12 +249,23 @@ export function CriteriaFieldModals({
               <select
                 className={inputClass}
                 value={fieldDraft.data_type}
-                onChange={(e) =>
+                onChange={(e) => {
+                  const dt = e.target.value as CriteriaFieldType;
                   setFieldDraft((p) => ({
                     ...p,
-                    data_type: e.target.value as CriteriaFieldType,
-                  }))
-                }
+                    data_type: dt,
+                    // Auto-fill Yes / No options when switching to Yes/No
+                    options:
+                      dt === "Yes/No"
+                        ? [
+                            { value: "yes", label: "Yes" },
+                            { value: "no", label: "No" },
+                          ]
+                        : dt !== "List" && p.data_type !== dt
+                          ? []
+                          : p.options,
+                  }));
+                }}
               >
                 {(
                   [
@@ -293,6 +312,17 @@ export function CriteriaFieldModals({
                 }
               />
             </div>
+            {/* ── List Options (Yes/No — read-only hint) ────────────── */}
+            {fieldDraft.data_type === "Yes/No" && (
+              <div className="space-y-1">
+                <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+                  Options
+                </p>
+                <p className="text-[11px] text-[--color-text-muted]">
+                  Pre-filled with <strong>Yes</strong> / <strong>No</strong>.
+                </p>
+              </div>
+            )}
             {/* ── State Mapping preset (US State only) ──────────────── */}
             {fieldDraft.data_type === "US State" && (
               <div className="space-y-1">
@@ -392,17 +422,26 @@ export function CriteriaFieldModals({
                               value={opt.value}
                               onChange={(e) => {
                                 const val = e.target.value;
+                                const titleCased = val
+                                  .replace(/_/g, " ")
+                                  .replace(/\b\w/g, (c) => c.toUpperCase());
                                 setFieldDraft((p) => ({
                                   ...p,
                                   options: p.options.map((o, oi) =>
                                     oi === i
                                       ? {
                                           value: val,
-                                          // autofill label only when it was empty or matched old value
+                                          // autofill label title-cased when it was empty or matched old auto-value
                                           label:
                                             o.label === "" ||
-                                            o.label === o.value
-                                              ? val
+                                            o.label === o.value ||
+                                            o.label ===
+                                              o.value
+                                                .replace(/_/g, " ")
+                                                .replace(/\b\w/g, (c) =>
+                                                  c.toUpperCase(),
+                                                )
+                                              ? titleCased
                                               : o.label,
                                         }
                                       : o,
@@ -676,18 +715,41 @@ export function CriteriaFieldModals({
                     }
                   />
                   <ArrowRight size={13} className="text-[--color-text-muted]" />
-                  <input
-                    className={inputClass}
-                    placeholder="California"
-                    value={row.to}
-                    onChange={(e) =>
-                      setValueMappingsDraft((prev) =>
-                        prev.map((r, ri) =>
-                          ri === i ? { ...r, to: e.target.value } : r,
-                        ),
-                      )
-                    }
-                  />
+                  {(valueMappingsField.data_type === "List" ||
+                    valueMappingsField.data_type === "Yes/No") &&
+                  (valueMappingsField.options?.length ?? 0) > 0 ? (
+                    <select
+                      className={inputClass}
+                      value={row.to}
+                      onChange={(e) =>
+                        setValueMappingsDraft((prev) =>
+                          prev.map((r, ri) =>
+                            ri === i ? { ...r, to: e.target.value } : r,
+                          ),
+                        )
+                      }
+                    >
+                      <option value="">Select…</option>
+                      {valueMappingsField.options!.map((opt) => (
+                        <option key={opt.value} value={opt.label}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      className={inputClass}
+                      placeholder="California"
+                      value={row.to}
+                      onChange={(e) =>
+                        setValueMappingsDraft((prev) =>
+                          prev.map((r, ri) =>
+                            ri === i ? { ...r, to: e.target.value } : r,
+                          ),
+                        )
+                      }
+                    />
+                  )}
                   <button
                     type="button"
                     onClick={() =>

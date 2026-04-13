@@ -1,11 +1,29 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Check, Pencil, Plus, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Pencil,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/button";
+import {
+  OPERATOR_LABELS,
+  getOperatorsForType,
+  MultiSelectDropdown,
+  ConditionValueInput,
+  type DraftCondition,
+  EMPTY_CONDITION,
+  type LogicRuleDraft,
+} from "@/components/modals/logic-builder-modal";
 import { createCriteriaField, updateCampaign } from "@/lib/api";
 import type {
   Campaign,
@@ -19,7 +37,9 @@ import type {
   CriteriaValueMapping,
   DistributionMode,
   LogicRule,
+  LogicRuleOperator,
 } from "@/lib/types";
+import { inputClass } from "@/lib/utils";
 
 type FieldDraft = {
   field_label: string;
@@ -78,8 +98,11 @@ interface SettingsTabProps {
   >;
   setSaveLogicToSetOpen: Dispatch<SetStateAction<boolean>>;
   openLogicCatalogModal: () => void;
-  setEditingRule: Dispatch<SetStateAction<LogicRule | null>>;
-  setLogicBuilderOpen: Dispatch<SetStateAction<boolean>>;
+  handleSaveInlineRule: (
+    draft: LogicRuleDraft,
+    ruleId?: string,
+  ) => Promise<boolean>;
+  savingInlineRuleId: string | null;
   handleToggleLogicRule: (rule: LogicRule) => Promise<void>;
   handleDeleteLogicRule: (ruleId: string) => Promise<void>;
   routingMode: DistributionMode;
@@ -145,8 +168,8 @@ export default function SettingsTab({
   setSaveLogicToSetDraft,
   setSaveLogicToSetOpen,
   openLogicCatalogModal,
-  setEditingRule,
-  setLogicBuilderOpen,
+  handleSaveInlineRule,
+  savingInlineRuleId,
   handleToggleLogicRule,
   handleDeleteLogicRule,
   routingMode,
@@ -166,6 +189,157 @@ export default function SettingsTab({
 }: SettingsTabProps) {
   if (!campaign) return null;
 
+  // ─── Inline rule editing state ─────────────────────────────────────
+  const [expandedRuleId, setExpandedRuleId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editConditions, setEditConditions] = useState<DraftCondition[]>([
+    { ...EMPTY_CONDITION },
+  ]);
+  const [originalName, setOriginalName] = useState("");
+  const [originalConditions, setOriginalConditions] = useState<
+    DraftCondition[]
+  >([]);
+  const [localEnabledOverrides, setLocalEnabledOverrides] = useState<
+    Record<string, boolean>
+  >({});
+
+  // Clear optimistic overrides once the real data arrives
+  useEffect(() => {
+    setLocalEnabledOverrides({});
+  }, [logicRules]);
+
+  const expandRule = (rule: LogicRule) => {
+    const conds = (rule.conditions ?? []).map((c) => ({
+      field_name: c.field_name,
+      operator: c.operator as LogicRuleOperator,
+      value: c.value ?? "",
+    }));
+    setExpandedRuleId(rule.id);
+    setEditName(rule.name);
+    setEditConditions(conds);
+    setOriginalName(rule.name);
+    setOriginalConditions(conds);
+  };
+
+  const startNewRule = () => {
+    setExpandedRuleId("new");
+    setEditName("");
+    setEditConditions([{ ...EMPTY_CONDITION }]);
+  };
+
+  const addCondition = () =>
+    setEditConditions((c) => [...c, { ...EMPTY_CONDITION }]);
+
+  const removeCondition = (ci: number) =>
+    setEditConditions((c) => c.filter((_, i) => i !== ci));
+
+  const updateCondition = (ci: number, patch: Partial<DraftCondition>) =>
+    setEditConditions((c) =>
+      c.map((cond, i) => (i === ci ? { ...cond, ...patch } : cond)),
+    );
+
+  const handleFieldChange = (ci: number, field_name: string) => {
+    const newField = criteriaFields.find((f) => f.field_name === field_name);
+    const validOps = getOperatorsForType(newField?.data_type);
+    setEditConditions((c) =>
+      c.map((cond, i) => {
+        if (i !== ci) return cond;
+        const needsReset = !validOps.includes(cond.operator);
+        return {
+          ...cond,
+          field_name,
+          value: "",
+          ...(needsReset ? { operator: validOps[0] } : {}),
+        };
+      }),
+    );
+  };
+
+  const handleOperatorChange = (ci: number, operator: LogicRuleOperator) => {
+    const noValue = operator === "is_empty" || operator === "is_not_empty";
+    updateCondition(ci, { operator, ...(noValue ? { value: "" } : {}) });
+  };
+
+  const handleInlineSave = async () => {
+    const existingRule =
+      expandedRuleId !== "new"
+        ? logicRules.find((r) => r.id === expandedRuleId)
+        : null;
+    const draft: LogicRuleDraft = {
+      name: editName.trim(),
+      enabled: existingRule?.enabled ?? true,
+      conditions: editConditions
+        .filter((c) => c.field_name && c.operator)
+        .map((c) => {
+          const noValue =
+            c.operator === "is_empty" || c.operator === "is_not_empty";
+          const val = Array.isArray(c.value)
+            ? c.value.filter(Boolean)
+            : typeof c.value === "string"
+              ? c.value.trim()
+              : c.value;
+          return {
+            field_name: c.field_name,
+            operator: c.operator,
+            ...(!noValue &&
+            val !== "" &&
+            !(Array.isArray(val) && val.length === 0)
+              ? { value: val }
+              : {}),
+          };
+        }),
+    };
+    const ok = await handleSaveInlineRule(
+      draft,
+      expandedRuleId === "new" ? undefined : expandedRuleId!,
+    );
+    if (ok) setExpandedRuleId(null);
+  };
+
+  const canSaveInline =
+    editName.trim().length > 0 && editConditions.some((c) => c.field_name);
+
+  const isDirty = (() => {
+    if (expandedRuleId === "new") return true;
+    if (editName !== originalName) return true;
+    if (editConditions.length !== originalConditions.length) return true;
+    return editConditions.some((c, i) => {
+      const o = originalConditions[i];
+      return (
+        c.field_name !== o.field_name ||
+        c.operator !== o.operator ||
+        JSON.stringify(c.value) !== JSON.stringify(o.value)
+      );
+    });
+  })();
+
+  // ─── Overlap detection ─────────────────────────────────────────────
+  const getOverlap = (cond: DraftCondition): string | null => {
+    if (!cond.field_name || !cond.operator) return null;
+    const normVal = JSON.stringify(
+      Array.isArray(cond.value)
+        ? cond.value.filter(Boolean).sort()
+        : (cond.value ?? ""),
+    );
+    for (const rule of logicRules) {
+      if (rule.id === expandedRuleId) continue;
+      for (const rc of rule.conditions ?? []) {
+        if (
+          rc.field_name === cond.field_name &&
+          rc.operator === cond.operator
+        ) {
+          const rcVal = JSON.stringify(
+            Array.isArray(rc.value)
+              ? [...rc.value].filter(Boolean).sort()
+              : (rc.value ?? ""),
+          );
+          if (rcVal === normVal) return rule.name;
+        }
+      }
+    }
+    return null;
+  };
+
   const CRITERIA_TYPE_LABELS: Record<CriteriaFieldType, string> = {
     Text: "Text",
     Number: "Number",
@@ -173,6 +347,7 @@ export default function SettingsTab({
     List: "List",
     "US State": "US State",
     Boolean: "Boolean",
+    "Yes/No": "Yes/No",
   };
 
   const getClientLeadCount = (link?: CampaignClient) => {
@@ -484,7 +659,7 @@ export default function SettingsTab({
                               Field Label
                             </th>
                             <th className="px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
-                              Field Name
+                              Field Key
                             </th>
                             <th className="w-28 px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted] whitespace-nowrap">
                               Data Type
@@ -727,8 +902,8 @@ export default function SettingsTab({
                           Lead Routing
                         </p>
                         <p className="text-xs text-[--color-text-muted]">
-                          Configure how accepted leads are delivered to LIVE
-                          clients.
+                          Configure how accepted leads are distributed to LIVE
+                          contracts.
                         </p>
                       </div>
                       <button
@@ -745,7 +920,7 @@ export default function SettingsTab({
                         title={
                           hasLiveClients
                             ? undefined
-                            : "Routing can be enabled after at least one client is LIVE."
+                            : "Routing can be enabled after at least one contract is LIVE."
                         }
                       >
                         {routingEnabled ? "Enabled" : "Disabled"}
@@ -753,8 +928,8 @@ export default function SettingsTab({
                     </div>
                     {!hasLiveClients && (
                       <p className="text-xs font-medium text-red-500">
-                        Routing is disabled because there are no LIVE clients in
-                        this campaign.
+                        Routing is disabled because there are no LIVE contracts
+                        in this campaign.
                       </p>
                     )}
 
@@ -766,13 +941,13 @@ export default function SettingsTab({
                               key: "round_robin" as const,
                               label: "Round Robin",
                               description:
-                                "Cycles through LIVE clients in order.",
+                                "Cycles through LIVE contracts in order.",
                             },
                             {
                               key: "weighted" as const,
                               label: "Weighted",
                               description:
-                                "Routes to the client furthest below its target share.",
+                                "Routes to the contract furthest below its target share.",
                             },
                           ] as const
                         ).map((opt) => {
@@ -857,7 +1032,7 @@ export default function SettingsTab({
                                       </div>
                                       {liveClientRows.length === 0 ? (
                                         <p className="text-xs text-[--color-text-muted]">
-                                          No LIVE clients available.
+                                          No LIVE contracts available.
                                         </p>
                                       ) : (
                                         <div className="space-y-1">
@@ -882,7 +1057,7 @@ export default function SettingsTab({
                                     <div className="space-y-1.5">
                                       <div className="flex items-center justify-between">
                                         <p className="text-[11px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
-                                          Client Shares
+                                          Contract Shares
                                         </p>
                                         <span
                                           className={`text-[11px] font-semibold ${
@@ -896,7 +1071,7 @@ export default function SettingsTab({
                                       </div>
                                       {liveClientRows.length === 0 ? (
                                         <p className="text-xs text-[--color-text-muted]">
-                                          No LIVE clients available.
+                                          No LIVE contracts available.
                                         </p>
                                       ) : (
                                         <div className="space-y-1">
@@ -1009,7 +1184,7 @@ export default function SettingsTab({
                           setSavingRouting(true);
                           try {
                             // When switching to weighted mode,
-                            // persist per-client shares first.
+                            // persist per-contract shares first.
                             if (
                               routingMode === "weighted" &&
                               liveClientRows.length > 0
@@ -1060,16 +1235,16 @@ export default function SettingsTab({
                   Cherry Pick
                 </p>
                 <p className="text-[11px] text-[--color-text-muted] mt-1">
-                  When enabled, rejected (non-test) leads are automatically
-                  marked as cherry-pickable. Affiliates can override this
-                  per-participant.
+                  Rejected (non-test) leads are automatically cherry-pickable by
+                  default. Disable below to prevent auto cherry-picking. Sources
+                  can override per-participant.
                 </p>
               </div>
               <label className="flex items-center gap-2.5 cursor-pointer">
                 <input
                   type="checkbox"
                   className="h-4 w-4 accent-[--color-primary]"
-                  checked={campaign.default_cherry_pickable ?? false}
+                  checked={campaign.default_cherry_pickable ?? true}
                   onChange={async (e) => {
                     const val = e.target.checked;
                     try {
@@ -1080,8 +1255,8 @@ export default function SettingsTab({
                       if (res.success) {
                         toast.success(
                           val
-                            ? "Rejected leads will be auto-marked cherry-pickable."
-                            : "Auto cherry-pickable disabled.",
+                            ? "Auto cherry-pickable re-enabled."
+                            : "Auto cherry-pickable disabled for this campaign.",
                         );
                         onCampaignUpdate?.({
                           default_cherry_pickable: val,
@@ -1161,10 +1336,7 @@ export default function SettingsTab({
                 <Button
                   size="sm"
                   iconLeft={<Plus size={14} />}
-                  onClick={() => {
-                    setEditingRule(null);
-                    setLogicBuilderOpen(true);
-                  }}
+                  onClick={startNewRule}
                 >
                   Create Rule
                 </Button>
@@ -1173,103 +1345,486 @@ export default function SettingsTab({
 
             {logicRulesLoading ? (
               <p className="text-sm text-[--color-text-muted]">Loading…</p>
-            ) : logicRules.length === 0 ? (
+            ) : logicRules.length === 0 && expandedRuleId !== "new" ? (
               <div className="rounded-xl border border-dashed border-[--color-border] py-12 text-center text-sm text-[--color-text-muted]">
                 No rules yet.{" "}
                 <button
                   type="button"
                   className="text-[--color-primary] hover:underline"
-                  onClick={() => {
-                    setEditingRule(null);
-                    setLogicBuilderOpen(true);
-                  }}
+                  onClick={startNewRule}
                 >
                   Create one
                 </button>
                 .
               </div>
             ) : (
-              <div className="space-y-2">
-                {logicRules.map((rule) => (
-                  <div
-                    key={rule.id}
-                    className="flex items-center gap-3 rounded-xl border border-[--color-border] bg-[--color-bg] px-4 py-3"
-                  >
-                    {/* Enable toggle */}
-                    <button
-                      type="button"
-                      onClick={() => handleToggleLogicRule(rule)}
-                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors ${
-                        rule.enabled
-                          ? "bg-[--color-primary]"
-                          : "bg-[--color-border]"
-                      }`}
-                      aria-label={`${rule.enabled ? "Disable" : "Enable"} rule`}
+              <div className="space-y-0">
+                {/* ── New rule draft card ──────────────────── */}
+                {expandedRuleId === "new" && (
+                  <>
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.25, ease: "easeOut" }}
+                      className="rounded-xl border-2 border-[--color-primary]/50 bg-[--color-bg]"
                     >
-                      <span
-                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition-transform ${
-                          rule.enabled ? "translate-x-4" : "translate-x-0"
+                      {/* Card header */}
+                      <div className="flex items-center gap-3 px-4 py-3 border-b border-[--color-border]">
+                        <input
+                          className={`${inputClass} flex-1`}
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          placeholder="Rule name…"
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setExpandedRuleId(null)}
+                          className="shrink-0 text-[--color-text-muted] hover:text-[--color-text] transition-colors"
+                        >
+                          <ChevronUp size={14} />
+                        </button>
+                      </div>
+
+                      {/* Conditions */}
+                      <div className="px-4 pb-4 pt-3 space-y-3">
+                        <p className="text-[11px] font-medium text-[--color-text-muted] uppercase tracking-wide">
+                          Conditions
+                        </p>
+                        <div className="rounded-xl border border-[--color-border] border-l-[3px] border-l-red-400 pl-4 pr-3 py-3 space-y-2">
+                          <AnimatePresence initial={false}>
+                            {editConditions.map((cond, ci) => {
+                              const field = criteriaFields.find(
+                                (f) => f.field_name === cond.field_name,
+                              );
+                              const isLast = ci === editConditions.length - 1;
+                              const overlap = getOverlap(cond);
+                              return (
+                                <motion.div
+                                  key={ci}
+                                  initial={{ opacity: 0, y: -8 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{
+                                    opacity: 0,
+                                    y: -8,
+                                    scale: 0.97,
+                                  }}
+                                  transition={{
+                                    duration: 0.18,
+                                    ease: "easeOut",
+                                  }}
+                                  className="space-y-1"
+                                >
+                                  <div
+                                    className={`flex items-center gap-2 rounded-lg px-2 py-1 -mx-2 transition-colors ${overlap ? "bg-red-50 dark:bg-red-900/15 ring-1 ring-red-300 dark:ring-red-700" : ""}`}
+                                  >
+                                    <select
+                                      className={`${inputClass} flex-[2] min-w-0`}
+                                      value={cond.field_name}
+                                      onChange={(e) =>
+                                        handleFieldChange(ci, e.target.value)
+                                      }
+                                    >
+                                      <option value="">Select field…</option>
+                                      {criteriaFields.map((f) => (
+                                        <option key={f.id} value={f.field_name}>
+                                          {f.field_label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <select
+                                      className={`${inputClass} flex-[1.5] min-w-0`}
+                                      value={cond.operator}
+                                      onChange={(e) =>
+                                        handleOperatorChange(
+                                          ci,
+                                          e.target.value as LogicRuleOperator,
+                                        )
+                                      }
+                                    >
+                                      {getOperatorsForType(
+                                        field?.data_type,
+                                      ).map((op) => (
+                                        <option key={op} value={op}>
+                                          {OPERATOR_LABELS[op]}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <ConditionValueInput
+                                      field={field}
+                                      operator={cond.operator}
+                                      value={cond.value}
+                                      onChange={(v) =>
+                                        updateCondition(ci, { value: v })
+                                      }
+                                    />
+                                    {!isLast && (
+                                      <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold bg-red-500 text-white">
+                                        AND
+                                      </span>
+                                    )}
+                                    <button
+                                      type="button"
+                                      disabled={editConditions.length === 1}
+                                      onClick={() => removeCondition(ci)}
+                                      className="shrink-0 text-[--color-text-muted] hover:text-red-500 transition-colors disabled:opacity-25"
+                                    >
+                                      <Trash2 size={14} />
+                                    </button>
+                                  </div>
+                                  {overlap && (
+                                    <p className="flex items-center gap-1 text-[10px] text-red-500 font-medium pl-2">
+                                      <AlertTriangle
+                                        size={10}
+                                        className="shrink-0"
+                                      />
+                                      Overlaps with rule &ldquo;{overlap}&rdquo;
+                                    </p>
+                                  )}
+                                </motion.div>
+                              );
+                            })}
+                          </AnimatePresence>
+                          <button
+                            type="button"
+                            onClick={addCondition}
+                            className="mt-1 text-[11px] text-[--color-primary] hover:opacity-75 flex items-center gap-1 transition-opacity"
+                          >
+                            <Plus size={11} />
+                            Add condition
+                          </button>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="flex justify-end gap-2 pt-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setExpandedRuleId(null)}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={handleInlineSave}
+                            disabled={
+                              savingInlineRuleId === "new" || !canSaveInline
+                            }
+                          >
+                            {savingInlineRuleId === "new"
+                              ? "Saving…"
+                              : "Save Rule"}
+                          </Button>
+                        </div>
+                      </div>
+                    </motion.div>
+                    {logicRules.length > 0 && (
+                      <div className="flex items-center gap-3 py-2">
+                        <div className="flex-1 border-t border-[--color-border]" />
+                        <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-[--color-text-muted]">
+                          OR
+                        </span>
+                        <div className="flex-1 border-t border-[--color-border]" />
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* ── Existing rule cards ─────────────────── */}
+                {logicRules.map((rule, ruleIdx) => {
+                  const isExpanded = expandedRuleId === rule.id;
+                  return (
+                    <div key={rule.id}>
+                      {ruleIdx > 0 && (
+                        <div className="flex items-center gap-3 py-2">
+                          <div className="flex-1 border-t border-[--color-border]" />
+                          <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-[--color-text-muted]">
+                            OR
+                          </span>
+                          <div className="flex-1 border-t border-[--color-border]" />
+                        </div>
+                      )}
+                      <div
+                        className={`rounded-xl transition-colors ${
+                          isExpanded
+                            ? "border-2 border-[--color-primary]/50 bg-[--color-bg]"
+                            : "border border-[--color-border] bg-[--color-bg]"
                         }`}
-                      />
-                    </button>
+                      >
+                        {/* Card header */}
+                        <div
+                          className={`flex items-center gap-3 px-4 py-3 ${
+                            isExpanded ? "border-b border-[--color-border]" : ""
+                          }`}
+                        >
+                          {/* Enable toggle */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setLocalEnabledOverrides((prev) => ({
+                                ...prev,
+                                [rule.id]: !(
+                                  localEnabledOverrides[rule.id] ?? rule.enabled
+                                ),
+                              }));
+                              handleToggleLogicRule(rule);
+                            }}
+                            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors ${
+                              (localEnabledOverrides[rule.id] ?? rule.enabled)
+                                ? "bg-[--color-primary]"
+                                : "bg-[--color-border]"
+                            }`}
+                            aria-label={`${(localEnabledOverrides[rule.id] ?? rule.enabled) ? "Disable" : "Enable"} rule`}
+                          >
+                            <span
+                              className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition-transform ${
+                                (localEnabledOverrides[rule.id] ?? rule.enabled)
+                                  ? "translate-x-4"
+                                  : "translate-x-0"
+                              }`}
+                            />
+                          </button>
 
-                    {/* Action badge */}
-                    <span
-                      className={`shrink-0 rounded px-2 py-0.5 text-[11px] font-semibold ${
-                        rule.action === "pass"
-                          ? "bg-green-500/10 text-green-600"
-                          : "bg-red-500/10 text-red-500"
-                      }`}
-                    >
-                      {rule.action === "pass" ? "Pass" : "Fail"}
-                    </span>
+                          {/* Name — editable when expanded */}
+                          {isExpanded ? (
+                            <input
+                              className={`${inputClass} flex-1`}
+                              value={editName}
+                              onChange={(e) => setEditName(e.target.value)}
+                              placeholder="Rule name…"
+                            />
+                          ) : (
+                            <span
+                              className={`flex-1 text-sm truncate ${
+                                (localEnabledOverrides[rule.id] ?? rule.enabled)
+                                  ? "text-[--color-text-strong]"
+                                  : "text-[--color-text-muted]"
+                              }`}
+                            >
+                              {rule.name}
+                            </span>
+                          )}
 
-                    {/* Name */}
-                    <span
-                      className={`flex-1 text-sm truncate ${
-                        rule.enabled
-                          ? "text-[--color-text-strong]"
-                          : "text-[--color-text-muted] line-through"
-                      }`}
-                    >
-                      {rule.name}
-                    </span>
+                          {/* Enabled/Disabled tag */}
+                          {!isExpanded && (
+                            <span
+                              className={`shrink-0 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                (localEnabledOverrides[rule.id] ?? rule.enabled)
+                                  ? "border border-green-500/30 bg-green-500/10 text-green-600"
+                                  : "border border-red-500/30 bg-red-500/10 text-red-500"
+                              }`}
+                            >
+                              {(localEnabledOverrides[rule.id] ?? rule.enabled)
+                                ? "Enabled"
+                                : "Disabled"}
+                            </span>
+                          )}
 
-                    {/* Group / condition count */}
-                    <span className="shrink-0 text-[11px] text-[--color-text-muted]">
-                      {rule.groups.length}{" "}
-                      {rule.groups.length === 1 ? "group" : "groups"}
-                      {" · "}
-                      {rule.groups.reduce(
-                        (acc, g) => acc + g.conditions.length,
-                        0,
-                      )}{" "}
-                      cond.
-                    </span>
+                          {/* Condition count (collapsed only) */}
+                          {!isExpanded && (
+                            <span className="shrink-0 text-[11px] text-[--color-text-muted]">
+                              {(rule.conditions ?? []).length}{" "}
+                              {(rule.conditions ?? []).length === 1
+                                ? "condition"
+                                : "conditions"}
+                            </span>
+                          )}
 
-                    {/* Edit */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingRule(rule);
-                        setLogicBuilderOpen(true);
-                      }}
-                      className="shrink-0 text-[--color-text-muted] hover:text-[--color-text] transition-colors"
-                    >
-                      <Pencil size={13} />
-                    </button>
+                          {/* Expand / Collapse */}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              isExpanded
+                                ? setExpandedRuleId(null)
+                                : expandRule(rule)
+                            }
+                            className="shrink-0 text-[--color-text-muted] hover:text-[--color-text] transition-colors"
+                          >
+                            {isExpanded ? (
+                              <ChevronUp size={14} />
+                            ) : (
+                              <ChevronDown size={14} />
+                            )}
+                          </button>
 
-                    {/* Delete */}
-                    <button
-                      type="button"
-                      disabled={deletingRuleId === rule.id}
-                      onClick={() => handleDeleteLogicRule(rule.id)}
-                      className="shrink-0 text-[--color-text-muted] hover:text-red-500 transition-colors disabled:opacity-40"
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                ))}
+                          {/* Delete */}
+                          <button
+                            type="button"
+                            disabled={deletingRuleId === rule.id}
+                            onClick={() => handleDeleteLogicRule(rule.id)}
+                            className="shrink-0 text-[--color-text-muted] hover:text-red-500 transition-colors disabled:opacity-40"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+
+                        {/* Expanded body — conditions + save */}
+                        <AnimatePresence initial={false}>
+                          {isExpanded && (
+                            <motion.div
+                              initial={{ opacity: 0, height: 0 }}
+                              animate={{ opacity: 1, height: "auto" }}
+                              exit={{ opacity: 0, height: 0 }}
+                              transition={{ duration: 0.25, ease: "easeOut" }}
+                            >
+                              <div className="px-4 pb-4 pt-3 space-y-3">
+                                <p className="text-[11px] font-medium text-[--color-text-muted] uppercase tracking-wide">
+                                  Conditions
+                                </p>
+                                <div className="rounded-xl border border-[--color-border] border-l-[3px] border-l-red-400 pl-4 pr-3 py-3 space-y-2">
+                                  <AnimatePresence initial={false}>
+                                    {editConditions.map((cond, ci) => {
+                                      const field = criteriaFields.find(
+                                        (f) => f.field_name === cond.field_name,
+                                      );
+                                      const isLast =
+                                        ci === editConditions.length - 1;
+                                      const overlap = getOverlap(cond);
+                                      return (
+                                        <motion.div
+                                          key={ci}
+                                          initial={{ opacity: 0, y: -8 }}
+                                          animate={{ opacity: 1, y: 0 }}
+                                          exit={{
+                                            opacity: 0,
+                                            y: -8,
+                                            scale: 0.97,
+                                          }}
+                                          transition={{
+                                            duration: 0.18,
+                                            ease: "easeOut",
+                                          }}
+                                          className="space-y-1"
+                                        >
+                                          <div
+                                            className={`flex items-center gap-2 rounded-lg px-2 py-1 -mx-2 transition-colors ${overlap ? "bg-red-50 dark:bg-red-900/15 ring-1 ring-red-300 dark:ring-red-700" : ""}`}
+                                          >
+                                            <select
+                                              className={`${inputClass} flex-[2] min-w-0`}
+                                              value={cond.field_name}
+                                              onChange={(e) =>
+                                                handleFieldChange(
+                                                  ci,
+                                                  e.target.value,
+                                                )
+                                              }
+                                            >
+                                              <option value="">
+                                                Select field…
+                                              </option>
+                                              {criteriaFields.map((f) => (
+                                                <option
+                                                  key={f.id}
+                                                  value={f.field_name}
+                                                >
+                                                  {f.field_label}
+                                                </option>
+                                              ))}
+                                            </select>
+                                            <select
+                                              className={`${inputClass} flex-[1.5] min-w-0`}
+                                              value={cond.operator}
+                                              onChange={(e) =>
+                                                handleOperatorChange(
+                                                  ci,
+                                                  e.target
+                                                    .value as LogicRuleOperator,
+                                                )
+                                              }
+                                            >
+                                              {getOperatorsForType(
+                                                field?.data_type,
+                                              ).map((op) => (
+                                                <option key={op} value={op}>
+                                                  {OPERATOR_LABELS[op]}
+                                                </option>
+                                              ))}
+                                            </select>
+                                            <ConditionValueInput
+                                              field={field}
+                                              operator={cond.operator}
+                                              value={cond.value}
+                                              onChange={(v) =>
+                                                updateCondition(ci, {
+                                                  value: v,
+                                                })
+                                              }
+                                            />
+                                            {!isLast && (
+                                              <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold bg-red-500 text-white">
+                                                AND
+                                              </span>
+                                            )}
+                                            <button
+                                              type="button"
+                                              disabled={
+                                                editConditions.length === 1
+                                              }
+                                              onClick={() =>
+                                                removeCondition(ci)
+                                              }
+                                              className="shrink-0 text-[--color-text-muted] hover:text-red-500 transition-colors disabled:opacity-25"
+                                            >
+                                              <Trash2 size={14} />
+                                            </button>
+                                          </div>
+                                          {overlap && (
+                                            <p className="flex items-center gap-1 text-[10px] text-red-500 font-medium pl-2">
+                                              <AlertTriangle
+                                                size={10}
+                                                className="shrink-0"
+                                              />
+                                              Overlaps with rule &ldquo;
+                                              {overlap}&rdquo;
+                                            </p>
+                                          )}
+                                        </motion.div>
+                                      );
+                                    })}
+                                  </AnimatePresence>
+                                  <button
+                                    type="button"
+                                    onClick={addCondition}
+                                    className="mt-1 text-[11px] text-[--color-primary] hover:opacity-75 flex items-center gap-1 transition-opacity"
+                                  >
+                                    <Plus size={11} />
+                                    Add condition
+                                  </button>
+                                </div>
+
+                                {/* Footer — only when edited */}
+                                {isDirty && (
+                                  <div className="flex justify-end gap-2 pt-2">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => setExpandedRuleId(null)}
+                                    >
+                                      Cancel
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      onClick={handleInlineSave}
+                                      disabled={
+                                        savingInlineRuleId === rule.id ||
+                                        !canSaveInline
+                                      }
+                                    >
+                                      {savingInlineRuleId === rule.id
+                                        ? "Saving…"
+                                        : "Save Rule"}
+                                    </Button>
+                                  </div>
+                                )}
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </motion.div>

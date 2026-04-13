@@ -304,13 +304,9 @@ export function LogicCatalogModals({
                                           <div className="space-y-1 border-t border-[--color-border] bg-[--color-bg] px-10 py-2.5">
                                             {version.rules.map((rule) => {
                                               const ruleDetailKey = `${applyKey}#rule:${rule.id}`;
-                                              const condCount =
-                                                rule.groups.reduce(
-                                                  (acc, group) =>
-                                                    acc +
-                                                    group.conditions.length,
-                                                  0,
-                                                );
+                                              const condCount = (
+                                                rule.conditions ?? []
+                                              ).length;
                                               return (
                                                 <div
                                                   key={rule.id}
@@ -356,26 +352,14 @@ export function LogicCatalogModals({
                                                         />
                                                       )}
                                                     </span>
-                                                    <span
-                                                      className={`rounded px-1.5 py-0.5 font-semibold ${
-                                                        rule.action === "pass"
-                                                          ? "bg-green-500/10 text-green-600"
-                                                          : "bg-red-500/10 text-red-500"
-                                                      }`}
-                                                    >
-                                                      {rule.action === "pass"
-                                                        ? "Pass"
-                                                        : "Fail"}
-                                                    </span>
                                                     <span className="flex-1 truncate text-[--color-text] text-left">
                                                       {rule.name}
                                                     </span>
                                                     <span className="shrink-0 text-[10px] text-[--color-text-muted]">
-                                                      {rule.groups.length} group
-                                                      {rule.groups.length !== 1
-                                                        ? "s"
-                                                        : ""}{" "}
-                                                      · {condCount} cond.
+                                                      {condCount}{" "}
+                                                      {condCount === 1
+                                                        ? "condition"
+                                                        : "conditions"}
                                                     </span>
                                                   </button>
                                                   <AnimatePresence
@@ -407,50 +391,35 @@ export function LogicCatalogModals({
                                                         }}
                                                         className="border-t border-[--color-border] bg-[--color-bg] px-3 py-2"
                                                       >
-                                                        <div className="space-y-2">
-                                                          {rule.groups.map(
+                                                        <div className="space-y-1">
+                                                          {(
+                                                            rule.conditions ??
+                                                            []
+                                                          ).map(
                                                             (
-                                                              group,
-                                                              groupIdx,
+                                                              condition,
+                                                              condIdx,
                                                             ) => (
-                                                              <div
-                                                                key={`${rule.id}-group-${groupIdx}`}
-                                                                className="rounded-md border border-[--color-border] bg-[--color-bg-muted] p-2"
+                                                              <p
+                                                                key={`${rule.id}-cond-${condIdx}`}
+                                                                className="text-[11px] text-[--color-text]"
                                                               >
-                                                                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
-                                                                  Group{" "}
-                                                                  {groupIdx + 1}
-                                                                </p>
-                                                                <div className="space-y-1">
-                                                                  {group.conditions.map(
-                                                                    (
-                                                                      condition,
-                                                                      condIdx,
-                                                                    ) => (
-                                                                      <p
-                                                                        key={`${rule.id}-group-${groupIdx}-cond-${condIdx}`}
-                                                                        className="text-[11px] text-[--color-text]"
-                                                                      >
-                                                                        <span className="font-medium">
-                                                                          {normalizeFieldLabel(
-                                                                            condition.field_name,
-                                                                          )}
-                                                                        </span>{" "}
-                                                                        <span className="text-[--color-text-muted]">
-                                                                          {formatLogicOperatorLabel(
-                                                                            condition.operator,
-                                                                          )}
-                                                                        </span>{" "}
-                                                                        <span className="font-mono text-[10px] text-[--color-text-muted]">
-                                                                          {formatLogicConditionValue(
-                                                                            condition.value,
-                                                                          )}
-                                                                        </span>
-                                                                      </p>
-                                                                    ),
+                                                                <span className="font-medium">
+                                                                  {normalizeFieldLabel(
+                                                                    condition.field_name,
                                                                   )}
-                                                                </div>
-                                                              </div>
+                                                                </span>{" "}
+                                                                <span className="text-[--color-text-muted]">
+                                                                  {formatLogicOperatorLabel(
+                                                                    condition.operator,
+                                                                  )}
+                                                                </span>{" "}
+                                                                <span className="font-mono text-[10px] text-[--color-text-muted]">
+                                                                  {formatLogicConditionValue(
+                                                                    condition.value,
+                                                                  )}
+                                                                </span>
+                                                              </p>
                                                             ),
                                                           )}
                                                         </div>

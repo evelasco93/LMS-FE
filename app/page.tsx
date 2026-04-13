@@ -245,7 +245,7 @@ function DashboardContent({
     const labels: Record<NavKey, string> = {
       home: "Home",
       leads: "Leads",
-      clients: "Clients",
+      clients: "End Users",
       affiliates: "Sources",
       campaigns: "Campaigns",
       tools: "Tools",
@@ -621,7 +621,7 @@ function DashboardContent({
     const map: Record<NavKey, string> = {
       home: "Home",
       leads: "Leads",
-      clients: "Clients",
+      clients: "End Users",
       affiliates: "Sources",
       campaigns: "Campaigns",
       tools: "Tools",
@@ -635,15 +635,15 @@ function DashboardContent({
       case "home":
         return "Lead Management System (PENDING NAME)";
       case "clients":
-        return "Manage clients, their details, and status";
+        return "Manage end users, their details, and status";
       case "affiliates":
         return "Manage sources, their details, and status";
       case "campaigns":
-        return "Create, configure, link clients/sources, and manage campaign settings";
+        return "Create, configure, link end users/sources, and manage campaign settings";
       case "admin":
         return "View and manage system settings, credentials, users, and logs";
       case "tools":
-        return "Access various tools and utilities";
+        return "Utilities for testing and verifying external integrations";
       default:
         return "Review and manage incoming leads";
     }

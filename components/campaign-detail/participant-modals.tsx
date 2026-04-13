@@ -327,7 +327,7 @@ export function ParticipantModals(props: ParticipantModalsProps) {
         leadsForCampaign.length === 1 ? "" : "s"
       }. Removing a participant would break lead history and data consistency. Set their status to DISABLED to stop receiving new leads.`
     : isOnly
-      ? `At least one ${isClient ? "client" : "source"} must remain linked to the campaign.`
+      ? `At least one ${isClient ? "end user" : "source"} must remain linked to the campaign.`
       : "";
   const currentLink = isClient
     ? clientLinkMap?.get(pid)
@@ -340,7 +340,7 @@ export function ParticipantModals(props: ParticipantModalsProps) {
     <>
       {participantAction && (
         <Modal
-          title={`${isClient ? "Client" : "Affiliate"} Actions \u2014 ${participant?.name || pid}`}
+          title={`${isClient ? "End User" : "Affiliate"} Actions \u2014 ${participant?.name || pid}`}
           isOpen
           onClose={() => {
             setParticipantAction(null);
@@ -567,24 +567,19 @@ export function ParticipantModals(props: ParticipantModalsProps) {
             {!isClient && (
               <div className="space-y-2 border-t border-[--color-border] pt-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
-                  Cherry Pick Override
+                  Cherry Pick
                 </p>
-                <div className="flex items-center gap-3">
-                  <select
-                    className="rounded-lg border border-[--color-border] bg-[--color-bg] px-2.5 py-1.5 text-xs text-[--color-text] focus:outline-none focus:ring-2 focus:ring-[--color-primary]/40"
-                    value={
+                <label className="flex items-center gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-[--color-primary]"
+                    checked={
                       (currentLink as CampaignAffiliate | undefined)
-                        ?.cherry_pick_override === true
-                        ? "true"
-                        : (currentLink as CampaignAffiliate | undefined)
-                              ?.cherry_pick_override === false
-                          ? "false"
-                          : "inherit"
+                        ?.cherry_pick_override === false
                     }
                     onChange={async (e) => {
-                      const raw = e.target.value;
-                      const val =
-                        raw === "true" ? true : raw === "false" ? false : null;
+                      const disable = e.target.checked;
+                      const val = disable ? false : null;
                       try {
                         const res = await updateAffiliateCherryPickOverride(
                           campaign!.id,
@@ -592,7 +587,11 @@ export function ParticipantModals(props: ParticipantModalsProps) {
                           val,
                         );
                         if (res.success) {
-                          toast.success("Cherry pick override updated.");
+                          toast.success(
+                            disable
+                              ? "Cherry-pick disabled for this source."
+                              : "Cherry-pick re-enabled (inherits campaign default).",
+                          );
                           setLocalAffiliateLinks((prev) =>
                             prev.map((l) =>
                               l.affiliate_id === pid
@@ -612,21 +611,14 @@ export function ParticipantModals(props: ParticipantModalsProps) {
                         toast.error("Failed to update cherry pick override.");
                       }
                     }}
-                  >
-                    <option value="inherit">
-                      Inherit from campaign (
-                      {campaign?.default_cherry_pickable
-                        ? "enabled"
-                        : "disabled"}
-                      )
-                    </option>
-                    <option value="true">Always cherry-pickable</option>
-                    <option value="false">Never cherry-pickable</option>
-                  </select>
-                </div>
+                  />
+                  <span className="text-sm text-[--color-text]">
+                    Disable cherry-pick for this source
+                  </span>
+                </label>
                 <p className="text-xs text-[--color-text-muted]">
-                  Controls whether rejected leads from this affiliate are
-                  automatically marked as cherry-pickable.
+                  When checked, rejected leads from this source will not be
+                  cherry-pickable regardless of the campaign default.
                 </p>
               </div>
             )}
@@ -1020,13 +1012,9 @@ export function ParticipantModals(props: ParticipantModalsProps) {
                                               <div className="space-y-1 border-t border-[--color-border] bg-[--color-bg] px-10 py-2.5">
                                                 {version.rules.map((rule) => {
                                                   const ruleDetailKey = `${applyKey}#rule:${rule.id}`;
-                                                  const condCount =
-                                                    rule.groups.reduce(
-                                                      (acc, group) =>
-                                                        acc +
-                                                        group.conditions.length,
-                                                      0,
-                                                    );
+                                                  const condCount = (
+                                                    rule.conditions ?? []
+                                                  ).length;
                                                   return (
                                                     <div
                                                       key={rule.id}
@@ -1071,30 +1059,14 @@ export function ParticipantModals(props: ParticipantModalsProps) {
                                                             />
                                                           )}
                                                         </span>
-                                                        <span
-                                                          className={`rounded px-1.5 py-0.5 font-semibold ${
-                                                            rule.action ===
-                                                            "pass"
-                                                              ? "bg-green-500/10 text-green-600"
-                                                              : "bg-red-500/10 text-red-500"
-                                                          }`}
-                                                        >
-                                                          {rule.action ===
-                                                          "pass"
-                                                            ? "Pass"
-                                                            : "Fail"}
-                                                        </span>
                                                         <span className="flex-1 truncate text-[--color-text] text-left">
                                                           {rule.name}
                                                         </span>
                                                         <span className="shrink-0 text-[10px] text-[--color-text-muted]">
-                                                          {rule.groups.length}{" "}
-                                                          group
-                                                          {rule.groups
-                                                            .length !== 1
-                                                            ? "s"
-                                                            : ""}{" "}
-                                                          · {condCount} cond.
+                                                          {condCount}{" "}
+                                                          {condCount === 1
+                                                            ? "condition"
+                                                            : "conditions"}
                                                         </span>
                                                       </button>
                                                       <AnimatePresence
@@ -1127,51 +1099,35 @@ export function ParticipantModals(props: ParticipantModalsProps) {
                                                             }}
                                                             className="border-t border-[--color-border] bg-[--color-bg] px-3 py-2"
                                                           >
-                                                            <div className="space-y-2">
-                                                              {rule.groups.map(
+                                                            <div className="space-y-1">
+                                                              {(
+                                                                rule.conditions ??
+                                                                []
+                                                              ).map(
                                                                 (
-                                                                  group,
-                                                                  groupIdx,
+                                                                  condition,
+                                                                  condIdx,
                                                                 ) => (
-                                                                  <div
-                                                                    key={`${rule.id}-group-${groupIdx}`}
-                                                                    className="rounded-md border border-[--color-border] bg-[--color-bg-muted] p-2"
+                                                                  <p
+                                                                    key={`${rule.id}-cond-${condIdx}`}
+                                                                    className="text-[11px] text-[--color-text]"
                                                                   >
-                                                                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
-                                                                      Group{" "}
-                                                                      {groupIdx +
-                                                                        1}
-                                                                    </p>
-                                                                    <div className="space-y-1">
-                                                                      {group.conditions.map(
-                                                                        (
-                                                                          condition,
-                                                                          condIdx,
-                                                                        ) => (
-                                                                          <p
-                                                                            key={`${rule.id}-group-${groupIdx}-cond-${condIdx}`}
-                                                                            className="text-[11px] text-[--color-text]"
-                                                                          >
-                                                                            <span className="font-medium">
-                                                                              {normalizeFieldLabel(
-                                                                                condition.field_name,
-                                                                              )}
-                                                                            </span>{" "}
-                                                                            <span className="text-[--color-text-muted]">
-                                                                              {formatLogicOperatorLabel(
-                                                                                condition.operator,
-                                                                              )}
-                                                                            </span>{" "}
-                                                                            <span className="font-mono text-[10px] text-[--color-text-muted]">
-                                                                              {formatLogicConditionValue(
-                                                                                condition.value,
-                                                                              )}
-                                                                            </span>
-                                                                          </p>
-                                                                        ),
+                                                                    <span className="font-medium">
+                                                                      {normalizeFieldLabel(
+                                                                        condition.field_name,
                                                                       )}
-                                                                    </div>
-                                                                  </div>
+                                                                    </span>{" "}
+                                                                    <span className="text-[--color-text-muted]">
+                                                                      {formatLogicOperatorLabel(
+                                                                        condition.operator,
+                                                                      )}
+                                                                    </span>{" "}
+                                                                    <span className="font-mono text-[10px] text-[--color-text-muted]">
+                                                                      {formatLogicConditionValue(
+                                                                        condition.value,
+                                                                      )}
+                                                                    </span>
+                                                                  </p>
                                                                 ),
                                                               )}
                                                             </div>
@@ -1244,17 +1200,6 @@ export function ParticipantModals(props: ParticipantModalsProps) {
                           />
                         </button>
 
-                        {/* Action badge */}
-                        <span
-                          className={`shrink-0 rounded px-2 py-0.5 text-[11px] font-semibold ${
-                            rule.action === "pass"
-                              ? "bg-green-500/10 text-green-600"
-                              : "bg-red-500/10 text-red-500"
-                          }`}
-                        >
-                          {rule.action === "pass" ? "Pass" : "Fail"}
-                        </span>
-
                         {/* Name */}
                         <span
                           className={`flex-1 text-sm truncate ${
@@ -1266,16 +1211,12 @@ export function ParticipantModals(props: ParticipantModalsProps) {
                           {rule.name}
                         </span>
 
-                        {/* Group / condition count */}
+                        {/* Condition count */}
                         <span className="shrink-0 text-[11px] text-[--color-text-muted]">
-                          {rule.groups.length}{" "}
-                          {rule.groups.length === 1 ? "group" : "groups"}
-                          {" · "}
-                          {rule.groups.reduce(
-                            (acc, g) => acc + g.conditions.length,
-                            0,
-                          )}{" "}
-                          cond.
+                          {(rule.conditions ?? []).length}{" "}
+                          {(rule.conditions ?? []).length === 1
+                            ? "condition"
+                            : "conditions"}
                         </span>
 
                         {/* Edit */}
@@ -1407,15 +1348,6 @@ export function ParticipantModals(props: ParticipantModalsProps) {
                     <span className="flex-1 text-sm font-medium text-[--color-text]">
                       {rule.name}
                     </span>
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
-                        rule.action === "pass"
-                          ? "bg-emerald-100 text-emerald-700"
-                          : "bg-red-100 text-red-700"
-                      }`}
-                    >
-                      {rule.action}
-                    </span>
                     {!rule.enabled && (
                       <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-gray-500">
                         disabled
@@ -1423,47 +1355,30 @@ export function ParticipantModals(props: ParticipantModalsProps) {
                     )}
                   </button>
                   {expanded && (
-                    <div className="border-t border-[--color-border] px-3 py-2 space-y-2">
-                      {(rule.groups ?? []).map((group: any, gi: number) => (
+                    <div className="border-t border-[--color-border] px-3 py-2 space-y-1">
+                      {(rule.conditions ?? []).map((cond: any, ci: number) => (
                         <div
-                          key={group.id ?? gi}
-                          className="rounded-md border border-[--color-border] bg-[--color-bg-muted] px-3 py-2"
+                          key={cond.id ?? ci}
+                          className="flex items-center gap-2 text-xs text-[--color-text]"
                         >
-                          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
-                            Group {gi + 1}{" "}
-                            <span className="font-normal">
-                              (all conditions must match)
+                          <span className="font-mono text-[--color-primary]">
+                            {cond.field_name}
+                          </span>
+                          <span className="text-[--color-text-muted]">
+                            {(cond.operator ?? "").replace(/_/g, " ")}
+                          </span>
+                          {cond.value !== undefined && (
+                            <span className="font-medium">
+                              {Array.isArray(cond.value)
+                                ? cond.value.join(", ")
+                                : String(cond.value)}
                             </span>
-                          </p>
-                          <div className="space-y-1">
-                            {(group.conditions ?? []).map(
-                              (cond: any, ci: number) => (
-                                <div
-                                  key={cond.id ?? ci}
-                                  className="flex items-center gap-2 text-xs text-[--color-text]"
-                                >
-                                  <span className="font-mono text-[--color-primary]">
-                                    {cond.field_name}
-                                  </span>
-                                  <span className="text-[--color-text-muted]">
-                                    {(cond.operator ?? "").replace(/_/g, " ")}
-                                  </span>
-                                  {cond.value !== undefined && (
-                                    <span className="font-medium">
-                                      {Array.isArray(cond.value)
-                                        ? cond.value.join(", ")
-                                        : String(cond.value)}
-                                    </span>
-                                  )}
-                                </div>
-                              ),
-                            )}
-                          </div>
+                          )}
                         </div>
                       ))}
-                      {(!rule.groups || rule.groups.length === 0) && (
+                      {(!rule.conditions || rule.conditions.length === 0) && (
                         <p className="text-xs text-[--color-text-muted]">
-                          No condition groups defined.
+                          No conditions defined.
                         </p>
                       )}
                     </div>

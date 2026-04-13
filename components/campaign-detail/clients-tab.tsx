@@ -97,14 +97,14 @@ export function ClientsTab({
           <div>
             <p className="font-medium">Missing configuration</p>
             <p className="mt-0.5 text-xs text-[--color-text-muted]">
-              Before adding clients you need to set up{" "}
+              Before adding contracts you need to set up{" "}
               {missingCriteria && (
                 <button
                   type="button"
                   className="font-semibold text-[--color-primary] hover:underline"
                   onClick={() => onNavigateToSettings?.("base-criteria")}
                 >
-                  criteria questions
+                  field definitions
                 </button>
               )}
               {missingCriteria && missingLogic && " and "}
@@ -114,7 +114,7 @@ export function ClientsTab({
                   className="font-semibold text-[--color-primary] hover:underline"
                   onClick={() => onNavigateToSettings?.("logic")}
                 >
-                  logical validations
+                  validation rules
                 </button>
               )}
               .
@@ -123,7 +123,7 @@ export function ClientsTab({
         </div>
       )}
       <div className="mb-2 flex items-center justify-between gap-3">
-        <SectionLabel>Linked Clients</SectionLabel>
+        <SectionLabel>Linked Contracts</SectionLabel>
         <Button
           size="sm"
           iconLeft={<UserPlus size={14} />}
@@ -131,12 +131,14 @@ export function ClientsTab({
           onClick={() => setLinkClientModalOpen(true)}
           data-tour="btn-add-client"
         >
-          Add Client
+          Add Contract
         </Button>
       </div>
       <div className="space-y-2 text-sm">
         {linkedClients.length === 0 ? (
-          <p className="text-[--color-text-muted]">No linked clients yet.</p>
+          <p className="text-[--color-text-muted]">
+            No contracts yet. Select an end user to create a contract.
+          </p>
         ) : (
           linkedClients.map((c) => {
             const link = clientLinkMap.get(c.id);
@@ -183,21 +185,17 @@ export function ClientsTab({
                       const ruleCount = clientRules.length;
                       const campaignFieldNames = new Set(
                         logicRules.flatMap((r) =>
-                          r.groups.flatMap((g) =>
-                            g.conditions.map((cond) => cond.field_name),
-                          ),
+                          r.conditions.map((cond) => cond.field_name),
                         ),
                       );
                       let hasOverride = false;
                       let hasExtension = false;
                       if (campaignFieldNames.size > 0) {
                         for (const rule of clientRules) {
-                          for (const group of rule.groups) {
-                            for (const cond of group.conditions) {
-                              if (campaignFieldNames.has(cond.field_name))
-                                hasOverride = true;
-                              else hasExtension = true;
-                            }
+                          for (const cond of rule.conditions) {
+                            if (campaignFieldNames.has(cond.field_name))
+                              hasOverride = true;
+                            else hasExtension = true;
                           }
                         }
                       }

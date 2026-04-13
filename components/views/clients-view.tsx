@@ -87,14 +87,14 @@ export function ClientsView({
       (async () => {
         const res = await createClient(payload);
         if (!(res as any)?.success)
-          throw new Error((res as any)?.message || "Unable to create client");
+          throw new Error((res as any)?.message || "Unable to create end user");
         await refresh();
         setClientModal(false);
       })(),
       {
-        loading: "Creating client…",
-        success: "Client created",
-        error: (err) => err?.message || "Unable to create client",
+        loading: "Creating end user…",
+        success: "End user created",
+        error: (err) => err?.message || "Unable to create end user",
       },
     );
   };
@@ -104,15 +104,15 @@ export function ClientsView({
       (async () => {
         const res = await updateClient(id, payload);
         if (!(res as any)?.success)
-          throw new Error((res as any)?.message || "Unable to update client");
+          throw new Error((res as any)?.message || "Unable to update end user");
         await refresh();
         setEditClientModal(false);
         setEditingClient(null);
       })(),
       {
-        loading: "Updating client…",
-        success: "Client updated",
-        error: (err) => err?.message || "Unable to update client",
+        loading: "Updating end user…",
+        success: "End user updated",
+        error: (err) => err?.message || "Unable to update end user",
       },
     );
   };
@@ -126,7 +126,7 @@ export function ClientsView({
     );
     if (activeCampaigns.length === 0) return undefined;
     const names = activeCampaigns.map((c) => `"${c.name}"`).join(", ");
-    return `This client is active (TEST or LIVE) in ${names}. Set its status to DISABLED in all campaigns before deactivating.`;
+    return `This end user is active (TEST or LIVE) in ${names}. Set its status to DISABLED in all campaigns before deactivating.`;
   }, [deleteTarget, campaigns]);
 
   const hardDeleteDisabledReason = useMemo(() => {
@@ -136,7 +136,7 @@ export function ClientsView({
     );
     if (linked.length === 0) return undefined;
     const count = linked.length;
-    return `This client is still linked to ${count} campaign${count !== 1 ? "s" : ""}. Remove it from all campaigns before permanently deleting.`;
+    return `This end user is still linked to ${count} campaign${count !== 1 ? "s" : ""}. Remove it from all campaigns before permanently deleting.`;
   }, [deleteTarget, campaigns]);
 
   const onDeleteClient = async (permanent: boolean) => {
@@ -148,19 +148,19 @@ export function ClientsView({
           throw new Error(
             (res as any)?.error ||
               (res as any)?.message ||
-              "Unable to delete client",
+              "Unable to delete end user",
           );
         await refresh();
         setDeleteTarget(null);
       })(),
       {
         loading: permanent
-          ? "Permanently deleting client…"
-          : "Deactivating client…",
+          ? "Permanently deleting end user…"
+          : "Deactivating end user…",
         success: permanent
-          ? "Client permanently deleted"
-          : "Client deactivated",
-        error: (err) => err?.message || "Unable to delete client",
+          ? "End user permanently deleted"
+          : "End user deactivated",
+        error: (err) => err?.message || "Unable to delete end user",
       },
     );
   };
@@ -194,7 +194,7 @@ export function ClientsView({
           onClick={() => setClientModal(true)}
           data-tour="btn-new-client"
         >
-          New Client
+          New End User
         </Button>
       </div>
 
@@ -271,7 +271,7 @@ export function ClientsView({
         ]}
         data={displayedClients}
         emptyLabel={
-          displayedLoading ? "Loading clients…" : "No clients yet. Add one."
+          displayedLoading ? "Loading end users…" : "No end users yet. Add one."
         }
       />
 

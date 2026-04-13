@@ -10,7 +10,7 @@ export const metadata: Metadata = {
   // Title is managed imperatively via document.title in page.tsx
   // so that it stays in sync with auth state and active view.
   description:
-    "Lead Management System for Summit Edge Legal. Streamline your client intake and case management with our intuitive lead management system.",
+    "Lead Management System for Summit Edge Legal. Streamline your end user intake and case management with our intuitive lead management system.",
 };
 
 export default function RootLayout({

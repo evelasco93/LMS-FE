@@ -301,21 +301,17 @@ export function AffiliatesTab({
                           const ruleCount = affiliateRules.length;
                           const campaignFieldNames = new Set(
                             logicRules.flatMap((r) =>
-                              r.groups.flatMap((g) =>
-                                g.conditions.map((cond) => cond.field_name),
-                              ),
+                              r.conditions.map((cond) => cond.field_name),
                             ),
                           );
                           let hasOverride = false;
                           let hasExtension = false;
                           if (campaignFieldNames.size > 0) {
                             for (const rule of affiliateRules) {
-                              for (const group of rule.groups) {
-                                for (const cond of group.conditions) {
-                                  if (campaignFieldNames.has(cond.field_name))
-                                    hasOverride = true;
-                                  else hasExtension = true;
-                                }
+                              for (const cond of rule.conditions ?? []) {
+                                if (campaignFieldNames.has(cond.field_name))
+                                  hasOverride = true;
+                                else hasExtension = true;
                               }
                             }
                           }

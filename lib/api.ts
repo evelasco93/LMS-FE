@@ -968,14 +968,11 @@ export async function getLogicCatalogVersion(setId: string, version: number) {
 
 type LogicCatalogRuleInput = {
   name: string;
-  action: "pass" | "fail";
   enabled?: boolean;
-  groups: {
-    conditions: {
-      field_name: string;
-      operator: string;
-      value?: string | string[];
-    }[];
+  conditions: {
+    field_name: string;
+    operator: string;
+    value?: string | string[];
   }[];
 };
 
@@ -1094,14 +1091,11 @@ export async function createLogicRule(
   campaignId: string,
   payload: {
     name: string;
-    action: "pass" | "fail";
     enabled?: boolean;
-    groups: {
-      conditions: {
-        field_name: string;
-        operator: string;
-        value?: string | string[];
-      }[];
+    conditions: {
+      field_name: string;
+      operator: string;
+      value?: string | string[];
     }[];
   },
 ) {
@@ -1119,14 +1113,11 @@ export async function updateLogicRule(
   ruleId: string,
   payload: {
     name?: string;
-    action?: "pass" | "fail";
     enabled?: boolean;
-    groups?: {
-      conditions: {
-        field_name: string;
-        operator: string;
-        value?: string | string[];
-      }[];
+    conditions?: {
+      field_name: string;
+      operator: string;
+      value?: string | string[];
     }[];
   },
 ) {
@@ -1152,14 +1143,11 @@ export async function deleteLogicRule(campaignId: string, ruleId: string) {
 
 type LogicRulePayload = {
   name: string;
-  action: "pass" | "fail";
   enabled?: boolean;
-  groups: {
-    conditions: {
-      field_name: string;
-      operator: string;
-      value?: string | string[];
-    }[];
+  conditions: {
+    field_name: string;
+    operator: string;
+    value?: string | string[];
   }[];
 };
 

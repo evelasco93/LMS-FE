@@ -39,7 +39,7 @@ function auditActionLabel(action: string): string {
     distribution_updated: "Distribution Updated",
     lead_delivered: "Lead Delivered",
     delivery_skipped: "Delivery Skipped",
-    weight_updated: "Client Weight Updated",
+    weight_updated: "End User Weight Updated",
     status_changed: "Status Changed",
   };
   return (
@@ -232,7 +232,7 @@ export function ClientModal({
   }, [isOpen]);
 
   return (
-    <Modal title="Create Client" isOpen={isOpen} onClose={onClose}>
+    <Modal title="Create End User" isOpen={isOpen} onClose={onClose}>
       <form
         className="space-y-3"
         onSubmit={(e) => {
@@ -273,7 +273,7 @@ export function ClientModal({
             onChange={(value) => setForm({ ...form, phone: value })}
           />
         </Field>
-        <Field label="Client Code">
+        <Field label="End User Code">
           <div className="flex gap-2">
             <input
               className={inputClass}
@@ -338,7 +338,7 @@ export function EditClientModal({
 
   return (
     <Modal
-      title={`Edit Client \u2014 ${client.name}`}
+      title={`Edit End User \u2014 ${client.name}`}
       isOpen={isOpen}
       onClose={onClose}
     >
@@ -380,7 +380,7 @@ export function EditClientModal({
             onChange={(value) => setForm({ ...form, phone: value })}
           />
         </Field>
-        <Field label="Client Code">
+        <Field label="End User Code">
           <input
             className={inputClass}
             value={form.client_code || ""}
@@ -903,15 +903,15 @@ export function LinkClientModal({
   }, [isOpen]);
 
   return (
-    <Modal title="Add Client to Campaign" isOpen={isOpen} onClose={onClose}>
+    <Modal title="Add Contract" isOpen={isOpen} onClose={onClose}>
       <div className="space-y-3">
-        <Field label="Client" required>
+        <Field label="End User" required>
           <select
             className={inputClass}
             value={clientId}
             onChange={(e) => setClientId(e.target.value)}
           >
-            <option value="">Select client</option>
+            <option value="">Select end user</option>
             {clients.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name} ({c.client_code || "no code"})
@@ -1094,7 +1094,7 @@ export function ClientDetailModal({
 
   return (
     <Modal
-      title={client?.name ?? "Client"}
+      title={client?.name ?? "End User"}
       isOpen={isOpen}
       onClose={onClose}
       width={640}

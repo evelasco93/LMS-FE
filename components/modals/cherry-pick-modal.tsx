@@ -216,7 +216,7 @@ export function CherryPickModal({
         }
       }
     } catch {
-      toast.error("Could not load eligible clients.");
+      toast.error("Could not load eligible end users.");
     } finally {
       setLoadingClients(false);
     }
@@ -270,7 +270,7 @@ export function CherryPickModal({
 
   const handleExecute = async () => {
     if (!selectedClientId) {
-      toast.error("Please select a client.");
+      toast.error("Please select an end user.");
       return;
     }
     setExecuting(true);
@@ -311,7 +311,7 @@ export function CherryPickModal({
           toast.success("Cherry-pick delivered and accepted.");
         } else {
           toast.warning(
-            `Cherry-pick delivered but client did not accept the lead.`,
+            `Cherry-pick delivered but end user did not accept the lead.`,
           );
         }
         onSuccess(lead.id);
@@ -674,16 +674,17 @@ export function CherryPickModal({
               {/* Client selector */}
               <div className="space-y-1.5">
                 <p className="text-xs uppercase tracking-wide text-[--color-text-muted] font-semibold">
-                  Destination Client
+                  Destination End User
                 </p>
                 {loadingClients ? (
                   <p className="text-[11px] text-[--color-text-muted]">
-                    Loading eligible clients…
+                    Loading eligible end users…
                   </p>
                 ) : eligibleClients.length === 0 ? (
                   <p className="text-[11px] text-rose-500">
-                    No eligible clients found for this lead. The campaign must
-                    be LIVE and have at least one client with a delivery config.
+                    No eligible end users found for this lead. The campaign must
+                    be LIVE and have at least one end user with a delivery
+                    config.
                   </p>
                 ) : (
                   <select
@@ -691,7 +692,7 @@ export function CherryPickModal({
                     value={selectedClientId}
                     onChange={(e) => setSelectedClientId(e.target.value)}
                   >
-                    <option value="">Select a client…</option>
+                    <option value="">Select an end user…</option>
                     {eligibleClients.map((c) => (
                       <option key={c.client_id} value={c.client_id}>
                         {c.client_name}
@@ -734,7 +735,7 @@ export function CherryPickModal({
                     </span>
                     <span className="block text-[--color-text-muted] mt-0.5">
                       Default is OFF. The pixel only fires when this cherry-pick
-                      is accepted by the destination client.
+                      is accepted by the destination end user.
                     </span>
                   </label>
                 </div>
@@ -943,7 +944,9 @@ export function CherryPickHistoryModal({
           }`}
         >
           <Cherry size={14} />
-          <span>{accepted ? "Accepted by client" : "Rejected by client"}</span>
+          <span>
+            {accepted ? "Accepted by end user" : "Rejected by end user"}
+          </span>
           {dr?.acceptance_match && (
             <span className="ml-auto rounded border border-current/30 px-1.5 py-0.5 font-mono text-[11px] font-semibold">
               matched: {dr.acceptance_match}

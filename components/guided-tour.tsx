@@ -95,9 +95,9 @@ export function getSiteOverviewTour(
     },
     {
       target: '[data-tour="nav-clients"]',
-      title: "Clients",
+      title: "End Users",
       content:
-        "Clients are your lead buyers. Create, edit, and manage the companies that receive leads through delivery webhooks.",
+        "End Users are your lead buyers. Create, edit, and manage the companies that receive leads through delivery webhooks.",
       placement: "right",
       beforeStep: () => navigate("clients"),
     },
@@ -113,7 +113,7 @@ export function getSiteOverviewTour(
       target: '[data-tour="nav-campaigns"]',
       title: "Campaigns",
       content:
-        "Campaigns tie everything together. Create campaigns, link clients and sources, set up fields, rules, and integrations. Search, filter, and sort from the toolbar.",
+        "Campaigns tie everything together. Create campaigns, link end users and sources, set up fields, rules, and integrations. Search, filter, and sort from the toolbar.",
       placement: "right",
       beforeStep: () => navigate("campaigns"),
     },
@@ -121,7 +121,7 @@ export function getSiteOverviewTour(
       target: '[data-tour="nav-tools"]',
       title: "Tools",
       content:
-        "QA utilities for testing external integrations like TrustedForm and IPQS without creating real leads.",
+        "Utilities for testing and verifying external integrations without creating real leads.",
       placement: "right",
       beforeStep: () => navigate("tools"),
     },
@@ -162,7 +162,7 @@ export function getCampaignCreationTour(
       target: "",
       title: "Create Your First Campaign",
       content:
-        "This interactive guide walks you through the full campaign setup. You'll create a client, a source, and a campaign — then wire everything together. Let's start!",
+        "This interactive guide walks you through the full campaign setup. You'll create an end user, a source, and a campaign — then wire everything together. Let's start!",
       centered: true,
       hideBack: true,
       beforeStep: () => {
@@ -174,12 +174,12 @@ export function getCampaignCreationTour(
     // 1 — Click "New Client"
     {
       target: '[data-tour="btn-new-client"]',
-      title: "Step 1 — Create a Client",
+      title: "Step 1 — Create an End User",
       content:
-        'Clients are your lead buyers. Click "New Client" to open the creation form.',
+        'End Users are your lead buyers. Click "New End User" to open the creation form.',
       placement: "bottom",
       waitForAction: true,
-      actionLabel: "Click 'New Client'",
+      actionLabel: "Click 'New End User'",
       hideBack: true,
       delay: 400,
       beforeStep: () => {
@@ -191,9 +191,9 @@ export function getCampaignCreationTour(
     // 2 — Fill in client form (free interact)
     {
       target: "",
-      title: "Fill in Client Details",
+      title: "Fill in End User Details",
       content:
-        "Enter the client's name and email, then click Create. Click Next when you're done.",
+        "Enter the end user's name and email, then click Create. Click Next when you're done.",
       freeInteract: true,
     },
 
@@ -225,7 +225,7 @@ export function getCampaignCreationTour(
       target: '[data-tour="btn-new-campaign"]',
       title: "Step 3 — Create a Campaign",
       content:
-        'Campaigns tie clients and sources together. Click "New Campaign" to create one.',
+        'Campaigns tie end users and sources together. Click "New Campaign" to create one.',
       placement: "bottom",
       waitForAction: true,
       actionLabel: "Click 'New Campaign'",
@@ -262,7 +262,7 @@ export function getCampaignCreationTour(
       target: '[data-tour="campaign-tab-settings"]',
       title: "Step 5 — Set Up Configuration",
       content:
-        "First, set up fields and rules. Clients and sources require this to be configured first.",
+        "First, set up fields and rules. Contracts and sources require this to be configured first.",
       placement: "right",
       waitForAction: true,
       actionLabel: "Click 'Configuration' tab",
@@ -282,12 +282,12 @@ export function getCampaignCreationTour(
     // 10 — Click Clients tab
     {
       target: '[data-tour="campaign-tab-clients"]',
-      title: "Step 6 — Link a Client",
+      title: "Step 6 — Create a Contract",
       content:
-        "Now that configuration is set, go to the Clients tab to connect a lead buyer.",
+        "Now that configuration is set, go to the Contracts tab to set up end user delivery.",
       placement: "right",
       waitForAction: true,
-      actionLabel: "Click 'Clients' tab",
+      actionLabel: "Click 'Contracts' tab",
       hideBack: true,
       delay: 300,
     },
@@ -295,12 +295,12 @@ export function getCampaignCreationTour(
     // 11 — Click "Add Client"
     {
       target: '[data-tour="btn-add-client"]',
-      title: "Add a Client",
+      title: "Add a Contract",
       content:
-        'Click "Add Client" to link one of your clients to this campaign.',
+        'Click "Add Contract" to select an end user and configure their delivery.',
       placement: "bottom",
       waitForAction: true,
-      actionLabel: "Click 'Add Client'",
+      actionLabel: "Click 'Add Contract'",
       hideBack: true,
       delay: 300,
     },
@@ -308,9 +308,9 @@ export function getCampaignCreationTour(
     // 12 — Configure client delivery (free interact)
     {
       target: "",
-      title: "Configure Client Delivery",
+      title: "Configure Contract Delivery",
       content:
-        "Select your client, set the delivery URL, headers, payload mapping, and acceptance rules. Click Next when you're done.",
+        "Select your end user, set the delivery URL, headers, payload mapping, and acceptance rules. Click Next when you're done.",
       freeInteract: true,
     },
 

@@ -956,15 +956,6 @@ export function AffiliateConfigModals({
                                 <span className="text-sm font-medium text-[--color-text] truncate">
                                   {rule.name}
                                 </span>
-                                <span
-                                  className={`rounded px-1.5 py-px text-[10px] font-semibold leading-tight ${
-                                    rule.action === "pass"
-                                      ? "bg-green-500/15 text-green-500"
-                                      : "bg-red-500/15 text-red-400"
-                                  }`}
-                                >
-                                  {rule.action}
-                                </span>
                                 {rule.enabled === false && (
                                   <span className="rounded px-1.5 py-px text-[10px] font-semibold leading-tight bg-yellow-500/15 text-yellow-500">
                                     disabled
@@ -972,35 +963,21 @@ export function AffiliateConfigModals({
                                 )}
                               </div>
                               <div className="mt-1.5 space-y-1">
-                                {rule.groups.map((group, gIdx) => (
-                                  <div
-                                    key={`pc-${rule.id}-g${gIdx}`}
-                                    className="rounded-md border border-[--color-border] bg-[--color-bg-muted] p-2"
+                                {(rule.conditions ?? []).map((cond, cIdx) => (
+                                  <p
+                                    key={`pc-${rule.id}-c${cIdx}`}
+                                    className="text-[11px] text-[--color-text]"
                                   >
-                                    <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
-                                      Group {gIdx + 1}
-                                    </p>
-                                    {group.conditions.map((cond, cIdx) => (
-                                      <p
-                                        key={`pc-${rule.id}-g${gIdx}-c${cIdx}`}
-                                        className="text-[11px] text-[--color-text]"
-                                      >
-                                        <span className="font-medium">
-                                          {normalizeFieldLabel(cond.field_name)}
-                                        </span>{" "}
-                                        <span className="text-[--color-text-muted]">
-                                          {formatLogicOperatorLabel(
-                                            cond.operator,
-                                          )}
-                                        </span>{" "}
-                                        <span className="font-mono text-[10px] text-[--color-text-muted]">
-                                          {formatLogicConditionValue(
-                                            cond.value,
-                                          )}
-                                        </span>
-                                      </p>
-                                    ))}
-                                  </div>
+                                    <span className="font-medium">
+                                      {normalizeFieldLabel(cond.field_name)}
+                                    </span>{" "}
+                                    <span className="text-[--color-text-muted]">
+                                      {formatLogicOperatorLabel(cond.operator)}
+                                    </span>{" "}
+                                    <span className="font-mono text-[10px] text-[--color-text-muted]">
+                                      {formatLogicConditionValue(cond.value)}
+                                    </span>
+                                  </p>
                                 ))}
                               </div>
                             </div>
@@ -1142,15 +1119,6 @@ export function AffiliateConfigModals({
                                 <span className="text-sm font-medium text-[--color-text] truncate">
                                   {rule.name}
                                 </span>
-                                <span
-                                  className={`rounded px-1.5 py-px text-[10px] font-semibold leading-tight ${
-                                    rule.action === "pass"
-                                      ? "bg-green-500/15 text-green-500"
-                                      : "bg-red-500/15 text-red-400"
-                                  }`}
-                                >
-                                  {rule.action}
-                                </span>
                                 {rule.enabled === false && (
                                   <span className="rounded px-1.5 py-px text-[10px] font-semibold leading-tight bg-yellow-500/15 text-yellow-500">
                                     disabled
@@ -1158,35 +1126,21 @@ export function AffiliateConfigModals({
                                 )}
                               </div>
                               <div className="mt-1.5 space-y-1">
-                                {rule.groups.map((group, gIdx) => (
-                                  <div
-                                    key={`sc-${rule.id}-g${gIdx}`}
-                                    className="rounded-md border border-[--color-border] bg-[--color-bg-muted] p-2"
+                                {(rule.conditions ?? []).map((cond, cIdx) => (
+                                  <p
+                                    key={`sc-${rule.id}-c${cIdx}`}
+                                    className="text-[11px] text-[--color-text]"
                                   >
-                                    <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
-                                      Group {gIdx + 1}
-                                    </p>
-                                    {group.conditions.map((cond, cIdx) => (
-                                      <p
-                                        key={`sc-${rule.id}-g${gIdx}-c${cIdx}`}
-                                        className="text-[11px] text-[--color-text]"
-                                      >
-                                        <span className="font-medium">
-                                          {normalizeFieldLabel(cond.field_name)}
-                                        </span>{" "}
-                                        <span className="text-[--color-text-muted]">
-                                          {formatLogicOperatorLabel(
-                                            cond.operator,
-                                          )}
-                                        </span>{" "}
-                                        <span className="font-mono text-[10px] text-[--color-text-muted]">
-                                          {formatLogicConditionValue(
-                                            cond.value,
-                                          )}
-                                        </span>
-                                      </p>
-                                    ))}
-                                  </div>
+                                    <span className="font-medium">
+                                      {normalizeFieldLabel(cond.field_name)}
+                                    </span>{" "}
+                                    <span className="text-[--color-text-muted]">
+                                      {formatLogicOperatorLabel(cond.operator)}
+                                    </span>{" "}
+                                    <span className="font-mono text-[10px] text-[--color-text-muted]">
+                                      {formatLogicConditionValue(cond.value)}
+                                    </span>
+                                  </p>
                                 ))}
                               </div>
                             </div>

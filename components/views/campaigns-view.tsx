@@ -5,7 +5,6 @@ import {
   ArrowDownAZ,
   ArrowUpDown,
   ChevronDown,
-  ChevronRight,
   Filter,
   Plus,
   RotateCcw,
@@ -510,7 +509,7 @@ export function CampaignsView({
           },
           {
             key: "clients",
-            label: "Clients",
+            label: "End Users",
             render: (c) => c.clients?.length || 0,
           },
           {
@@ -536,34 +535,33 @@ export function CampaignsView({
           },
           {
             key: "actions",
-            label: "",
+            label: "Actions",
             render: (c) => {
               const deletable = canDeleteCampaign(c, leads);
               return (
                 <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onOpenCampaign(c.id, "overview")}
+                  >
+                    View
+                  </Button>
                   {deletable && (
                     <Button
                       size="sm"
                       variant="danger"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setDeleteTarget(c);
-                      }}
+                      onClick={() => setDeleteTarget(c)}
                     >
                       Delete
                     </Button>
                   )}
-                  <ChevronRight
-                    size={16}
-                    className="text-[--color-text-muted]"
-                  />
                 </div>
               );
             },
           },
         ]}
         data={filteredAndSorted}
-        onRowClick={(c) => onOpenCampaign(c.id, "overview")}
         firstRowDataTour="campaign-row-first"
         emptyLabel={
           isLoading

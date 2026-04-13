@@ -41,7 +41,7 @@ export function OverviewTab({
           onClick={() => onOpenLeadsForCampaign(campaign.id)}
         />
         <InfoItem
-          label="Linked Clients"
+          label="Linked End Users"
           value={linkedClientsCount.toString()}
           onClick={() => onTabChange("clients")}
         />

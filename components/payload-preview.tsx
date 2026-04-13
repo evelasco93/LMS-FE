@@ -286,7 +286,7 @@ function renderStructuredLeadHistoryChange(
                 value: accepted ? "Yes" : "No",
                 tone: accepted ? "success" : "danger",
               },
-              { label: "Client ID", value: root.client_id },
+              { label: "End User ID", value: root.client_id },
               { label: "Delivered At", value: root.delivered_at },
               { label: "Attempts", value: root.attempts },
               { label: "Method", value: root.webhook_method },
@@ -331,7 +331,7 @@ function renderStructuredLeadHistoryChange(
         <div className="space-y-1">
           {renderHistoryRows(
             [
-              { label: "Target Client", value: root.target_client_id },
+              { label: "Target End User", value: root.target_client_id },
               { label: "Source Campaign", value: root.source_campaign_id },
               { label: "Executed At", value: root.executed_at },
               {
@@ -343,7 +343,7 @@ function renderStructuredLeadHistoryChange(
                 value: nestedDelivery?.accepted === true ? "Yes" : "No",
                 tone: nestedDelivery?.accepted === true ? "success" : "danger",
               },
-              { label: "Delivery Client", value: nestedDelivery?.client_id },
+              { label: "Delivery End User", value: nestedDelivery?.client_id },
               {
                 label: "Delivery Method",
                 value: nestedDelivery?.webhook_method,
@@ -2023,8 +2023,8 @@ export function PayloadPreview({
                         )}
                         <span className="text-sm font-semibold">
                           {currentLead.delivery_result.accepted
-                            ? "Accepted by client"
-                            : "Rejected by client"}
+                            ? "Accepted by end user"
+                            : "Rejected by end user"}
                         </span>
                         {currentLead.delivery_result.acceptance_match && (
                           <span className="ml-auto text-xs opacity-75">

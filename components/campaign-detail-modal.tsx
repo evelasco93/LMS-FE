@@ -27,7 +27,6 @@ import {
   Tag,
   Upload,
   Trash2,
-  Users,
   UserPlus,
   X,
 } from "lucide-react";
@@ -177,7 +176,7 @@ function auditActionLabel(action: string): string {
     distribution_updated: "Distribution Updated",
     lead_delivered: "Lead Delivered",
     delivery_skipped: "Delivery Skipped",
-    weight_updated: "Client Weight Updated",
+    weight_updated: "End User Weight Updated",
     mappings_updated: "Mappings Updated",
     plugins_updated: "Plugins Updated",
   };
@@ -279,14 +278,14 @@ function formatAuditFieldLabel(
     const clientName = clientNameById.get(clientId) ?? clientId;
     const baseLabel =
       suffix === "client_id"
-        ? "Linked Client"
+        ? "Linked End User"
         : suffix === "status"
-          ? "Client Status"
+          ? "End User Status"
           : suffix === "delivery_config"
-            ? "Client Delivery Config"
+            ? "End User Delivery Config"
             : suffix === "weight"
-              ? "Client Weight"
-              : `Client ${normalizeFieldLabel(suffix)}`;
+              ? "End User Weight"
+              : `End User ${normalizeFieldLabel(suffix)}`;
     return `${baseLabel} · ${clientName}`;
   }
 
@@ -527,14 +526,11 @@ function formatLogicConditionValue(value?: string | string[]): string {
 function toLogicCatalogRulesPayload(rules: LogicRule[]) {
   return rules.map((rule) => ({
     name: rule.name,
-    action: rule.action,
     enabled: rule.enabled,
-    groups: rule.groups.map((group) => ({
-      conditions: group.conditions.map((condition) => ({
-        field_name: condition.field_name,
-        operator: condition.operator,
-        ...(condition.value !== undefined ? { value: condition.value } : {}),
-      })),
+    conditions: (rule.conditions ?? []).map((condition) => ({
+      field_name: condition.field_name,
+      operator: condition.operator,
+      ...(condition.value !== undefined ? { value: condition.value } : {}),
     })),
   }));
 }
@@ -1482,6 +1478,51 @@ export function CampaignDetailModal({
       toast.error(err?.message || "An error occurred.");
     } finally {
       setSavingRule(false);
+    }
+  };
+
+  // ─── Inline rule save (settings-tab) ──────────────────────────────────
+  const [savingInlineRuleId, setSavingInlineRuleId] = useState<string | null>(
+    null,
+  );
+
+  const handleSaveInlineRule = async (
+    draft: LogicRuleDraft,
+    ruleId?: string,
+  ): Promise<boolean> => {
+    if (!campaign?.id) return false;
+    if (!draft.name.trim()) {
+      toast.warning("Rule name is required.");
+      return false;
+    }
+    setSavingInlineRuleId(ruleId ?? "new");
+    try {
+      if (ruleId) {
+        const res = await updateLogicRule(campaign.id, ruleId, draft);
+        if ((res as any)?.result === false) {
+          toast.error((res as any)?.message || "Failed to update rule.");
+          return false;
+        }
+        toast.success("Rule updated.");
+      } else {
+        const res = await createLogicRule(campaign.id, draft);
+        if ((res as any)?.result === false) {
+          toast.error((res as any)?.message || "Failed to create rule.");
+          return false;
+        }
+        toast.success("Rule created.");
+      }
+      await refreshLogicRules();
+      setLocalLogicSetId(null);
+      setLocalLogicSetVersion(null);
+      setLocalLogicSetName(null);
+      onCampaignUpdate?.({ logic_set_id: null, logic_set_version: null });
+      return true;
+    } catch (err: any) {
+      toast.error(err?.message || "An error occurred.");
+      return false;
+    } finally {
+      setSavingInlineRuleId(null);
     }
   };
 
@@ -2717,6 +2758,7 @@ export function CampaignDetailModal({
     List: "List",
     "US State": "US State",
     Boolean: "Boolean",
+    "Yes/No": "Yes/No",
   };
 
   const saveTitleEdit = async () => {
@@ -2882,10 +2924,10 @@ export function CampaignDetailModal({
               {(
                 [
                   { key: "overview", label: "Overview", icon: LayoutGrid },
-                  { key: "clients", label: "Clients", icon: Users },
+                  { key: "settings", label: "Configuration", icon: Settings2 },
+                  { key: "clients", label: "Contracts", icon: FileText },
                   { key: "affiliates", label: "Sources", icon: HandHeart },
                   { key: "integrations", label: "Integrations", icon: Plug },
-                  { key: "settings", label: "Configuration", icon: Settings2 },
                   { key: "history", label: "History", icon: History },
                 ] as const
               ).map((item) => {
@@ -3033,8 +3075,8 @@ export function CampaignDetailModal({
                       setSaveLogicToSetDraft={setSaveLogicToSetDraft}
                       setSaveLogicToSetOpen={setSaveLogicToSetOpen}
                       openLogicCatalogModal={openLogicCatalogModal}
-                      setEditingRule={setEditingRule}
-                      setLogicBuilderOpen={setLogicBuilderOpen}
+                      handleSaveInlineRule={handleSaveInlineRule}
+                      savingInlineRuleId={savingInlineRuleId}
                       handleToggleLogicRule={handleToggleLogicRule}
                       handleDeleteLogicRule={handleDeleteLogicRule}
                       routingMode={routingMode}
@@ -3085,6 +3127,7 @@ export function CampaignDetailModal({
         setEditTagsOpen={setEditTagsOpen}
         setRoutingMode={setRoutingMode}
         setTagDraft={setTagDraft}
+        setTagDefinitions={setTagDefinitions}
         saveCampaignTagDraft={saveCampaignTagDraft}
         onUpdateCampaignDistribution={onUpdateCampaignDistribution}
       />
