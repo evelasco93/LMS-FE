@@ -237,7 +237,7 @@ export function AffiliateConfigModals({
       </Modal>
 
       <Modal
-        title={`${pixelConfigTab === "pixel" ? "Source Webhook" : pixelConfigTab === "pixel_criteria" ? "Webhook Fields" : "Sold Rules"}${
+        title={`${pixelConfigTab === "pixel" ? "Source Pixel" : pixelConfigTab === "pixel_criteria" ? "Pixel Fields" : "Sold Rules"}${
           pixelAffiliateId
             ? ` — ${affiliates.find((a) => a.id === pixelAffiliateId)?.name || pixelAffiliateId}`
             : ""
@@ -260,7 +260,7 @@ export function AffiliateConfigModals({
             <div className="flex gap-1 rounded-lg bg-[--color-bg-muted] p-1 shrink-0">
               {(
                 [
-                  { key: "pixel", label: "Webhook" },
+                  { key: "pixel", label: "Pixel" },
                   { key: "pixel_criteria", label: "Fields" },
                   { key: "sold_criteria", label: "Rules" },
                 ] as const
@@ -289,7 +289,7 @@ export function AffiliateConfigModals({
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
-                            Enable Webhook
+                            Enable Pixel
                           </p>
                           <p className="mt-0.5 text-[11px] text-[--color-text-muted]">
                             Fires only when this source's lead is sold.
@@ -349,7 +349,7 @@ export function AffiliateConfigModals({
                       </label>
                       <label className="space-y-1 md:col-span-1">
                         <span className="text-xs font-medium text-[--color-text-muted]">
-                          Webhook URL <span className="text-red-500">*</span>
+                          Pixel URL <span className="text-red-500">*</span>
                         </span>
                         <input
                           className={`${inputClass} ${
@@ -399,7 +399,7 @@ export function AffiliateConfigModals({
                             <div className="flex items-center justify-between rounded-lg border border-[--color-border] bg-[--color-bg-muted] px-3 py-2.5">
                               <div className="min-w-0">
                                 <p className="text-xs font-semibold text-[--color-text-strong]">
-                                  Import from criteria fields
+                                  Import from lead fields
                                 </p>
                                 <p className="mt-0.5 text-[11px] text-[--color-text-muted]">
                                   Add all {unmappedCount} unmapped field
@@ -655,8 +655,6 @@ export function AffiliateConfigModals({
                         if (lbl.includes("dob") || lbl.includes("birth"))
                           return "1990-06-15";
                         switch (field.data_type) {
-                          case "US State":
-                            return "CA";
                           case "Number":
                             return "30";
                           case "Boolean":
@@ -795,14 +793,14 @@ export function AffiliateConfigModals({
                           setPixelSaveAttempted(true);
                           const trimmedUrl = pixelDraft.url.trim();
                           if (!trimmedUrl) {
-                            toast.warning("Webhook URL is required.");
+                            toast.warning("Pixel URL is required.");
                             return;
                           }
                           try {
                             // eslint-disable-next-line no-new
                             new URL(trimmedUrl);
                           } catch {
-                            toast.warning("Enter a valid webhook URL.");
+                            toast.warning("Enter a valid pixel URL.");
                             return;
                           }
 
@@ -878,7 +876,7 @@ export function AffiliateConfigModals({
                           }
                         }}
                       >
-                        Save Webhook Config
+                        Save Pixel Config
                       </Button>
                     </DisabledTooltip>
                   </div>
@@ -895,8 +893,8 @@ export function AffiliateConfigModals({
                       <span className="font-semibold text-[--color-text]">
                         Optional.
                       </span>{" "}
-                      Webhook field rules determine whether the sold webhook
-                      fires for this source. If any rule fails, the pixel is
+                      Pixel field rules determine whether the sold pixel fires
+                      for this source. If any rule fails, the pixel is
                       suppressed. When no rules are configured, the pixel always
                       fires (if enabled).
                     </p>
@@ -927,7 +925,7 @@ export function AffiliateConfigModals({
                     </div>
                   ) : pixelCriteriaRules.length === 0 ? (
                     <div className="animate-[fadeIn_200ms_ease-in] rounded-xl border border-dashed border-[--color-border] py-10 text-center text-sm text-[--color-text-muted]">
-                      No webhook field rules yet.{" "}
+                      No pixel field rules yet.{" "}
                       <button
                         type="button"
                         className="text-[--color-primary] hover:underline"

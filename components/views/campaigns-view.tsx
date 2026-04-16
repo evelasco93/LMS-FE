@@ -20,7 +20,7 @@ import { Button } from "@/components/button";
 import { AuditPopover } from "@/components/ui/audit-popover";
 import { CampaignModal } from "@/components/modals/entity-modals";
 import { DeleteConfirmModal } from "@/components/modals/delete-confirm-modal";
-import { createCampaign, deleteCampaign } from "@/lib/api";
+import { createCampaign, deleteCampaign, seedBaseFields } from "@/lib/api";
 import { formatDate, inputClass, statusColorMap } from "@/lib/utils";
 import type { Campaign, CampaignStatus, Lead } from "@/lib/types";
 import type { CampaignDetailTab } from "@/lib/types";
@@ -176,7 +176,13 @@ export function CampaignsView({
     tags?: string[];
   }) => {
     await toast.promise(
-      createCampaign(payload).then(() => onDataChanged()),
+      createCampaign(payload).then(async (res) => {
+        const campaignId = (res as any)?.data?.id;
+        if (campaignId) {
+          try { await seedBaseFields(campaignId); } catch { /* non-critical */ }
+        }
+        await onDataChanged();
+      }),
       {
         loading: "Creating campaign…",
         success: "Campaign created (DRAFT)",

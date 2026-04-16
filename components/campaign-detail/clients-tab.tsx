@@ -18,12 +18,11 @@ import { formatDateTime, statusColorMap } from "@/lib/utils";
 import type {
   Campaign,
   Client,
-  ClientDeliveryConfig,
   CampaignClient,
   CampaignParticipantStatus,
+  CriteriaField,
   LogicRule,
 } from "@/lib/types";
-import { defaultDeliveryConfig } from "./utils";
 
 export function ClientsTab({
   campaign,
@@ -31,14 +30,13 @@ export function ClientsTab({
   linkedClients,
   clientLinkMap,
   availableClients,
+  criteriaFields,
   logicRules,
   getClientLeadMode,
   getClientLeadCount,
   resolveChangedBy,
   onOpenLeadsForCampaign,
   openClientLogicManager,
-  setDeliveryDraft,
-  setDeliveryTab,
   setDeliveryClientId,
   setLinkClientModalOpen,
   setParticipantAction,
@@ -49,6 +47,7 @@ export function ClientsTab({
   linkedClients: Client[];
   clientLinkMap: Map<string, CampaignClient>;
   availableClients: Client[];
+  criteriaFields: CriteriaField[];
   logicRules: LogicRule[];
   getClientLeadMode: (link?: CampaignClient) => "all" | "test" | "live";
   getClientLeadCount: (link?: CampaignClient) => number;
@@ -69,8 +68,6 @@ export function ClientsTab({
     options?: { affiliateId?: string; mode?: "all" | "test" | "live" },
   ) => void;
   openClientLogicManager: (clientId: string) => void;
-  setDeliveryDraft: (config: ClientDeliveryConfig) => void;
-  setDeliveryTab: (tab: "request" | "response") => void;
   setDeliveryClientId: (id: string | null) => void;
   setLinkClientModalOpen: (open: boolean) => void;
   setParticipantAction: (
@@ -85,9 +82,9 @@ export function ClientsTab({
   const [openInfoId, setOpenInfoId] = useState<string | null>(null);
   const [openHistoryId, setOpenHistoryId] = useState<string | null>(null);
 
-  const missingCriteria = !campaign?.criteria_set_id;
-  const missingLogic = !campaign?.logic_set_id;
-  const missingConfig = missingCriteria || missingLogic;
+  const hasCriteria = criteriaFields.length > 0 || !!campaign?.criteria_set_id;
+  const hasLogic = logicRules.length > 0 || !!campaign?.logic_set_id;
+  const missingConfig = !hasCriteria || !hasLogic;
 
   return (
     <div className="space-y-3">
@@ -98,7 +95,7 @@ export function ClientsTab({
             <p className="font-medium">Missing configuration</p>
             <p className="mt-0.5 text-xs text-[--color-text-muted]">
               Before adding contracts you need to set up{" "}
-              {missingCriteria && (
+              {!hasCriteria && (
                 <button
                   type="button"
                   className="font-semibold text-[--color-primary] hover:underline"
@@ -107,8 +104,8 @@ export function ClientsTab({
                   field definitions
                 </button>
               )}
-              {missingCriteria && missingLogic && " and "}
-              {missingLogic && (
+              {!hasCriteria && !hasLogic && " and "}
+              {!hasLogic && (
                 <button
                   type="button"
                   className="font-semibold text-[--color-primary] hover:underline"
@@ -222,40 +219,23 @@ export function ClientsTab({
                           )}
                           {hasExtension && (
                             <span className="rounded px-1 py-px text-[10px] font-semibold bg-blue-500/15 text-blue-400 leading-tight">
-                              extension
+                              extends
                             </span>
                           )}
-                          <span
-                            className="rounded px-1 py-px text-[10px] font-semibold leading-tight bg-purple-500/15 text-purple-400"
-                            title="Uses current campaign logic rules"
-                          >
-                            inherits
-                          </span>
+                          {ruleCount === 0 && (
+                            <span
+                              className="rounded px-1 py-px text-[10px] font-semibold leading-tight bg-purple-500/15 text-purple-400"
+                              title="Uses current campaign logic rules"
+                            >
+                              inherits
+                            </span>
+                          )}
                         </button>
                       );
                     })()}
                     <button
                       type="button"
                       onClick={() => {
-                        const existing = link?.delivery_config;
-                        setDeliveryDraft(
-                          existing
-                            ? {
-                                url: existing.url ?? "",
-                                method: existing.method ?? "POST",
-                                headers: existing.headers,
-                                payload_mapping:
-                                  existing.payload_mapping?.length > 0
-                                    ? existing.payload_mapping
-                                    : [],
-                                acceptance_rules:
-                                  existing.acceptance_rules?.length > 0
-                                    ? existing.acceptance_rules
-                                    : [],
-                              }
-                            : defaultDeliveryConfig(),
-                        );
-                        setDeliveryTab("request");
                         setDeliveryClientId(c.id);
                       }}
                       className="mt-1 flex items-center gap-1 text-left text-xs text-[--color-text-muted] hover:text-[--color-primary] transition-colors group"
@@ -314,10 +294,10 @@ export function ClientsTab({
                         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                           <div>
                             <p className="uppercase tracking-wide text-[--color-text-muted] mb-1">
-                              Email
+                              Client Code
                             </p>
-                            <p className="font-medium text-[--color-text-strong]">
-                              {c.email || "—"}
+                            <p className="font-medium font-mono text-[--color-text-strong]">
+                              {c.client_code || "—"}
                             </p>
                           </div>
                           <div>

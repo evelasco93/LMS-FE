@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { getCriteriaCatalogSet } from "@/lib/api";
 import type {
   Campaign,
+  CasingMode,
   CriteriaField,
   CriteriaFieldOption,
   CriteriaFieldType,
@@ -112,6 +113,7 @@ export function useCriteriaCatalogState(campaign: Campaign | null) {
     description: "",
     state_mapping: null as "abbr_to_name" | "name_to_abbr" | null,
     options: [] as CriteriaFieldOption[],
+    casing: "default" as CasingMode,
   };
   const [fieldDraft, setFieldDraft] = useState<{
     field_label: string;
@@ -121,6 +123,7 @@ export function useCriteriaCatalogState(campaign: Campaign | null) {
     description: string;
     state_mapping: "abbr_to_name" | "name_to_abbr" | null;
     options: CriteriaFieldOption[];
+    casing: CasingMode;
   }>(emptyFieldDraft);
   const [fieldSaving, setFieldSaving] = useState(false);
 

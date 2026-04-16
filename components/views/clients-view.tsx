@@ -215,16 +215,14 @@ export function ClientsView({
               </span>
             ),
           },
-          { key: "email", label: "Email" },
           {
-            key: "phone",
-            label: "Phone",
+            key: "notes",
+            label: "Notes",
             render: (client) =>
-              client.phone
-                ? client.phone.replace(
-                    /(\+\d{1,3})(\d{3})(\d{3})(\d{4})/,
-                    "$1 ($2) $3-$4",
-                  )
+              client.notes
+                ? client.notes.length > 40
+                  ? client.notes.slice(0, 40) + "…"
+                  : client.notes
                 : "—",
           },
           { key: "client_code", label: "Code" },

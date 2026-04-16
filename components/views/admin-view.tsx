@@ -18,6 +18,7 @@ import {
   Hash,
   KeyRound,
   LayoutTemplate,
+  ListOrdered,
   Megaphone,
   Plug,
   PlusCircle,
@@ -81,6 +82,14 @@ import {
   createTagDefinition,
   updateTagDefinition,
   deleteTagDefinition,
+  listPlatformPresets,
+  listTenantPresets,
+  createPlatformPreset,
+  updatePlatformPreset,
+  getPlatformPreset,
+  createTenantPreset,
+  updateTenantPreset,
+  getTenantPreset,
 } from "@/lib/api";
 import { formatDate, inputClass, normalizeFieldLabel } from "@/lib/utils";
 import { AuditPopover } from "@/components/ui/audit-popover";
@@ -229,13 +238,13 @@ function getEntityTypeMeta(type: string) {
     case "criteria_catalog":
       return {
         icon: <LayoutTemplate size={s} />,
-        label: "Fields Catalog",
+        label: "Fields Preset",
         color: "bg-teal-500/10 text-teal-600 dark:text-teal-400",
       };
     case "logic_catalog":
       return {
         icon: <GitBranch size={s} />,
-        label: "Rules Catalog",
+        label: "Rules Preset",
         color: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400",
       };
     default:
@@ -938,7 +947,27 @@ function IntakeLogDetailModal({
 // ─── Admin types ──────────────────────────────────────────────────────────────
 
 type AdminPrimaryTab = "settings" | "logs";
-type CatalogTabKey = "criteria" | "logic";
+type CatalogTabKey = "criteria" | "logic" | "lists";
+
+type ListPreset = {
+  id: string;
+  name: string;
+  scope: "platform" | "tenant";
+  optionCount: number;
+  options: { value: string; label: string }[];
+};
+type FieldPreset = {
+  id: string;
+  name: string;
+  description?: string;
+  locked?: boolean;
+  fields: {
+    field_label: string;
+    field_name: string;
+    data_type: string;
+    required: boolean;
+  }[];
+};
 type SettingsSectionKey =
   | "saved-credentials"
   | "schemas"
@@ -1196,6 +1225,39 @@ export function AdminView({
 
   // Catalogs state
   const [catalogTab, setCatalogTab] = useState<CatalogTabKey>("criteria");
+  const [listPresets, setListPresets] = useState<ListPreset[]>([]);
+  const [listPresetsLoading, setListPresetsLoading] = useState(false);
+  const [expandedListPresetIds, setExpandedListPresetIds] = useState<
+    Set<string>
+  >(new Set());
+  const toggleListPreset = (id: string) => {
+    setExpandedListPresetIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const [fieldPresets, setFieldPresets] = useState<FieldPreset[]>([]);
+  const [fieldPresetsLoading, setFieldPresetsLoading] = useState(false);
+
+  // List preset editor state
+  const [listEditorOpen, setListEditorOpen] = useState(false);
+  const [listEditorMode, setListEditorMode] = useState<"create" | "edit">(
+    "create",
+  );
+  const [listEditorScope, setListEditorScope] = useState<"platform" | "tenant">(
+    "platform",
+  );
+  const [listEditorId, setListEditorId] = useState<string | null>(null);
+  const [listEditorName, setListEditorName] = useState("");
+  const [listEditorDescription, setListEditorDescription] = useState("");
+  const [listEditorOptions, setListEditorOptions] = useState<
+    { value: string; label: string }[]
+  >([]);
+  const [listEditorSaving, setListEditorSaving] = useState(false);
+  const [listEditorNewValue, setListEditorNewValue] = useState("");
+  const [listEditorNewLabel, setListEditorNewLabel] = useState("");
   const [selectedCriteriaSetId, setSelectedCriteriaSetId] = useState<
     string | null
   >(null);
@@ -1828,6 +1890,106 @@ export function AdminView({
     }
   }, [shouldLoadCatalogs, logicCatalogSets, selectedLogicSetId]);
 
+  // ── Fetch list presets for the Lists tab ─────────────────────────────────────
+  useEffect(() => {
+    if (!shouldLoadCatalogs || catalogTab !== "lists") return;
+    let cancelled = false;
+    setListPresetsLoading(true);
+    (async () => {
+      try {
+        const [platResult, tenResult] = await Promise.allSettled([
+          listPlatformPresets(),
+          listTenantPresets(),
+        ]);
+        if (cancelled) return;
+        const toArray = (d: unknown): unknown[] =>
+          Array.isArray(d) ? d : ((d as any)?.items ?? []);
+        const merged: ListPreset[] = [];
+        if (platResult.status === "fulfilled") {
+          for (const r of toArray(platResult.value.data) as Record<
+            string,
+            unknown
+          >[]) {
+            if (r.data_type === "FieldSet") continue;
+            const opts = (r.options ?? []) as {
+              value: string;
+              label: string;
+            }[];
+            merged.push({
+              id: r.id as string,
+              name: r.name as string,
+              scope: "platform",
+              optionCount: opts.length,
+              options: opts,
+            });
+          }
+        }
+        if (tenResult.status === "fulfilled") {
+          for (const r of toArray(tenResult.value.data) as Record<
+            string,
+            unknown
+          >[]) {
+            if (r.data_type === "FieldSet") continue;
+            const opts = (r.options ?? []) as {
+              value: string;
+              label: string;
+            }[];
+            merged.push({
+              id: r.id as string,
+              name: r.name as string,
+              scope: "tenant",
+              optionCount: opts.length,
+              options: opts,
+            });
+          }
+        }
+        setListPresets(merged);
+      } catch {
+        /* non-critical */
+      } finally {
+        if (!cancelled) setListPresetsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [shouldLoadCatalogs, catalogTab]);
+
+  // ── Fetch field-set presets for the Fields tab ───────────────────────────────
+  useEffect(() => {
+    if (!shouldLoadCatalogs || catalogTab !== "criteria") return;
+    let cancelled = false;
+    setFieldPresetsLoading(true);
+    (async () => {
+      try {
+        const platRes = await listPlatformPresets();
+        if (cancelled) return;
+        const toArray = (d: unknown): unknown[] =>
+          Array.isArray(d) ? d : ((d as any)?.items ?? []);
+        const presets: FieldPreset[] = [];
+        for (const r of toArray(platRes.data) as Record<string, unknown>[]) {
+          if (r.data_type !== "FieldSet") continue;
+          const fields = (r.fields ?? []) as FieldPreset["fields"];
+          presets.push({
+            id: r.id as string,
+            name: r.name as string,
+            description: r.description as string | undefined,
+            locked: r.locked as boolean | undefined,
+            fields,
+          });
+        }
+        setFieldPresets(presets);
+      } catch {
+        /* non-critical */
+      } finally {
+        if (!cancelled) setFieldPresetsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [shouldLoadCatalogs, catalogTab]);
+
   // ── User handlers ────────────────────────────────────────────────────────────
 
   const filteredUsers = useMemo(() => {
@@ -1893,7 +2055,7 @@ export function AdminView({
   const openCatalogNewVersion = (kind: CatalogTabKey) => {
     if (kind === "criteria") {
       if (!criteriaCatalogDetail?.set) {
-        toast.error("Select a fields catalog set first");
+        toast.error("Select a fields preset first");
         return;
       }
       const latestVersion = criteriaCatalogVersions[0];
@@ -1910,7 +2072,7 @@ export function AdminView({
     }
 
     if (!logicCatalogDetail?.set) {
-      toast.error("Select a rules catalog set first");
+      toast.error("Select a rules preset first");
       return;
     }
     const latestVersion = logicCatalogVersions[0];
@@ -1990,10 +2152,10 @@ export function AdminView({
           if (createdId) {
             setSelectedCriteriaSetId(createdId);
           }
-          toast.success("Fields catalog set created");
+          toast.success("Fields preset created");
         } else {
           if (!catalogEditorTargetId) {
-            throw new Error("Missing criteria catalog set id");
+            throw new Error("Missing criteria preset set id");
           }
           const res = await updateCriteriaCatalogSet(catalogEditorTargetId, {
             name: trimmedName,
@@ -2009,7 +2171,7 @@ export function AdminView({
             refreshCriteriaCatalog(),
             refreshCriteriaCatalogDetail(),
           ]);
-          toast.success("Fields catalog version created");
+          toast.success("Fields preset version created");
         }
       } else {
         if (catalogEditorMode === "create") {
@@ -2029,10 +2191,10 @@ export function AdminView({
           if (createdId) {
             setSelectedLogicSetId(createdId);
           }
-          toast.success("Rules catalog set created");
+          toast.success("Rules preset created");
         } else {
           if (!catalogEditorTargetId) {
-            throw new Error("Missing logic catalog set id");
+            throw new Error("Missing logic preset set id");
           }
           const res = await updateLogicCatalogSet(catalogEditorTargetId, {
             name: trimmedName,
@@ -2048,13 +2210,13 @@ export function AdminView({
             refreshLogicCatalog(),
             refreshLogicCatalogDetail(),
           ]);
-          toast.success("Rules catalog version created");
+          toast.success("Rules preset version created");
         }
       }
 
       closeCatalogEditor();
     } catch (err: any) {
-      toast.error(err?.message || "Failed to save catalog set");
+      toast.error(err?.message || "Failed to save preset");
     } finally {
       setCatalogEditorSaving(false);
     }
@@ -2062,7 +2224,7 @@ export function AdminView({
 
   const removeCatalogSet = async (kind: CatalogTabKey, setId: string) => {
     const confirmed = window.confirm(
-      "Delete this catalog set and all of its versions?",
+      "Delete this preset and all of its versions?",
     );
     if (!confirmed) return;
 
@@ -2078,7 +2240,7 @@ export function AdminView({
         if (selectedCriteriaSetId === setId) {
           setSelectedCriteriaSetId(null);
         }
-        toast.success("Fields catalog set deleted");
+        toast.success("Fields preset deleted");
       } else {
         const res = await deleteLogicCatalogSet(setId);
         if (!(res as any)?.success) {
@@ -2088,10 +2250,10 @@ export function AdminView({
         if (selectedLogicSetId === setId) {
           setSelectedLogicSetId(null);
         }
-        toast.success("Rules catalog set deleted");
+        toast.success("Rules preset deleted");
       }
     } catch (err: any) {
-      toast.error(err?.message || "Failed to delete catalog set");
+      toast.error(err?.message || "Failed to delete preset");
     } finally {
       setCatalogDeleteBusyKey(null);
     }
@@ -2129,9 +2291,171 @@ export function AdminView({
         toast.success(`Logic version ${version} deleted`);
       }
     } catch (err: any) {
-      toast.error(err?.message || "Failed to delete catalog version");
+      toast.error(err?.message || "Failed to delete preset version");
     } finally {
       setCatalogDeleteVersionBusyKey(null);
+    }
+  };
+
+  // ── List preset editor handlers ──────────────────────────────────────────────
+
+  const closeListEditor = () => {
+    if (listEditorSaving) return;
+    setListEditorOpen(false);
+    setListEditorMode("create");
+    setListEditorScope("platform");
+    setListEditorId(null);
+    setListEditorName("");
+    setListEditorDescription("");
+    setListEditorOptions([]);
+    setListEditorNewValue("");
+    setListEditorNewLabel("");
+  };
+
+  const openListCreate = (scope: "platform" | "tenant") => {
+    setListEditorMode("create");
+    setListEditorScope(scope);
+    setListEditorId(null);
+    setListEditorName("");
+    setListEditorDescription("");
+    setListEditorOptions([]);
+    setListEditorNewValue("");
+    setListEditorNewLabel("");
+    setListEditorOpen(true);
+  };
+
+  const openListEdit = async (preset: ListPreset) => {
+    setListEditorMode("edit");
+    setListEditorScope(preset.scope);
+    setListEditorId(preset.id);
+    setListEditorName(preset.name);
+    setListEditorDescription("");
+    setListEditorOptions([]);
+    setListEditorNewValue("");
+    setListEditorNewLabel("");
+    setListEditorOpen(true);
+    try {
+      const fn =
+        preset.scope === "platform" ? getPlatformPreset : getTenantPreset;
+      const res = await fn(preset.id);
+      const data = (res as any)?.data as Record<string, unknown> | undefined;
+      if (data) {
+        setListEditorDescription((data.description as string) ?? "");
+        setListEditorOptions(
+          (data.options as { value: string; label: string }[]) ?? [],
+        );
+      }
+    } catch {
+      /* ignore, user can still edit */
+    }
+  };
+
+  const addListOption = () => {
+    const v = listEditorNewValue.trim();
+    const l = listEditorNewLabel.trim();
+    if (!v) return;
+    setListEditorOptions((prev) => [...prev, { value: v, label: l || v }]);
+    setListEditorNewValue("");
+    setListEditorNewLabel("");
+  };
+
+  const removeListOption = (idx: number) => {
+    setListEditorOptions((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const saveListEditor = async () => {
+    const name = listEditorName.trim();
+    if (!name) {
+      toast.error("Preset name is required");
+      return;
+    }
+    setListEditorSaving(true);
+    try {
+      const payload: Record<string, unknown> = {
+        name,
+        description: listEditorDescription.trim() || undefined,
+        data_type: "List",
+        options: listEditorOptions,
+      };
+      if (listEditorMode === "create") {
+        const fn =
+          listEditorScope === "platform"
+            ? createPlatformPreset
+            : createTenantPreset;
+        const res = await fn(payload);
+        if (!(res as any)?.success)
+          throw new Error((res as any)?.message || "Failed to create preset");
+        toast.success(`List preset "${name}" created`);
+      } else if (listEditorId) {
+        const fn =
+          listEditorScope === "platform"
+            ? updatePlatformPreset
+            : updateTenantPreset;
+        const res = await fn(listEditorId, {
+          name,
+          description: payload.description,
+          options: listEditorOptions,
+        });
+        if (!(res as any)?.success)
+          throw new Error((res as any)?.message || "Failed to update preset");
+        toast.success(`List preset "${name}" updated`);
+      }
+      closeListEditor();
+      // Refresh list presets
+      try {
+        const [platResult, tenResult] = await Promise.allSettled([
+          listPlatformPresets(),
+          listTenantPresets(),
+        ]);
+        const toArr = (d: unknown): unknown[] =>
+          Array.isArray(d) ? d : ((d as any)?.items ?? []);
+        const merged: ListPreset[] = [];
+        if (platResult.status === "fulfilled") {
+          for (const r of toArr(platResult.value.data) as Record<
+            string,
+            unknown
+          >[]) {
+            if (r.data_type === "FieldSet") continue;
+            const opts = (r.options ?? []) as {
+              value: string;
+              label: string;
+            }[];
+            merged.push({
+              id: r.id as string,
+              name: r.name as string,
+              scope: "platform",
+              optionCount: opts.length,
+              options: opts,
+            });
+          }
+        }
+        if (tenResult.status === "fulfilled") {
+          for (const r of toArr(tenResult.value.data) as Record<
+            string,
+            unknown
+          >[]) {
+            if (r.data_type === "FieldSet") continue;
+            const opts = (r.options ?? []) as {
+              value: string;
+              label: string;
+            }[];
+            merged.push({
+              id: r.id as string,
+              name: r.name as string,
+              scope: "tenant",
+              optionCount: opts.length,
+              options: opts,
+            });
+          }
+        }
+        setListPresets(merged);
+      } catch {
+        /* ignore refresh error */
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to save list preset");
+    } finally {
+      setListEditorSaving(false);
     }
   };
 
@@ -2254,7 +2578,7 @@ export function AdminView({
     },
     {
       key: "catalogs",
-      label: "Catalogs",
+      label: "Presets",
       group: "global",
       icon: <GitBranch size={14} />,
     },
@@ -2784,23 +3108,27 @@ export function AdminView({
                     versions.
                   </p>
                   <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      disabled={
-                        catalogTab === "criteria"
-                          ? !criteriaCatalogDetail?.set
-                          : !logicCatalogDetail?.set
-                      }
-                      onClick={() => openCatalogNewVersion(catalogTab)}
-                    >
-                      New Version
-                    </Button>
-                    <Button
-                      iconLeft={<PlusCircle size={16} />}
-                      onClick={() => openCatalogCreate(catalogTab)}
-                    >
-                      Create Set
-                    </Button>
+                    {catalogTab !== "lists" && (
+                      <>
+                        <Button
+                          variant="outline"
+                          disabled={
+                            catalogTab === "criteria"
+                              ? !criteriaCatalogDetail?.set
+                              : !logicCatalogDetail?.set
+                          }
+                          onClick={() => openCatalogNewVersion(catalogTab)}
+                        >
+                          New Version
+                        </Button>
+                        <Button
+                          iconLeft={<PlusCircle size={16} />}
+                          onClick={() => openCatalogCreate(catalogTab)}
+                        >
+                          Create Set
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -2815,7 +3143,7 @@ export function AdminView({
                     }`}
                   >
                     <LayoutTemplate size={14} />
-                    Criteria
+                    Fields
                   </button>
                   <button
                     type="button"
@@ -2827,67 +3155,635 @@ export function AdminView({
                     }`}
                   >
                     <GitBranch size={14} />
-                    Logic
+                    Rules
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCatalogTab("lists")}
+                    className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-medium transition-colors ${
+                      catalogTab === "lists"
+                        ? "bg-[--color-primary] text-white shadow-sm"
+                        : "text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg-muted]"
+                    }`}
+                  >
+                    <ListOrdered size={14} />
+                    Lists
                   </button>
                 </div>
 
-                <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] items-start">
-                  <div className="space-y-3">
-                    {catalogTab === "criteria" ? (
-                      <Table
-                        columns={[
-                          {
-                            key: "name",
-                            label: "Set",
-                            render: (set) => (
-                              <span className="font-medium text-[--color-text-strong]">
-                                {set.name}
-                              </span>
-                            ),
-                          },
-                          {
-                            key: "latest_version",
-                            label: "Latest",
-                            render: (set) => (
-                              <Badge tone="info">v{set.latest_version}</Badge>
-                            ),
-                          },
-                          {
-                            key: "updated_at",
-                            label: "Updated",
-                            render: (set) =>
-                              set.updated_at ? formatDate(set.updated_at) : "—",
-                          },
-                          {
-                            key: "actions",
-                            label: "Actions",
-                            render: (set) => {
-                              const isSelected =
-                                selectedCriteriaSetId === set.id;
-                              return (
-                                <div className="flex items-center gap-2">
-                                  <Button
-                                    size="sm"
-                                    variant={isSelected ? "primary" : "outline"}
-                                    onClick={() =>
-                                      setSelectedCriteriaSetId(set.id)
-                                    }
-                                  >
-                                    {isSelected ? "Selected" : "Open"}
-                                  </Button>
-                                </div>
-                              );
-                            },
-                          },
-                        ]}
-                        data={criteriaCatalogSets}
-                        emptyLabel={
-                          showCriteriaCatalogLoading
-                            ? "Loading fields catalogs…"
-                            : "No fields catalog sets yet."
-                        }
-                      />
+                {catalogTab === "lists" ? (
+                  /* ── Lists (Presets) tab ── */
+                  <div className="space-y-4">
+                    <p className="text-sm text-[--color-text-muted]">
+                      Manage reusable list presets (e.g. US States, Yes/No) that
+                      can be applied to any List field.
+                    </p>
+                    {listPresetsLoading && listPresets.length === 0 ? (
+                      <p className="text-sm text-[--color-text-muted] py-8 text-center">
+                        Loading presets…
+                      </p>
                     ) : (
+                      <div className="grid gap-4 lg:grid-cols-2">
+                        {/* Platform presets */}
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                              System Presets
+                            </p>
+                            <Button
+                              size="sm"
+                              onClick={() => openListCreate("platform")}
+                            >
+                              <PlusCircle size={14} className="mr-1" />
+                              New
+                            </Button>
+                          </div>
+                          <div className="rounded-lg border border-[--color-border] divide-y divide-[--color-border]">
+                            {listPresets
+                              .filter((p) => p.scope === "platform")
+                              .map((preset) => (
+                                <div key={preset.id}>
+                                  <div
+                                    className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-[--color-bg-muted] transition-colors"
+                                    onClick={() => toggleListPreset(preset.id)}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[--color-text-muted]">
+                                        {expandedListPresetIds.has(
+                                          preset.id,
+                                        ) ? (
+                                          <ChevronDown size={14} />
+                                        ) : (
+                                          <ChevronRight size={14} />
+                                        )}
+                                      </span>
+                                      <div>
+                                        <p className="text-sm font-medium text-[--color-text-strong]">
+                                          {preset.name}
+                                        </p>
+                                        <p className="text-xs text-[--color-text-muted]">
+                                          {preset.optionCount} options
+                                        </p>
+                                      </div>
+                                    </div>
+                                    <div
+                                      className="flex items-center gap-2"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => openListEdit(preset)}
+                                      >
+                                        <Pencil
+                                          size={13}
+                                          className="mr-1 inline-block"
+                                        />
+                                        Edit
+                                      </Button>
+                                      <Badge tone="info">Platform</Badge>
+                                    </div>
+                                  </div>
+                                  <AnimatePresence initial={false}>
+                                    {expandedListPresetIds.has(preset.id) && (
+                                      <motion.div
+                                        key={`opts-${preset.id}`}
+                                        initial={{ height: 0, opacity: 0 }}
+                                        animate={{ height: "auto", opacity: 1 }}
+                                        exit={{ height: 0, opacity: 0 }}
+                                        transition={{
+                                          duration: 0.18,
+                                          ease: "easeOut",
+                                        }}
+                                        className="overflow-hidden"
+                                      >
+                                        <div className="px-4 pb-3 pt-1">
+                                          <div className="flex flex-wrap gap-1.5">
+                                            {preset.options.map((o, i) => (
+                                              <span
+                                                key={i}
+                                                className="inline-flex items-center gap-1 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-[11px]"
+                                              >
+                                                <span className="font-mono text-[--color-text-muted]">
+                                                  {o.value}
+                                                </span>
+                                                <span className="text-[--color-text]">
+                                                  {o.label}
+                                                </span>
+                                              </span>
+                                            ))}
+                                            {preset.options.length === 0 && (
+                                              <span className="text-xs text-[--color-text-muted] italic">
+                                                No options
+                                              </span>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </motion.div>
+                                    )}
+                                  </AnimatePresence>
+                                </div>
+                              ))}
+                            {listPresets.filter((p) => p.scope === "platform")
+                              .length === 0 && (
+                              <p className="px-4 py-6 text-sm text-center text-[--color-text-muted]">
+                                No system presets found.
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        {/* Tenant presets */}
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                              Custom Presets
+                            </p>
+                            <Button
+                              size="sm"
+                              onClick={() => openListCreate("tenant")}
+                            >
+                              <PlusCircle size={14} className="mr-1" />
+                              New
+                            </Button>
+                          </div>
+                          <div className="rounded-lg border border-[--color-border] divide-y divide-[--color-border]">
+                            {listPresets
+                              .filter((p) => p.scope === "tenant")
+                              .map((preset) => (
+                                <div key={preset.id}>
+                                  <div
+                                    className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-[--color-bg-muted] transition-colors"
+                                    onClick={() => toggleListPreset(preset.id)}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[--color-text-muted]">
+                                        {expandedListPresetIds.has(
+                                          preset.id,
+                                        ) ? (
+                                          <ChevronDown size={14} />
+                                        ) : (
+                                          <ChevronRight size={14} />
+                                        )}
+                                      </span>
+                                      <div>
+                                        <p className="text-sm font-medium text-[--color-text-strong]">
+                                          {preset.name}
+                                        </p>
+                                        <p className="text-xs text-[--color-text-muted]">
+                                          {preset.optionCount} options
+                                        </p>
+                                      </div>
+                                    </div>
+                                    <div
+                                      className="flex items-center gap-2"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => openListEdit(preset)}
+                                      >
+                                        <Pencil
+                                          size={13}
+                                          className="mr-1 inline-block"
+                                        />
+                                        Edit
+                                      </Button>
+                                    </div>
+                                  </div>
+                                  <AnimatePresence initial={false}>
+                                    {expandedListPresetIds.has(preset.id) && (
+                                      <motion.div
+                                        key={`opts-${preset.id}`}
+                                        initial={{ height: 0, opacity: 0 }}
+                                        animate={{ height: "auto", opacity: 1 }}
+                                        exit={{ height: 0, opacity: 0 }}
+                                        transition={{
+                                          duration: 0.18,
+                                          ease: "easeOut",
+                                        }}
+                                        className="overflow-hidden"
+                                      >
+                                        <div className="px-4 pb-3 pt-1">
+                                          <div className="flex flex-wrap gap-1.5">
+                                            {preset.options.map((o, i) => (
+                                              <span
+                                                key={i}
+                                                className="inline-flex items-center gap-1 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-[11px]"
+                                              >
+                                                <span className="font-mono text-[--color-text-muted]">
+                                                  {o.value}
+                                                </span>
+                                                <span className="text-[--color-text]">
+                                                  {o.label}
+                                                </span>
+                                              </span>
+                                            ))}
+                                            {preset.options.length === 0 && (
+                                              <span className="text-xs text-[--color-text-muted] italic">
+                                                No options
+                                              </span>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </motion.div>
+                                    )}
+                                  </AnimatePresence>
+                                </div>
+                              ))}
+                            {listPresets.filter((p) => p.scope === "tenant")
+                              .length === 0 && (
+                              <p className="px-4 py-6 text-sm text-center text-[--color-text-muted]">
+                                No custom presets yet. Save a list field as a
+                                preset from any campaign.
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : catalogTab === "criteria" ? (
+                  <div className="space-y-6">
+                    {/* ── System Field Presets ── */}
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                        System Presets
+                      </p>
+                      {fieldPresetsLoading && fieldPresets.length === 0 ? (
+                        <p className="text-sm text-[--color-text-muted] py-4 text-center">
+                          Loading…
+                        </p>
+                      ) : fieldPresets.length === 0 ? (
+                        <div className="rounded-lg border border-[--color-border] px-4 py-6 text-sm text-center text-[--color-text-muted]">
+                          No system field presets found.
+                        </div>
+                      ) : (
+                        <div className="grid gap-3 lg:grid-cols-2">
+                          {fieldPresets.map((fp) => (
+                            <div
+                              key={fp.id}
+                              className="rounded-lg border border-[--color-border] bg-[--color-panel] p-4 space-y-2"
+                            >
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <p className="text-sm font-medium text-[--color-text-strong]">
+                                    {fp.name}
+                                  </p>
+                                  {fp.description && (
+                                    <p className="text-xs text-[--color-text-muted] mt-0.5">
+                                      {fp.description}
+                                    </p>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  {fp.locked && (
+                                    <Badge tone="warning">Locked</Badge>
+                                  )}
+                                  <Badge tone="info">Platform</Badge>
+                                </div>
+                              </div>
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="text-[--color-text-muted] text-left">
+                                    <th className="pb-1 pr-2 font-medium">
+                                      Field
+                                    </th>
+                                    <th className="pb-1 pr-2 font-medium">
+                                      Key
+                                    </th>
+                                    <th className="pb-1 pr-2 font-medium">
+                                      Type
+                                    </th>
+                                    <th className="pb-1 font-medium">Req</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {fp.fields.map((f, i) => (
+                                    <tr
+                                      key={f.field_name ?? i}
+                                      className="text-[--color-text]"
+                                    >
+                                      <td className="py-0.5 pr-2">
+                                        {f.field_label}
+                                      </td>
+                                      <td className="py-0.5 pr-2 font-mono text-[--color-text-muted]">
+                                        {f.field_name}
+                                      </td>
+                                      <td className="py-0.5 pr-2">
+                                        {f.data_type}
+                                      </td>
+                                      <td className="py-0.5">
+                                        {f.required ? "✓" : "—"}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* ── Custom Field Presets (Catalog Sets) ── */}
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                        Custom Presets
+                      </p>
+                      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] items-start">
+                        <div className="space-y-3">
+                          <Table
+                            columns={[
+                              {
+                                key: "name",
+                                label: "Set",
+                                render: (set) => (
+                                  <span className="font-medium text-[--color-text-strong]">
+                                    {set.name}
+                                  </span>
+                                ),
+                              },
+                              {
+                                key: "latest_version",
+                                label: "Latest",
+                                render: (set) => (
+                                  <Badge tone="info">
+                                    v{set.latest_version}
+                                  </Badge>
+                                ),
+                              },
+                              {
+                                key: "updated_at",
+                                label: "Updated",
+                                render: (set) =>
+                                  set.updated_at
+                                    ? formatDate(set.updated_at)
+                                    : "—",
+                              },
+                              {
+                                key: "actions",
+                                label: "Actions",
+                                render: (set) => {
+                                  const isSelected =
+                                    selectedCriteriaSetId === set.id;
+                                  return (
+                                    <div className="flex items-center gap-2">
+                                      <Button
+                                        size="sm"
+                                        variant={
+                                          isSelected ? "primary" : "outline"
+                                        }
+                                        onClick={() =>
+                                          setSelectedCriteriaSetId(set.id)
+                                        }
+                                      >
+                                        {isSelected ? "Selected" : "Open"}
+                                      </Button>
+                                    </div>
+                                  );
+                                },
+                              },
+                            ]}
+                            data={criteriaCatalogSets}
+                            emptyLabel={
+                              showCriteriaCatalogLoading
+                                ? "Loading fields presets…"
+                                : "No custom presets yet. Save fields from any campaign."
+                            }
+                          />
+                        </div>
+
+                        <div className="rounded-xl border border-[--color-border] bg-[--color-panel] p-4 space-y-3">
+                          {criteriaCatalogDetailLoading &&
+                          selectedCriteriaSetId ? (
+                            <p className="text-sm text-[--color-text-muted]">
+                              Loading fields set details…
+                            </p>
+                          ) : !criteriaCatalogDetail?.set ? (
+                            <p className="text-sm text-[--color-text-muted]">
+                              Select a fields preset to view versions.
+                            </p>
+                          ) : (
+                            <>
+                              <div>
+                                <p className="text-xs uppercase tracking-wider text-[--color-text-muted]">
+                                  Fields Set
+                                </p>
+                                <p className="font-semibold text-[--color-text-strong]">
+                                  {criteriaCatalogDetail.set.name}
+                                </p>
+                                <p className="text-xs text-[--color-text-muted] mt-1">
+                                  {criteriaCatalogDetail.set.description ||
+                                    "No description"}
+                                </p>
+                              </div>
+                              <div className="space-y-2">
+                                <p className="text-xs uppercase tracking-wider text-[--color-text-muted]">
+                                  Versions
+                                </p>
+                                {criteriaCatalogVersions.length === 0 ? (
+                                  <p className="text-sm text-[--color-text-muted]">
+                                    No versions found.
+                                  </p>
+                                ) : (
+                                  <div className="space-y-2 max-h-[460px] overflow-auto pr-1">
+                                    {criteriaCatalogVersions.map((version) => {
+                                      const deleteKey = `criteria:version:${criteriaCatalogDetail.set.id}:${version.version}`;
+                                      const isBusy =
+                                        catalogDeleteVersionBusyKey ===
+                                        deleteKey;
+                                      const isExpanded =
+                                        expandedCatalogVersions.has(version.id);
+                                      const inUse =
+                                        version.campaigns_using.length > 0;
+                                      return (
+                                        <div
+                                          key={version.id}
+                                          className="rounded-lg border border-[--color-border] bg-[--color-bg-muted] overflow-hidden"
+                                        >
+                                          <button
+                                            type="button"
+                                            className="flex w-full items-center justify-between gap-2 p-3 text-left hover:bg-[--color-bg-subtle] transition-colors"
+                                            onClick={() =>
+                                              toggleCatalogVersion(version.id)
+                                            }
+                                          >
+                                            <div className="flex items-center gap-2">
+                                              <ChevronRight
+                                                size={14}
+                                                className={`text-[--color-text-muted] transition-transform ${isExpanded ? "rotate-90" : ""}`}
+                                              />
+                                              <div>
+                                                <p className="font-medium text-[--color-text-strong]">
+                                                  v{version.version}
+                                                </p>
+                                                <p className="text-xs text-[--color-text-muted]">
+                                                  {version.fields.length} fields
+                                                  •{" "}
+                                                  {
+                                                    version.campaigns_using
+                                                      .length
+                                                  }{" "}
+                                                  campaigns
+                                                </p>
+                                              </div>
+                                            </div>
+                                            <div
+                                              className="flex items-center gap-1.5"
+                                              onClick={(e) =>
+                                                e.stopPropagation()
+                                              }
+                                            >
+                                              <Button
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={() =>
+                                                  openCatalogEditVersion(
+                                                    "criteria",
+                                                    criteriaCatalogDetail.set
+                                                      .id,
+                                                    criteriaCatalogDetail.set
+                                                      .name,
+                                                    criteriaCatalogDetail.set
+                                                      .description ?? "",
+                                                    version.fields,
+                                                  )
+                                                }
+                                              >
+                                                <Pencil
+                                                  size={13}
+                                                  className="mr-1 inline-block"
+                                                />
+                                                Edit
+                                              </Button>
+                                              <Button
+                                                size="sm"
+                                                variant="danger"
+                                                disabled={isBusy || inUse}
+                                                title={
+                                                  inUse
+                                                    ? "Cannot delete a version in use by campaigns"
+                                                    : undefined
+                                                }
+                                                onClick={() =>
+                                                  removeCatalogVersion(
+                                                    "criteria",
+                                                    criteriaCatalogDetail.set
+                                                      .id,
+                                                    version.version,
+                                                  )
+                                                }
+                                              >
+                                                {isBusy
+                                                  ? "Deleting…"
+                                                  : "Delete"}
+                                              </Button>
+                                            </div>
+                                          </button>
+
+                                          <AnimatePresence initial={false}>
+                                            {isExpanded && (
+                                              <motion.div
+                                                initial={{
+                                                  height: 0,
+                                                  opacity: 0,
+                                                }}
+                                                animate={{
+                                                  height: "auto",
+                                                  opacity: 1,
+                                                }}
+                                                exit={{ height: 0, opacity: 0 }}
+                                                transition={{ duration: 0.2 }}
+                                                className="overflow-hidden"
+                                              >
+                                                <div className="border-t border-[--color-border] px-3 pb-3 pt-2">
+                                                  {version.fields.length ===
+                                                  0 ? (
+                                                    <p className="text-xs text-[--color-text-muted]">
+                                                      No fields.
+                                                    </p>
+                                                  ) : (
+                                                    <table className="w-full text-xs">
+                                                      <thead>
+                                                        <tr className="text-[--color-text-muted] text-left">
+                                                          <th className="pb-1 pr-2 font-medium">
+                                                            Field
+                                                          </th>
+                                                          <th className="pb-1 pr-2 font-medium">
+                                                            Name
+                                                          </th>
+                                                          <th className="pb-1 pr-2 font-medium">
+                                                            Type
+                                                          </th>
+                                                          <th className="pb-1 font-medium">
+                                                            Req
+                                                          </th>
+                                                        </tr>
+                                                      </thead>
+                                                      <tbody>
+                                                        {version.fields.map(
+                                                          (f, i) => (
+                                                            <tr
+                                                              key={
+                                                                f.field_name ??
+                                                                i
+                                                              }
+                                                              className="border-t border-[--color-border]/50"
+                                                            >
+                                                              <td className="py-1 pr-2 text-[--color-text-strong]">
+                                                                {f.field_label}
+                                                              </td>
+                                                              <td className="py-1 pr-2 font-mono text-[--color-text-muted]">
+                                                                {f.field_name}
+                                                              </td>
+                                                              <td className="py-1 pr-2">
+                                                                {f.data_type}
+                                                              </td>
+                                                              <td className="py-1">
+                                                                {f.required
+                                                                  ? "Yes"
+                                                                  : "No"}
+                                                              </td>
+                                                            </tr>
+                                                          ),
+                                                        )}
+                                                      </tbody>
+                                                    </table>
+                                                  )}
+                                                  {inUse && (
+                                                    <p className="mt-2 text-xs text-amber-500">
+                                                      In use by{" "}
+                                                      {
+                                                        version.campaigns_using
+                                                          .length
+                                                      }{" "}
+                                                      campaign
+                                                      {version.campaigns_using
+                                                        .length === 1
+                                                        ? ""
+                                                        : "s"}
+                                                    </p>
+                                                  )}
+                                                </div>
+                                              </motion.div>
+                                            )}
+                                          </AnimatePresence>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] items-start">
+                    <div className="space-y-3">
                       <Table
                         columns={[
                           {
@@ -2936,34 +3832,32 @@ export function AdminView({
                         data={logicCatalogSets}
                         emptyLabel={
                           showLogicCatalogLoading
-                            ? "Loading rules catalogs…"
-                            : "No rules catalog sets yet."
+                            ? "Loading rules presets…"
+                            : "No rules presets yet."
                         }
                       />
-                    )}
-                  </div>
+                    </div>
 
-                  <div className="rounded-xl border border-[--color-border] bg-[--color-panel] p-4 space-y-3">
-                    {catalogTab === "criteria" ? (
-                      criteriaCatalogDetailLoading && selectedCriteriaSetId ? (
+                    <div className="rounded-xl border border-[--color-border] bg-[--color-panel] p-4 space-y-3">
+                      {logicCatalogDetailLoading && selectedLogicSetId ? (
                         <p className="text-sm text-[--color-text-muted]">
-                          Loading fields set details…
+                          Loading rules set details…
                         </p>
-                      ) : !criteriaCatalogDetail?.set ? (
+                      ) : !logicCatalogDetail?.set ? (
                         <p className="text-sm text-[--color-text-muted]">
-                          Select a fields catalog set to view versions.
+                          Select a rules catalog set to view versions.
                         </p>
                       ) : (
                         <>
                           <div>
                             <p className="text-xs uppercase tracking-wider text-[--color-text-muted]">
-                              Fields Set
+                              Rules Set
                             </p>
                             <p className="font-semibold text-[--color-text-strong]">
-                              {criteriaCatalogDetail.set.name}
+                              {logicCatalogDetail.set.name}
                             </p>
                             <p className="text-xs text-[--color-text-muted] mt-1">
-                              {criteriaCatalogDetail.set.description ||
+                              {logicCatalogDetail.set.description ||
                                 "No description"}
                             </p>
                           </div>
@@ -2971,14 +3865,14 @@ export function AdminView({
                             <p className="text-xs uppercase tracking-wider text-[--color-text-muted]">
                               Versions
                             </p>
-                            {criteriaCatalogVersions.length === 0 ? (
+                            {logicCatalogVersions.length === 0 ? (
                               <p className="text-sm text-[--color-text-muted]">
                                 No versions found.
                               </p>
                             ) : (
                               <div className="space-y-2 max-h-[460px] overflow-auto pr-1">
-                                {criteriaCatalogVersions.map((version) => {
-                                  const deleteKey = `criteria:version:${criteriaCatalogDetail.set.id}:${version.version}`;
+                                {logicCatalogVersions.map((version) => {
+                                  const deleteKey = `logic:version:${logicCatalogDetail.set.id}:${version.version}`;
                                   const isBusy =
                                     catalogDeleteVersionBusyKey === deleteKey;
                                   const isExpanded =
@@ -3007,7 +3901,7 @@ export function AdminView({
                                               v{version.version}
                                             </p>
                                             <p className="text-xs text-[--color-text-muted]">
-                                              {version.fields.length} fields •{" "}
+                                              {version.rules.length} rules •{" "}
                                               {version.campaigns_using.length}{" "}
                                               campaigns
                                             </p>
@@ -3022,12 +3916,12 @@ export function AdminView({
                                             variant="outline"
                                             onClick={() =>
                                               openCatalogEditVersion(
-                                                "criteria",
-                                                criteriaCatalogDetail.set.id,
-                                                criteriaCatalogDetail.set.name,
-                                                criteriaCatalogDetail.set
+                                                "logic",
+                                                logicCatalogDetail.set.id,
+                                                logicCatalogDetail.set.name,
+                                                logicCatalogDetail.set
                                                   .description ?? "",
-                                                version.fields,
+                                                version.rules,
                                               )
                                             }
                                           >
@@ -3048,8 +3942,8 @@ export function AdminView({
                                             }
                                             onClick={() =>
                                               removeCatalogVersion(
-                                                "criteria",
-                                                criteriaCatalogDetail.set.id,
+                                                "logic",
+                                                logicCatalogDetail.set.id,
                                                 version.version,
                                               )
                                             }
@@ -3072,54 +3966,44 @@ export function AdminView({
                                             className="overflow-hidden"
                                           >
                                             <div className="border-t border-[--color-border] px-3 pb-3 pt-2">
-                                              {version.fields.length === 0 ? (
+                                              {version.rules.length === 0 ? (
                                                 <p className="text-xs text-[--color-text-muted]">
-                                                  No fields.
+                                                  No rules.
                                                 </p>
                                               ) : (
                                                 <table className="w-full text-xs">
                                                   <thead>
                                                     <tr className="text-[--color-text-muted] text-left">
                                                       <th className="pb-1 pr-2 font-medium">
-                                                        Field
+                                                        Rule
                                                       </th>
                                                       <th className="pb-1 pr-2 font-medium">
-                                                        Name
-                                                      </th>
-                                                      <th className="pb-1 pr-2 font-medium">
-                                                        Type
+                                                        Conditions
                                                       </th>
                                                       <th className="pb-1 font-medium">
-                                                        Req
+                                                        Enabled
                                                       </th>
                                                     </tr>
                                                   </thead>
                                                   <tbody>
-                                                    {version.fields.map(
-                                                      (f, i) => (
-                                                        <tr
-                                                          key={
-                                                            f.field_name ?? i
-                                                          }
-                                                          className="border-t border-[--color-border]/50"
-                                                        >
-                                                          <td className="py-1 pr-2 text-[--color-text-strong]">
-                                                            {f.field_label}
-                                                          </td>
-                                                          <td className="py-1 pr-2 font-mono text-[--color-text-muted]">
-                                                            {f.field_name}
-                                                          </td>
-                                                          <td className="py-1 pr-2">
-                                                            {f.data_type}
-                                                          </td>
-                                                          <td className="py-1">
-                                                            {f.required
-                                                              ? "Yes"
-                                                              : "No"}
-                                                          </td>
-                                                        </tr>
-                                                      ),
-                                                    )}
+                                                    {version.rules.map((r) => (
+                                                      <tr
+                                                        key={r.id}
+                                                        className="border-t border-[--color-border]/50"
+                                                      >
+                                                        <td className="py-1 pr-2 text-[--color-text-strong]">
+                                                          {r.name}
+                                                        </td>
+                                                        <td className="py-1 pr-2">
+                                                          {r.conditions.length}
+                                                        </td>
+                                                        <td className="py-1">
+                                                          {r.enabled
+                                                            ? "Yes"
+                                                            : "No"}
+                                                        </td>
+                                                      </tr>
+                                                    ))}
                                                   </tbody>
                                                 </table>
                                               )}
@@ -3148,201 +4032,10 @@ export function AdminView({
                             )}
                           </div>
                         </>
-                      )
-                    ) : logicCatalogDetailLoading && selectedLogicSetId ? (
-                      <p className="text-sm text-[--color-text-muted]">
-                        Loading rules set details…
-                      </p>
-                    ) : !logicCatalogDetail?.set ? (
-                      <p className="text-sm text-[--color-text-muted]">
-                        Select a rules catalog set to view versions.
-                      </p>
-                    ) : (
-                      <>
-                        <div>
-                          <p className="text-xs uppercase tracking-wider text-[--color-text-muted]">
-                            Rules Set
-                          </p>
-                          <p className="font-semibold text-[--color-text-strong]">
-                            {logicCatalogDetail.set.name}
-                          </p>
-                          <p className="text-xs text-[--color-text-muted] mt-1">
-                            {logicCatalogDetail.set.description ||
-                              "No description"}
-                          </p>
-                        </div>
-                        <div className="space-y-2">
-                          <p className="text-xs uppercase tracking-wider text-[--color-text-muted]">
-                            Versions
-                          </p>
-                          {logicCatalogVersions.length === 0 ? (
-                            <p className="text-sm text-[--color-text-muted]">
-                              No versions found.
-                            </p>
-                          ) : (
-                            <div className="space-y-2 max-h-[460px] overflow-auto pr-1">
-                              {logicCatalogVersions.map((version) => {
-                                const deleteKey = `logic:version:${logicCatalogDetail.set.id}:${version.version}`;
-                                const isBusy =
-                                  catalogDeleteVersionBusyKey === deleteKey;
-                                const isExpanded = expandedCatalogVersions.has(
-                                  version.id,
-                                );
-                                const inUse =
-                                  version.campaigns_using.length > 0;
-                                return (
-                                  <div
-                                    key={version.id}
-                                    className="rounded-lg border border-[--color-border] bg-[--color-bg-muted] overflow-hidden"
-                                  >
-                                    <button
-                                      type="button"
-                                      className="flex w-full items-center justify-between gap-2 p-3 text-left hover:bg-[--color-bg-subtle] transition-colors"
-                                      onClick={() =>
-                                        toggleCatalogVersion(version.id)
-                                      }
-                                    >
-                                      <div className="flex items-center gap-2">
-                                        <ChevronRight
-                                          size={14}
-                                          className={`text-[--color-text-muted] transition-transform ${isExpanded ? "rotate-90" : ""}`}
-                                        />
-                                        <div>
-                                          <p className="font-medium text-[--color-text-strong]">
-                                            v{version.version}
-                                          </p>
-                                          <p className="text-xs text-[--color-text-muted]">
-                                            {version.rules.length} rules •{" "}
-                                            {version.campaigns_using.length}{" "}
-                                            campaigns
-                                          </p>
-                                        </div>
-                                      </div>
-                                      <div
-                                        className="flex items-center gap-1.5"
-                                        onClick={(e) => e.stopPropagation()}
-                                      >
-                                        <Button
-                                          size="sm"
-                                          variant="outline"
-                                          onClick={() =>
-                                            openCatalogEditVersion(
-                                              "logic",
-                                              logicCatalogDetail.set.id,
-                                              logicCatalogDetail.set.name,
-                                              logicCatalogDetail.set
-                                                .description ?? "",
-                                              version.rules,
-                                            )
-                                          }
-                                        >
-                                          <Pencil
-                                            size={13}
-                                            className="mr-1 inline-block"
-                                          />
-                                          Edit
-                                        </Button>
-                                        <Button
-                                          size="sm"
-                                          variant="danger"
-                                          disabled={isBusy || inUse}
-                                          title={
-                                            inUse
-                                              ? "Cannot delete a version in use by campaigns"
-                                              : undefined
-                                          }
-                                          onClick={() =>
-                                            removeCatalogVersion(
-                                              "logic",
-                                              logicCatalogDetail.set.id,
-                                              version.version,
-                                            )
-                                          }
-                                        >
-                                          {isBusy ? "Deleting…" : "Delete"}
-                                        </Button>
-                                      </div>
-                                    </button>
-
-                                    <AnimatePresence initial={false}>
-                                      {isExpanded && (
-                                        <motion.div
-                                          initial={{ height: 0, opacity: 0 }}
-                                          animate={{
-                                            height: "auto",
-                                            opacity: 1,
-                                          }}
-                                          exit={{ height: 0, opacity: 0 }}
-                                          transition={{ duration: 0.2 }}
-                                          className="overflow-hidden"
-                                        >
-                                          <div className="border-t border-[--color-border] px-3 pb-3 pt-2">
-                                            {version.rules.length === 0 ? (
-                                              <p className="text-xs text-[--color-text-muted]">
-                                                No rules.
-                                              </p>
-                                            ) : (
-                                              <table className="w-full text-xs">
-                                                <thead>
-                                                  <tr className="text-[--color-text-muted] text-left">
-                                                    <th className="pb-1 pr-2 font-medium">
-                                                      Rule
-                                                    </th>
-                                                    <th className="pb-1 pr-2 font-medium">
-                                                      Conditions
-                                                    </th>
-                                                    <th className="pb-1 font-medium">
-                                                      Enabled
-                                                    </th>
-                                                  </tr>
-                                                </thead>
-                                                <tbody>
-                                                  {version.rules.map((r) => (
-                                                    <tr
-                                                      key={r.id}
-                                                      className="border-t border-[--color-border]/50"
-                                                    >
-                                                      <td className="py-1 pr-2 text-[--color-text-strong]">
-                                                        {r.name}
-                                                      </td>
-                                                      <td className="py-1 pr-2">
-                                                        {r.conditions.length}
-                                                      </td>
-                                                      <td className="py-1">
-                                                        {r.enabled
-                                                          ? "Yes"
-                                                          : "No"}
-                                                      </td>
-                                                    </tr>
-                                                  ))}
-                                                </tbody>
-                                              </table>
-                                            )}
-                                            {inUse && (
-                                              <p className="mt-2 text-xs text-amber-500">
-                                                In use by{" "}
-                                                {version.campaigns_using.length}{" "}
-                                                campaign
-                                                {version.campaigns_using
-                                                  .length === 1
-                                                  ? ""
-                                                  : "s"}
-                                              </p>
-                                            )}
-                                          </div>
-                                        </motion.div>
-                                      )}
-                                    </AnimatePresence>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      </>
-                    )}
+                      )}
+                    </div>
                   </div>
-                </div>
+                )}
               </motion.div>
             )}
 
@@ -3714,11 +4407,11 @@ export function AdminView({
                               { value: "plugin_setting", label: "Integration" },
                               {
                                 value: "criteria_catalog",
-                                label: "Fields Catalog",
+                                label: "Fields Preset",
                               },
                               {
                                 value: "logic_catalog",
-                                label: "Rules Catalog",
+                                label: "Rules Preset",
                               },
                               { value: "user", label: "User" },
                             ].map(({ value, label }) => {
@@ -4635,7 +5328,7 @@ export function AdminView({
                   </Badge>
                   <span className="text-base font-semibold text-[--color-text-strong]">
                     {catalogEditorMode === "create"
-                      ? "Create Catalog Set"
+                      ? "Create Preset"
                       : "Create New Version"}
                   </span>
                   <button
@@ -4657,7 +5350,7 @@ export function AdminView({
                         className={inputClass}
                         value={catalogEditorName}
                         onChange={(e) => setCatalogEditorName(e.target.value)}
-                        placeholder="Enter catalog set name"
+                        placeholder="Enter preset name"
                       />
                     </label>
                     <label className="space-y-1.5">
@@ -4740,7 +5433,7 @@ export function AdminView({
                     <p className="text-xs text-[--color-text-muted]">
                       Provide a JSON array for
                       {catalogEditorKind === "criteria"
-                        ? " criteria fields"
+                        ? " lead fields"
                         : " logic rules"}
                       .
                     </p>
@@ -4761,6 +5454,169 @@ export function AdminView({
                       {catalogEditorSaving ? "Saving…" : "Save"}
                     </Button>
                   </div>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* ── List preset editor modal ──────────────────────────────────────── */}
+      <AnimatePresence>
+        {listEditorOpen && (
+          <>
+            <motion.div
+              key="list-editor-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[2px]"
+              onClick={closeListEditor}
+            />
+            <motion.div
+              key="list-editor-modal"
+              initial={{ opacity: 0, scale: 0.97, y: -8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.97, y: -8 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none"
+            >
+              <div
+                className="pointer-events-auto relative w-full max-w-lg rounded-2xl border border-[--color-border] bg-[--color-panel] shadow-2xl overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center gap-3 border-b border-[--color-border] px-5 py-4">
+                  <ListOrdered
+                    size={16}
+                    className="text-[--color-text-muted]"
+                  />
+                  <span className="text-base font-semibold text-[--color-text-strong]">
+                    {listEditorMode === "create" ? "New" : "Edit"}{" "}
+                    {listEditorScope === "platform" ? "System" : "Custom"} List
+                    Preset
+                  </span>
+                  <button
+                    type="button"
+                    onClick={closeListEditor}
+                    className="ml-auto p-1 rounded-md hover:bg-[--color-bg-muted]"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+
+                <div className="space-y-4 p-5 max-h-[70vh] overflow-auto">
+                  <div>
+                    <label className="block text-xs font-medium text-[--color-text-muted] mb-1">
+                      Name
+                    </label>
+                    <input
+                      type="text"
+                      className={inputClass}
+                      placeholder="e.g. US States"
+                      value={listEditorName}
+                      onChange={(e) => setListEditorName(e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-[--color-text-muted] mb-1">
+                      Description (optional)
+                    </label>
+                    <input
+                      type="text"
+                      className={inputClass}
+                      placeholder="Brief description"
+                      value={listEditorDescription}
+                      onChange={(e) => setListEditorDescription(e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-[--color-text-muted] mb-2">
+                      Options ({listEditorOptions.length})
+                    </label>
+                    {listEditorOptions.length > 0 && (
+                      <div className="rounded-lg border border-[--color-border] divide-y divide-[--color-border] mb-3 max-h-52 overflow-auto">
+                        {listEditorOptions.map((opt, idx) => (
+                          <div
+                            key={idx}
+                            className="flex items-center justify-between px-3 py-2 text-sm"
+                          >
+                            <span>
+                              <span className="font-mono text-xs text-[--color-text-muted]">
+                                {opt.value}
+                              </span>
+                              {opt.label !== opt.value && (
+                                <span className="ml-2 text-[--color-text]">
+                                  {opt.label}
+                                </span>
+                              )}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => removeListOption(idx)}
+                              className="p-0.5 rounded hover:bg-[--color-bg-muted] text-[--color-text-muted] hover:text-red-500"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        className={inputClass}
+                        placeholder="Value"
+                        value={listEditorNewValue}
+                        onChange={(e) => setListEditorNewValue(e.target.value)}
+                        onKeyDown={(e) =>
+                          e.key === "Enter" &&
+                          (e.preventDefault(), addListOption())
+                        }
+                      />
+                      <input
+                        type="text"
+                        className={inputClass}
+                        placeholder="Label (optional)"
+                        value={listEditorNewLabel}
+                        onChange={(e) => setListEditorNewLabel(e.target.value)}
+                        onKeyDown={(e) =>
+                          e.key === "Enter" &&
+                          (e.preventDefault(), addListOption())
+                        }
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={addListOption}
+                        disabled={!listEditorNewValue.trim()}
+                      >
+                        Add
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 border-t border-[--color-border] px-5 py-3">
+                  <Button
+                    variant="outline"
+                    onClick={closeListEditor}
+                    disabled={listEditorSaving}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={saveListEditor}
+                    disabled={listEditorSaving || !listEditorName.trim()}
+                  >
+                    {listEditorSaving
+                      ? "Saving…"
+                      : listEditorMode === "create"
+                        ? "Create"
+                        : "Save"}
+                  </Button>
                 </div>
               </div>
             </motion.div>

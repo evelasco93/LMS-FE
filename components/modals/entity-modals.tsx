@@ -2,21 +2,20 @@
 
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
-import { History, Sparkles, ChevronDown, ArrowRight, Tag } from "lucide-react";
+import { History, Sparkles, ChevronDown, ArrowRight, Tag, Plus } from "lucide-react";
 import useSWR from "swr";
 import { AnimatePresence, motion } from "framer-motion";
 import { Modal } from "@/components/modal";
 import { Button } from "@/components/button";
 import { Badge } from "@/components/badge";
 import { Field } from "@/components/ui/field";
-import { PhoneField } from "@/components/ui/phone-field";
 import {
   inputClass,
   generateCodeFromName,
   formatDate,
   normalizeFieldLabel,
 } from "@/lib/utils";
-import { getEntityAudit, listTagDefinitions } from "@/lib/api";
+import { getEntityAudit, listTagDefinitions, createTagDefinition } from "@/lib/api";
 import type {
   Affiliate,
   Client,
@@ -239,8 +238,7 @@ export function ClientModal({
           e.preventDefault();
           const payload: Partial<Client> = {
             name: form.name?.trim() || "",
-            email: form.email?.trim() || "",
-            phone: form.phone?.trim() || undefined,
+            notes: form.notes?.trim() || undefined,
             client_code: form.client_code?.trim() || undefined,
           };
           onSubmit(payload);
@@ -257,21 +255,20 @@ export function ClientModal({
             placeholder="Acme Corp"
           />
         </Field>
-        <Field label="Email" required>
-          <input
-            required
-            type="email"
-            className={inputClass}
-            value={form.email || ""}
-            onChange={(e) => setForm({ ...form, email: e.target.value })}
-            placeholder="ops@acme.com"
-          />
-        </Field>
-        <Field label="Phone">
-          <PhoneField
-            value={form.phone || ""}
-            onChange={(value) => setForm({ ...form, phone: value })}
-          />
+        <Field label="Notes">
+          <div className="relative">
+            <textarea
+              className={`${inputClass} resize-none`}
+              rows={3}
+              maxLength={500}
+              placeholder="Optional notes about this end user"
+              value={form.notes || ""}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+            />
+            <span className={`absolute bottom-1.5 right-2 text-[10px] ${(form.notes?.length ?? 0) >= 450 ? "text-red-500" : "text-[--color-text-muted]"}`}>
+              {form.notes?.length ?? 0}/500
+            </span>
+          </div>
         </Field>
         <Field label="End User Code">
           <div className="flex gap-2">
@@ -324,8 +321,7 @@ export function EditClientModal({
     if (client) {
       setForm({
         name: client.name,
-        email: client.email,
-        phone: client.phone,
+        notes: client.notes,
         client_code: client.client_code,
         status: client.status,
       });
@@ -348,8 +344,7 @@ export function EditClientModal({
           e.preventDefault();
           onSubmit(client.id, {
             name: form.name?.trim() || "",
-            email: form.email?.trim() || "",
-            phone: form.phone?.trim() || undefined,
+            notes: form.notes?.trim() || undefined,
             client_code: form.client_code?.trim() || undefined,
             status: form.status,
           });
@@ -365,20 +360,20 @@ export function EditClientModal({
             }
           />
         </Field>
-        <Field label="Email" required>
-          <input
-            required
-            type="email"
-            className={inputClass}
-            value={form.email || ""}
-            onChange={(e) => setForm({ ...form, email: e.target.value })}
-          />
-        </Field>
-        <Field label="Phone">
-          <PhoneField
-            value={form.phone || ""}
-            onChange={(value) => setForm({ ...form, phone: value })}
-          />
+        <Field label="Notes">
+          <div className="relative">
+            <textarea
+              className={`${inputClass} resize-none`}
+              rows={3}
+              maxLength={500}
+              placeholder="Optional notes"
+              value={form.notes || ""}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+            />
+            <span className={`absolute bottom-1.5 right-2 text-[10px] ${(form.notes?.length ?? 0) >= 450 ? "text-red-500" : "text-[--color-text-muted]"}`}>
+              {form.notes?.length ?? 0}/500
+            </span>
+          </div>
         </Field>
         <Field label="End User Code">
           <input
@@ -439,8 +434,7 @@ export function AffiliateModal({
           e.preventDefault();
           const payload: Partial<Affiliate> = {
             name: form.name?.trim() || "",
-            email: form.email?.trim() || "",
-            phone: form.phone?.trim() || "",
+            notes: form.notes?.trim() || undefined,
             affiliate_code: form.affiliate_code?.trim() || undefined,
           };
           onSubmit(payload);
@@ -457,21 +451,20 @@ export function AffiliateModal({
             placeholder="Growth Partners"
           />
         </Field>
-        <Field label="Email" required>
-          <input
-            required
-            type="email"
-            className={inputClass}
-            value={form.email || ""}
-            onChange={(e) => setForm({ ...form, email: e.target.value })}
-            placeholder="contact@growth.io"
-          />
-        </Field>
-        <Field label="Phone" required>
-          <PhoneField
-            value={form.phone || ""}
-            onChange={(value) => setForm({ ...form, phone: value })}
-          />
+        <Field label="Notes">
+          <div className="relative">
+            <textarea
+              className={`${inputClass} resize-none`}
+              rows={3}
+              maxLength={500}
+              placeholder="Optional notes about this source"
+              value={form.notes || ""}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+            />
+            <span className={`absolute bottom-1.5 right-2 text-[10px] ${(form.notes?.length ?? 0) >= 450 ? "text-red-500" : "text-[--color-text-muted]"}`}>
+              {form.notes?.length ?? 0}/500
+            </span>
+          </div>
         </Field>
         <Field label="Affiliate Code">
           <div className="flex gap-2">
@@ -526,8 +519,7 @@ export function EditAffiliateModal({
     if (affiliate) {
       setForm({
         name: affiliate.name,
-        email: affiliate.email,
-        phone: affiliate.phone,
+        notes: affiliate.notes,
         affiliate_code: affiliate.affiliate_code,
         status: affiliate.status,
       });
@@ -551,8 +543,7 @@ export function EditAffiliateModal({
           e.preventDefault();
           onSubmit(affiliate.id, {
             name: form.name?.trim() || "",
-            email: form.email?.trim() || "",
-            phone: form.phone?.trim() || "",
+            notes: form.notes?.trim() || undefined,
             affiliate_code: form.affiliate_code?.trim() || undefined,
             status: form.status,
           });
@@ -568,20 +559,20 @@ export function EditAffiliateModal({
             }
           />
         </Field>
-        <Field label="Email" required>
-          <input
-            required
-            type="email"
-            className={inputClass}
-            value={form.email || ""}
-            onChange={(e) => setForm({ ...form, email: e.target.value })}
-          />
-        </Field>
-        <Field label="Phone" required>
-          <PhoneField
-            value={form.phone || ""}
-            onChange={(value) => setForm({ ...form, phone: value })}
-          />
+        <Field label="Notes">
+          <div className="relative">
+            <textarea
+              className={`${inputClass} resize-none`}
+              rows={3}
+              maxLength={500}
+              placeholder="Optional notes"
+              value={form.notes || ""}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+            />
+            <span className={`absolute bottom-1.5 right-2 text-[10px] ${(form.notes?.length ?? 0) >= 450 ? "text-red-500" : "text-[--color-text-muted]"}`}>
+              {form.notes?.length ?? 0}/500
+            </span>
+          </div>
         </Field>
         <Field label="Source Code">
           <div className="flex gap-2">
@@ -782,11 +773,23 @@ export function CampaignModal({
   const [name, setName] = useState("");
   const [tagDraft, setTagDraft] = useState<string[]>([]);
   const [tagDefs, setTagDefs] = useState<TagDefinitionRecord[]>([]);
+  const [newTagLabel, setNewTagLabel] = useState("");
+  const [newTagColor, setNewTagColor] = useState("#3b82f6");
+  const [showNewTagForm, setShowNewTagForm] = useState(false);
+  const [creatingTag, setCreatingTag] = useState(false);
+
+  const tagPalette = [
+    "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6",
+    "#ec4899", "#06b6d4", "#f97316", "#6366f1", "#14b8a6",
+  ];
 
   useEffect(() => {
     if (!isOpen) {
       setName("");
       setTagDraft([]);
+      setShowNewTagForm(false);
+      setNewTagLabel("");
+      setNewTagColor("#3b82f6");
       return;
     }
     listTagDefinitions()
@@ -816,12 +819,11 @@ export function CampaignModal({
             placeholder="Spring Promo"
           />
         </Field>
-        {tagDefs.length > 0 && (
-          <div className="space-y-2">
+        <div className="space-y-2">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
               Tags{" "}
               <span className="font-normal normal-case tracking-normal">
-                (recommended for catalog filtering)
+                (recommended for preset filtering)
               </span>
             </p>
             <div className="flex flex-wrap gap-2">
@@ -860,15 +862,85 @@ export function CampaignModal({
                   </button>
                 );
               })}
+              {!showNewTagForm && (
+                <button
+                  type="button"
+                  onClick={() => setShowNewTagForm(true)}
+                  className="inline-flex items-center gap-1 rounded-full border border-dashed border-[--color-border] px-3 py-1.5 text-xs text-[--color-text-muted] hover:border-[--color-text-muted] hover:text-[--color-text] transition-colors"
+                >
+                  <Plus size={12} />
+                  New Tag
+                </button>
+              )}
             </div>
+            {showNewTagForm && (
+              <div className="flex items-end gap-2 p-2 rounded-lg border border-[--color-border] bg-[--color-bg-muted]">
+                <div className="flex-1 space-y-1">
+                  <label className="text-[10px] font-medium text-[--color-text-muted]">Label</label>
+                  <input
+                    className={inputClass + " !py-1 !text-xs"}
+                    placeholder="e.g. Insurance"
+                    value={newTagLabel}
+                    onChange={(e) => setNewTagLabel(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-medium text-[--color-text-muted]">Color</label>
+                  <div className="flex gap-1">
+                    {tagPalette.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => setNewTagColor(c)}
+                        className="w-5 h-5 rounded-full border-2 transition-transform"
+                        style={{
+                          backgroundColor: c,
+                          borderColor: newTagColor === c ? "white" : "transparent",
+                          transform: newTagColor === c ? "scale(1.2)" : undefined,
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  disabled={!newTagLabel.trim() || creatingTag}
+                  type="button"
+                  onClick={async () => {
+                    const label = newTagLabel.trim();
+                    if (!label) return;
+                    setCreatingTag(true);
+                    try {
+                      const res = await createTagDefinition({ label, color: newTagColor });
+                      if (res?.data) {
+                        setTagDefs((prev) => [...prev, res.data as TagDefinitionRecord]);
+                        setTagDraft((prev) => [...prev, label]);
+                      }
+                      setNewTagLabel("");
+                      setShowNewTagForm(false);
+                    } catch { /* ignore */ }
+                    setCreatingTag(false);
+                  }}
+                >
+                  {creatingTag ? "…" : "Add"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  type="button"
+                  onClick={() => { setShowNewTagForm(false); setNewTagLabel(""); }}
+                >
+                  ✕
+                </Button>
+              </div>
+            )}
             {tagDraft.length === 0 && (
               <p className="text-[10px] text-amber-500">
-                Filling in tags helps filter catalogs and avoid
+                Filling in tags helps filter presets and avoid
                 cross-contamination between campaign types.
               </p>
             )}
           </div>
-        )}
         <p className="text-xs text-[--color-text-muted]">
           Campaigns start as DRAFT. Link a client and affiliate to move to TEST.
         </p>
@@ -1021,8 +1093,7 @@ export function ClientDetailModal({
   const initialForm = useMemo(
     () => ({
       name: client?.name ?? "",
-      email: client?.email ?? "",
-      phone: client?.phone ?? "",
+      notes: client?.notes ?? "",
       client_code: client?.client_code ?? "",
       status: client?.status ?? "ACTIVE",
     }),
@@ -1039,12 +1110,11 @@ export function ClientDetailModal({
   }, [isOpen, initialForm]);
 
   const dirtyFields = useMemo(() => {
-    const fields: Array<"name" | "email" | "phone" | "client_code" | "status"> =
+    const fields: Array<"name" | "notes" | "client_code" | "status"> =
       [];
     if (form.name.trim() !== initialForm.name.trim()) fields.push("name");
-    if (form.email.trim() !== initialForm.email.trim()) fields.push("email");
-    if ((form.phone ?? "").trim() !== (initialForm.phone ?? "").trim())
-      fields.push("phone");
+    if ((form.notes ?? "").trim() !== (initialForm.notes ?? "").trim())
+      fields.push("notes");
     if (
       (form.client_code ?? "").trim() !== (initialForm.client_code ?? "").trim()
     )
@@ -1062,8 +1132,7 @@ export function ClientDetailModal({
     try {
       await onSave(client.id, {
         name: form.name.trim(),
-        email: form.email.trim(),
-        phone: form.phone?.trim() || undefined,
+        notes: form.notes?.trim() || undefined,
         client_code: form.client_code?.trim() || undefined,
         status: form.status as ClientStatus,
       });
@@ -1161,36 +1230,32 @@ export function ClientDetailModal({
                         ))}
                       </select>
                     </div>
-                    <div>
+                    <div className="col-span-2">
                       <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
-                        Email
+                        Notes
                       </p>
-                      <input
-                        type="email"
-                        className={`${inputClass} ${
-                          dirtyFields.includes("email")
-                            ? "border-[--color-warning] bg-[color-mix(in_srgb,var(--color-warning)_10%,transparent)]"
-                            : ""
-                        }`}
-                        value={form.email}
-                        onChange={(e) =>
-                          setForm((prev) => ({
-                            ...prev,
-                            email: e.target.value,
-                          }))
-                        }
-                      />
-                    </div>
-                    <div>
-                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
-                        Phone
-                      </p>
-                      <PhoneField
-                        value={form.phone}
-                        onChange={(value) =>
-                          setForm((prev) => ({ ...prev, phone: value }))
-                        }
-                      />
+                      <div className="relative">
+                        <textarea
+                          className={`${inputClass} resize-none ${
+                            dirtyFields.includes("notes")
+                              ? "border-[--color-warning] bg-[color-mix(in_srgb,var(--color-warning)_10%,transparent)]"
+                              : ""
+                          }`}
+                          rows={3}
+                          maxLength={500}
+                          placeholder="Optional notes"
+                          value={form.notes}
+                          onChange={(e) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              notes: e.target.value,
+                            }))
+                          }
+                        />
+                        <span className={`absolute bottom-1.5 right-2 text-[10px] ${(form.notes?.length ?? 0) >= 450 ? "text-red-500" : "text-[--color-text-muted]"}`}>
+                          {form.notes?.length ?? 0}/500
+                        </span>
+                      </div>
                     </div>
                     <div>
                       <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
@@ -1319,8 +1384,7 @@ export function AffiliateDetailModal({
   const initialForm = useMemo(
     () => ({
       name: affiliate?.name ?? "",
-      email: affiliate?.email ?? "",
-      phone: affiliate?.phone ?? "",
+      notes: affiliate?.notes ?? "",
       affiliate_code: affiliate?.affiliate_code ?? "",
       status: affiliate?.status ?? "ACTIVE",
     }),
@@ -1338,11 +1402,11 @@ export function AffiliateDetailModal({
 
   const dirtyFields = useMemo(() => {
     const fields: Array<
-      "name" | "email" | "phone" | "affiliate_code" | "status"
+      "name" | "notes" | "affiliate_code" | "status"
     > = [];
     if (form.name.trim() !== initialForm.name.trim()) fields.push("name");
-    if (form.email.trim() !== initialForm.email.trim()) fields.push("email");
-    if (form.phone.trim() !== initialForm.phone.trim()) fields.push("phone");
+    if ((form.notes ?? "").trim() !== (initialForm.notes ?? "").trim())
+      fields.push("notes");
     if (
       (form.affiliate_code ?? "").trim() !==
       (initialForm.affiliate_code ?? "").trim()
@@ -1380,8 +1444,7 @@ export function AffiliateDetailModal({
     try {
       await onSave(affiliate.id, {
         name: form.name.trim(),
-        email: form.email.trim(),
-        phone: form.phone.trim(),
+        notes: form.notes?.trim() || undefined,
         affiliate_code: form.affiliate_code?.trim() || undefined,
         status: form.status as AffiliateStatus,
       });
@@ -1459,36 +1522,32 @@ export function AffiliateDetailModal({
                         ))}
                       </select>
                     </div>
-                    <div>
+                    <div className="col-span-2">
                       <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
-                        Email
+                        Notes
                       </p>
-                      <input
-                        type="email"
-                        className={`${inputClass} ${
-                          dirtyFields.includes("email")
-                            ? "border-[--color-warning] bg-[color-mix(in_srgb,var(--color-warning)_10%,transparent)]"
-                            : ""
-                        }`}
-                        value={form.email}
-                        onChange={(e) =>
-                          setForm((prev) => ({
-                            ...prev,
-                            email: e.target.value,
-                          }))
-                        }
-                      />
-                    </div>
-                    <div>
-                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
-                        Phone
-                      </p>
-                      <PhoneField
-                        value={form.phone}
-                        onChange={(value) =>
-                          setForm((prev) => ({ ...prev, phone: value }))
-                        }
-                      />
+                      <div className="relative">
+                        <textarea
+                          className={`${inputClass} resize-none ${
+                            dirtyFields.includes("notes")
+                              ? "border-[--color-warning] bg-[color-mix(in_srgb,var(--color-warning)_10%,transparent)]"
+                              : ""
+                          }`}
+                          rows={3}
+                          maxLength={500}
+                          placeholder="Optional notes"
+                          value={form.notes}
+                          onChange={(e) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              notes: e.target.value,
+                            }))
+                          }
+                        />
+                        <span className={`absolute bottom-1.5 right-2 text-[10px] ${(form.notes?.length ?? 0) >= 450 ? "text-red-500" : "text-[--color-text-muted]"}`}>
+                          {form.notes?.length ?? 0}/500
+                        </span>
+                      </div>
                     </div>
                     <div>
                       <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">

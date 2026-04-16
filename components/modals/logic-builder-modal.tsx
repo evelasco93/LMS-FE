@@ -56,11 +56,8 @@ export function getOperatorsForType(
         "is_not_empty",
       ];
     case "Boolean":
-    case "Yes/No":
       return ["is", "is_not"];
     case "List":
-      return ["is", "is_not", "is_empty", "is_not_empty"];
-    case "US State":
       return ["is", "is_not", "is_empty", "is_not_empty"];
     default:
       return ALL_OPERATORS;
@@ -270,7 +267,9 @@ export function ConditionValueInput({
     );
   }
 
-  if (field?.data_type === "US State" && supportsMulti) {
+  // Legacy "US State" fields stored before migration — render as multi-select
+  // using the hardcoded US_STATES list since those old fields lack options[]
+  if (field?.data_type === ("US State" as string) && supportsMulti) {
     return (
       <MultiSelectDropdown
         options={US_STATES.map((s) => ({ label: s, value: s }))}
@@ -280,7 +279,10 @@ export function ConditionValueInput({
     );
   }
 
-  if (field?.data_type === "Boolean" || field?.data_type === "Yes/No") {
+  if (
+    field?.data_type === "Boolean" ||
+    field?.data_type === ("Yes/No" as string)
+  ) {
     return (
       <select
         className={`${inputClass} flex-[2] min-w-0`}

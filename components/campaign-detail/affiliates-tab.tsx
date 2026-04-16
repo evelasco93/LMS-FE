@@ -26,6 +26,7 @@ import type {
   Campaign,
   CampaignAffiliate,
   CampaignParticipantStatus,
+  CriteriaField,
   LogicRule,
 } from "@/lib/types";
 import {
@@ -40,6 +41,7 @@ export function AffiliatesTab({
   linkedAffiliates,
   affiliateLinkMap,
   availableAffiliates,
+  criteriaFields,
   logicRules,
   focusAffiliateId,
   leadsByCampaignKey,
@@ -61,6 +63,7 @@ export function AffiliatesTab({
   linkedAffiliates: Affiliate[];
   affiliateLinkMap: Map<string, CampaignAffiliate>;
   availableAffiliates: Affiliate[];
+  criteriaFields: CriteriaField[];
   logicRules: LogicRule[];
   focusAffiliateId: string | null;
   leadsByCampaignKey: Map<string, number>;
@@ -105,9 +108,9 @@ export function AffiliatesTab({
     string | null
   >(null);
 
-  const missingCriteria = !campaign?.criteria_set_id;
-  const missingLogic = !campaign?.logic_set_id;
-  const missingConfig = missingCriteria || missingLogic;
+  const hasCriteria = criteriaFields.length > 0 || !!campaign?.criteria_set_id;
+  const hasLogic = logicRules.length > 0 || !!campaign?.logic_set_id;
+  const missingConfig = !hasCriteria || !hasLogic;
 
   return (
     <div className="space-y-3">
@@ -118,7 +121,7 @@ export function AffiliatesTab({
             <p className="font-medium">Missing configuration</p>
             <p className="mt-0.5 text-xs text-[--color-text-muted]">
               Before adding sources you need to set up{" "}
-              {missingCriteria && (
+              {!hasCriteria && (
                 <button
                   type="button"
                   className="font-semibold text-[--color-primary] hover:underline"
@@ -127,8 +130,8 @@ export function AffiliatesTab({
                   field definitions
                 </button>
               )}
-              {missingCriteria && missingLogic && " and "}
-              {missingLogic && (
+              {!hasCriteria && !hasLogic && " and "}
+              {!hasLogic && (
                 <button
                   type="button"
                   className="font-semibold text-[--color-primary] hover:underline"
@@ -472,10 +475,10 @@ export function AffiliatesTab({
                         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                           <div>
                             <p className="uppercase tracking-wide text-[--color-text-muted] mb-1">
-                              Email
+                              Company
                             </p>
                             <p className="font-medium text-[--color-text-strong]">
-                              {a.email || "—"}
+                              {a.company || "—"}
                             </p>
                           </div>
                           <div>
@@ -541,16 +544,6 @@ export function AffiliatesTab({
                               </p>
                               <p className="font-medium text-[--color-text-strong]">
                                 {resolveChangedBy(a.updated_by)}
-                              </p>
-                            </div>
-                          ) : null}
-                          {a.phone ? (
-                            <div>
-                              <p className="uppercase tracking-wide text-[--color-text-muted] mb-1">
-                                Phone
-                              </p>
-                              <p className="font-medium text-[--color-text-strong]">
-                                {a.phone}
                               </p>
                             </div>
                           ) : null}

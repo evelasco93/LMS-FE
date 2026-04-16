@@ -2,7 +2,7 @@
 
 import type { Dispatch, SetStateAction } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Check, ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { Modal } from "@/components/modal";
 import { Button } from "@/components/button";
@@ -98,7 +98,7 @@ export function LogicCatalogModals({
   return (
     <>
       <Modal
-        title="Campaign Rules Catalog"
+        title="Rules Presets"
         isOpen={logicCatalogOpen}
         onClose={() => setLogicCatalogOpen(false)}
         width={640}
@@ -108,32 +108,19 @@ export function LogicCatalogModals({
           <div className="flex items-start justify-between gap-3">
             <p className="text-xs text-[--color-text-muted] leading-relaxed">
               Versioned rule sets. Applying a version replaces this campaign's
-              current rules with that catalog version.
+              current rules with that preset version.
             </p>
             <Button size="sm" variant="outline" onClick={openLogicCatalogModal}>
               Refresh
             </Button>
           </div>
 
-          {localLogicSetId && localLogicSetVersion != null && (
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] text-emerald-700">
-              Currently applied:{" "}
-              <strong>
-                {localLogicSetName ??
-                  logicCatalogSets.find((s) => s.id === localLogicSetId)
-                    ?.name ??
-                  localLogicSetId}
-              </strong>{" "}
-              v{localLogicSetVersion}
-            </div>
-          )}
-
           {logicCatalogLoading ? (
             <p className="text-sm text-[--color-text-muted]">Loading…</p>
           ) : logicCatalogSets.length === 0 ? (
             <p className="text-sm text-[--color-text-muted]">
-              No rules catalog sets yet. Save current rules as a catalog set to
-              create one.
+              No rules presets yet. Save current rules as a preset to create
+              one.
             </p>
           ) : (
             <div className="divide-y divide-[--color-border] rounded-xl border border-[--color-border] overflow-hidden">
@@ -158,7 +145,7 @@ export function LogicCatalogModals({
                           }));
                         }
                       } catch {
-                        toast.error("Failed to load rules catalog versions.");
+                        toast.error("Failed to load rules preset versions.");
                       } finally {
                         setLoadingLogicVersionsFor(null);
                       }
@@ -179,11 +166,6 @@ export function LogicCatalogModals({
                         <span className="font-mono text-[10px] text-[--color-text-muted] bg-[--color-bg-muted] border border-[--color-border] rounded px-1.5 py-0.5">
                           v{set.latest_version}
                         </span>
-                        {localLogicSetId === set.id && (
-                          <span className="text-[10px] font-medium text-emerald-600 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5">
-                            Active
-                          </span>
-                        )}
                       </div>
                       {set.description && (
                         <p className="mt-0.5 text-[11px] text-[--color-text-muted]">
@@ -216,9 +198,6 @@ export function LogicCatalogModals({
                           [...(logicSetVersionsMap[set.id] ?? [])]
                             .sort((a, b) => b.version - a.version)
                             .map((version) => {
-                              const isApplied =
-                                localLogicSetId === set.id &&
-                                localLogicSetVersion === version.version;
                               const applyKey = `${set.id}#v${version.version}`;
                               return (
                                 <div
@@ -256,29 +235,22 @@ export function LogicCatalogModals({
                                         {version.rules.length !== 1 ? "s" : ""}
                                       </span>
                                     </button>
-                                    {isApplied ? (
-                                      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600">
-                                        <Check size={11} />
-                                        Applied
-                                      </span>
-                                    ) : (
-                                      <button
-                                        type="button"
-                                        disabled={applyingLogicCatalog !== null}
-                                        onClick={() =>
-                                          applyLogicCatalogVersion(
-                                            set.id,
-                                            set.name,
-                                            version.version,
-                                          )
-                                        }
-                                        className="inline-flex items-center gap-1 rounded-md border border-[--color-border] bg-[--color-surface] px-2.5 py-1 text-[11px] font-medium text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg] disabled:opacity-50 transition-colors"
-                                      >
-                                        {applyingLogicCatalog === applyKey
-                                          ? "Applying…"
-                                          : "Apply"}
-                                      </button>
-                                    )}
+                                    <button
+                                      type="button"
+                                      disabled={applyingLogicCatalog !== null}
+                                      onClick={() =>
+                                        applyLogicCatalogVersion(
+                                          set.id,
+                                          set.name,
+                                          version.version,
+                                        )
+                                      }
+                                      className="inline-flex items-center gap-1 rounded-md border border-[--color-border] bg-[--color-surface] px-2.5 py-1 text-[11px] font-medium text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg] disabled:opacity-50 transition-colors"
+                                    >
+                                      {applyingLogicCatalog === applyKey
+                                        ? "Applying…"
+                                        : "Apply"}
+                                    </button>
                                   </div>
 
                                   <AnimatePresence initial={false}>
@@ -448,7 +420,7 @@ export function LogicCatalogModals({
         </div>
       </Modal>
       <Modal
-        title="Save Rules to Catalog"
+        title="Save Rules to Presets"
         isOpen={saveLogicToSetOpen}
         onClose={() => setSaveLogicToSetOpen(false)}
         width={470}
@@ -456,7 +428,7 @@ export function LogicCatalogModals({
         <div className="space-y-4 text-sm">
           <p className="text-[13px] text-[--color-text-muted]">
             Save these campaign rules as either a new version of the active
-            rules catalog entry or as a brand new rules catalog set.
+            rules preset or as a brand new rules preset.
           </p>
 
           <div className="space-y-2">
@@ -486,7 +458,7 @@ export function LogicCatalogModals({
                 <p className="text-[11px] text-[--color-text-muted]">
                   {localLogicSetId
                     ? `Adds a version to ${localLogicSetName ?? localLogicSetId}.`
-                    : "No active catalog applied on this campaign yet."}
+                    : "No active preset applied on this campaign yet."}
                 </p>
               </button>
               <button

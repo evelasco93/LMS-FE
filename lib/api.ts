@@ -9,6 +9,7 @@ import type {
   AvailablePlugin,
   Campaign,
   ClientDeliveryConfig,
+  Destination,
   DistributionMode,
   CampaignParticipantStatus,
   CampaignStatus,
@@ -747,6 +748,7 @@ export async function enableUser(id: string) {
 
 // ─── Campaign Criteria ─────────────────────────────────────────────────────────
 import type {
+  CasingMode,
   CriteriaField,
   CriteriaFieldOption,
   CriteriaValueMapping,
@@ -773,6 +775,7 @@ export async function createCriteriaField(
     required: boolean;
     description?: string;
     state_mapping?: "abbr_to_name" | "name_to_abbr";
+    casing?: CasingMode;
     options?: CriteriaFieldOption[];
   },
 ) {
@@ -793,6 +796,7 @@ export async function updateCriteriaField(
     required?: boolean;
     description?: string;
     state_mapping?: "abbr_to_name" | "name_to_abbr" | null;
+    casing?: CasingMode;
     options?: CriteriaFieldOption[];
   },
 ) {
@@ -1589,4 +1593,135 @@ export async function executeCherryPick(
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+// ─── Destinations ──────────────────────────────────────────────────────────────
+
+export async function listDestinations(campaignId: string, clientId: string) {
+  return request<ApiResponse<Destination[]>>(
+    buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/clients/${encodeURIComponent(clientId)}/destinations`,
+    ),
+  );
+}
+
+export async function getDestination(
+  campaignId: string,
+  clientId: string,
+  destId: string,
+) {
+  return request<ApiResponse<Destination>>(
+    buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/clients/${encodeURIComponent(clientId)}/destinations/${encodeURIComponent(destId)}`,
+    ),
+  );
+}
+
+export async function addDestination(
+  campaignId: string,
+  clientId: string,
+  payload: Partial<Destination>,
+) {
+  return request<ApiResponse<Destination>>(
+    buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/clients/${encodeURIComponent(clientId)}/destinations`,
+    ),
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+export async function updateDestination(
+  campaignId: string,
+  clientId: string,
+  destId: string,
+  payload: Partial<Destination>,
+) {
+  return request<ApiResponse<Destination>>(
+    buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/clients/${encodeURIComponent(clientId)}/destinations/${encodeURIComponent(destId)}`,
+    ),
+    { method: "PUT", body: JSON.stringify(payload) },
+  );
+}
+
+export async function deleteDestination(
+  campaignId: string,
+  clientId: string,
+  destId: string,
+) {
+  return request<ApiResponse<void>>(
+    buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/clients/${encodeURIComponent(clientId)}/destinations/${encodeURIComponent(destId)}`,
+    ),
+    { method: "DELETE" },
+  );
+}
+
+// ─── Platform Presets ──────────────────────────────────────────────────────────
+
+export async function listPlatformPresets() {
+  return request<ApiResponse<unknown[]>>(
+    buildUrl("/tenant-config/platform-presets"),
+  );
+}
+
+export async function getPlatformPreset(id: string) {
+  return request<ApiResponse<unknown>>(
+    buildUrl(`/tenant-config/platform-presets/${encodeURIComponent(id)}`),
+  );
+}
+
+export async function updatePlatformPreset(
+  id: string,
+  payload: Record<string, unknown>,
+) {
+  return request<ApiResponse<unknown>>(
+    buildUrl(`/tenant-config/platform-presets/${encodeURIComponent(id)}`),
+    { method: "PUT", body: JSON.stringify(payload) },
+  );
+}
+
+export async function createPlatformPreset(payload: Record<string, unknown>) {
+  return request<ApiResponse<unknown>>(
+    buildUrl("/tenant-config/platform-presets"),
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+// ─── Tenant Presets ────────────────────────────────────────────────────────────
+
+export async function listTenantPresets(tags?: Record<string, string>) {
+  return request<ApiResponse<unknown[]>>(
+    buildUrl("/tenant-config/presets", tags),
+  );
+}
+
+export async function getTenantPreset(id: string) {
+  return request<ApiResponse<unknown>>(
+    buildUrl(`/tenant-config/presets/${encodeURIComponent(id)}`),
+  );
+}
+
+export async function createTenantPreset(payload: Record<string, unknown>) {
+  return request<ApiResponse<unknown>>(buildUrl("/tenant-config/presets"), {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateTenantPreset(
+  id: string,
+  payload: Record<string, unknown>,
+) {
+  return request<ApiResponse<unknown>>(
+    buildUrl(`/tenant-config/presets/${encodeURIComponent(id)}`),
+    { method: "PUT", body: JSON.stringify(payload) },
+  );
+}
+
+export async function deleteTenantPreset(id: string) {
+  return request<ApiResponse<void>>(
+    buildUrl(`/tenant-config/presets/${encodeURIComponent(id)}`),
+    { method: "DELETE" },
+  );
 }

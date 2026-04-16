@@ -11,10 +11,6 @@ function typeLabel(field: CriteriaField): string {
   if (field.data_type === "List") {
     return "List";
   }
-  if (field.data_type === "US State") {
-    // Keep the PDF language simple for affiliates; state mapping is internal.
-    return "Text";
-  }
   return field.data_type;
 }
 
@@ -59,10 +55,6 @@ function buildExamplePayload(
         break;
       case "List":
         inner[f.field_name] = f.options?.[0]?.value ?? "option_value";
-        break;
-      case "US State":
-        inner[f.field_name] =
-          f.state_mapping === "abbr_to_name" ? "CA" : "California";
         break;
       default:
         inner[f.field_name] = "";

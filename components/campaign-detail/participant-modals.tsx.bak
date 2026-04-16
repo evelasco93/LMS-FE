@@ -1,0 +1,202 @@
+"use client";
+
+import type { Dispatch, SetStateAction } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Gauge,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Trash2,
+  X,
+} from "lucide-react";
+import { toast } from "sonner";
+import { Modal } from "@/components/modal";
+import { Button } from "@/components/button";
+import { DisabledTooltip } from "@/components/shared-ui";
+import { Badge } from "@/components/badge";
+import {
+  normalizePixelMappingRows,
+  defaultAffiliatePixelConfig,
+} from "@/components/campaign-detail/utils";
+import { inputClass, statusColorMap } from "@/lib/utils";
+import type {
+  Affiliate,
+  AffiliateSoldPixelConfig,
+  Campaign,
+  CampaignAffiliate,
+  CampaignClient,
+  CampaignParticipantStatus,
+  Client,
+  CriteriaField,
+  Lead,
+  LogicCatalogSet,
+  LogicCatalogVersion,
+  LogicRule,
+} from "@/lib/types";
+import {
+  getLogicCatalogSet,
+  updateAffiliateCherryPickOverride,
+} from "@/lib/api";
+
+interface ParticipantModalsProps {
+  campaign: Campaign | null;
+  clients: Client[];
+  affiliates: Affiliate[];
+  logicRules: LogicRule[];
+  criteriaFields: CriteriaField[];
+  leadsForCampaign: Lead[];
+  linkedClients: Client[];
+  linkedAffiliates: Affiliate[];
+  clientLinkMap: Map<string, CampaignClient>;
+  affiliateLinkMap: Map<string, CampaignAffiliate>;
+  localClientLinks: NonNullable<Campaign["clients"]>;
+  localAffiliateLinks: NonNullable<Campaign["affiliates"]>;
+  participantAction: {
+    type: "client" | "affiliate";
+    id: string;
+    statusDraft: CampaignParticipantStatus;
+  } | null;
+  confirmRotateKey: boolean;
+  participantStatusOptions: CampaignParticipantStatus[];
+  participantLogicType: "affiliate" | "client" | null;
+  participantLogicRules: LogicRule[];
+  participantLogicLoading: boolean;
+  participantLogicSaving: boolean;
+  participantLogicBuilderOpen: boolean;
+  participantLogicEditingRule: LogicRule | null;
+  participantLogicDeletingRuleId: string | null;
+  participantLogicSetId: string | null;
+  participantLogicSetVersion: number | null;
+  participantLogicSetName: string | null;
+  participantLogicBaseSetId: string | null;
+  participantLogicBaseSetVersion: number | null;
+  participantLogicBaseSetName: string | null;
+  participantLogicCatalogOpen: boolean;
+  participantLogicCatalogLoading: boolean;
+  participantLogicCatalogSets: LogicCatalogSet[];
+  participantLogicApplyingCatalogId: string | null;
+  participantExpandedSetId: string | null;
+  participantSetVersionsMap: Record<string, LogicCatalogVersion[]>;
+  participantLoadingVersionsFor: string | null;
+  participantExpandedVersionRules: Set<string>;
+  participantExpandedRuleDetails: Set<string>;
+  saveParticipantLogicOpen: boolean;
+  saveParticipantLogicMode: "new_version" | "new_set";
+  saveParticipantLogicDraft: { name: string; description: string };
+  savingParticipantLogicToCatalog: boolean;
+  syncingClientLogicToCampaign: boolean;
+  pinnedBaseLogicViewerOpen: boolean;
+  pinnedBaseExpandedRules: Set<string>;
+  deliveryLogicIntroClientId: string | null;
+  pixelLogicIntroAffiliateId: string | null;
+  localLogicSetId: string | null;
+  localLogicSetName: string | null;
+  localLogicSetVersion: number | null;
+  logicCatalogSets: LogicCatalogSet[];
+  setParticipantAction: Dispatch<
+    SetStateAction<{
+      type: "client" | "affiliate";
+      id: string;
+      statusDraft: CampaignParticipantStatus;
+    } | null>
+  >;
+  setConfirmRotateKey: Dispatch<SetStateAction<boolean>>;
+  setParticipantLogicType: Dispatch<
+    SetStateAction<"affiliate" | "client" | null>
+  >;
+  setParticipantLogicBuilderOpen: Dispatch<SetStateAction<boolean>>;
+  setParticipantLogicEditingRule: Dispatch<SetStateAction<LogicRule | null>>;
+  setParticipantLogicCatalogOpen: Dispatch<SetStateAction<boolean>>;
+  setParticipantExpandedSetId: Dispatch<SetStateAction<string | null>>;
+  setParticipantSetVersionsMap: Dispatch<
+    SetStateAction<Record<string, LogicCatalogVersion[]>>
+  >;
+  setParticipantLoadingVersionsFor: Dispatch<SetStateAction<string | null>>;
+  setParticipantExpandedVersionRules: Dispatch<SetStateAction<Set<string>>>;
+  setParticipantExpandedRuleDetails: Dispatch<SetStateAction<Set<string>>>;
+  setParticipantLogicBaseSetId: Dispatch<SetStateAction<string | null>>;
+  setParticipantLogicBaseSetName: Dispatch<SetStateAction<string | null>>;
+  setParticipantLogicBaseSetVersion: Dispatch<SetStateAction<number | null>>;
+  setSaveParticipantLogicOpen: Dispatch<SetStateAction<boolean>>;
+  setSaveParticipantLogicMode: Dispatch<
+    SetStateAction<"new_version" | "new_set">
+  >;
+  setSaveParticipantLogicDraft: Dispatch<
+    SetStateAction<{ name: string; description: string }>
+  >;
+  setPinnedBaseLogicViewerOpen: Dispatch<SetStateAction<boolean>>;
+  setPinnedBaseExpandedRules: Dispatch<SetStateAction<Set<string>>>;
+  setDeliveryClientId: Dispatch<SetStateAction<string | null>>;
+  setLocalClientLinks: Dispatch<
+    SetStateAction<NonNullable<Campaign["clients"]>>
+  >;
+  setLocalAffiliateLinks: Dispatch<
+    SetStateAction<NonNullable<Campaign["affiliates"]>>
+  >;
+  setAffiliateCapModalId: Dispatch<SetStateAction<string | null>>;
+  setPixelDraft: Dispatch<SetStateAction<AffiliateSoldPixelConfig>>;
+  setPixelSaveAttempted: Dispatch<SetStateAction<boolean>>;
+  setPixelConfigTab: Dispatch<
+    SetStateAction<"pixel" | "pixel_criteria" | "sold_criteria">
+  >;
+  setPixelAffiliateId: Dispatch<SetStateAction<string | null>>;
+  setPixelLogicIntroAffiliateId: Dispatch<SetStateAction<string | null>>;
+  setDeliveryLogicIntroClientId: Dispatch<SetStateAction<string | null>>;
+  setParticipantLogicSetName: Dispatch<SetStateAction<string | null>>;
+  handleToggleParticipantLogicRule: (rule: LogicRule) => Promise<void>;
+  handleDeleteParticipantLogicRule: (ruleId: string) => Promise<void>;
+  handleApplyParticipantLogicCatalog: (
+    set: LogicCatalogSet,
+    version?: number,
+  ) => Promise<void>;
+  handleSyncClientLogicToCampaign: () => Promise<void>;
+  openParticipantLogicCatalog: () => void;
+  saveParticipantLogicToCatalog: () => Promise<void>;
+  openAffiliateLogicManager: (affiliateId: string) => void;
+  openClientLogicManager: (clientId: string) => void;
+  onRotateParticipantKey: (
+    campaignId: string,
+    type: "client" | "affiliate",
+    participantId: string,
+  ) => Promise<void>;
+  onUpdateClientStatus: (
+    campaignId: string,
+    clientId: string,
+    status: CampaignParticipantStatus,
+  ) => Promise<void>;
+  onUpdateAffiliateStatus: (
+    campaignId: string,
+    affiliateId: string,
+    status: CampaignParticipantStatus,
+  ) => Promise<void>;
+  onRemoveClient: (campaignId: string, clientId: string) => Promise<void>;
+  onRemoveAffiliate: (campaignId: string, affiliateId: string) => Promise<void>;
+  onOpenLeadsForCampaign: (
+    campaignId: string,
+    options?: { affiliateId?: string; mode?: "all" | "test" | "live" },
+  ) => void;
+  resolveChangedBy: (
+    changed_by?:
+      | string
+      | {
+          username?: string;
+          email?: string;
+          full_name?: string;
+          first_name?: string;
+          last_name?: string;
+        }
+      | null,
+  ) => string;
+  normalizeFieldLabel: (label: string) => string;
+  formatLogicOperatorLabel: (operator: string) => string;
+  formatLogicConditionValue: (value?: string | string[]) => string;
+  getLogicCatalogSet: typeof getLogicCatalogSet;
+}
+
+export function ParticipantModals(props: ParticipantModalsProps) {
+  return (<><div>test</div></>);
+}

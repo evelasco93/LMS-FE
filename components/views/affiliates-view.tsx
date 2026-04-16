@@ -218,16 +218,14 @@ export function AffiliatesView({
               </span>
             ),
           },
-          { key: "email", label: "Email" },
           {
-            key: "phone",
-            label: "Phone",
+            key: "notes",
+            label: "Notes",
             render: (a) =>
-              a.phone
-                ? a.phone.replace(
-                    /(\+\d{1,3})(\d{3})(\d{3})(\d{4})/,
-                    "$1 ($2) $3-$4",
-                  )
+              a.notes
+                ? a.notes.length > 40
+                  ? a.notes.slice(0, 40) + "…"
+                  : a.notes
                 : "—",
           },
           { key: "affiliate_code", label: "Code" },

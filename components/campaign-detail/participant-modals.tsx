@@ -19,9 +19,7 @@ import { Button } from "@/components/button";
 import { DisabledTooltip } from "@/components/shared-ui";
 import { Badge } from "@/components/badge";
 import {
-  normalizeDeliveryMappingRows,
   normalizePixelMappingRows,
-  defaultDeliveryConfig,
   defaultAffiliatePixelConfig,
 } from "@/components/campaign-detail/utils";
 import { inputClass, statusColorMap } from "@/lib/utils";
@@ -33,7 +31,6 @@ import type {
   CampaignClient,
   CampaignParticipantStatus,
   Client,
-  ClientDeliveryConfig,
   CriteriaField,
   Lead,
   LogicCatalogSet,
@@ -134,9 +131,6 @@ interface ParticipantModalsProps {
   setPinnedBaseLogicViewerOpen: Dispatch<SetStateAction<boolean>>;
   setPinnedBaseExpandedRules: Dispatch<SetStateAction<Set<string>>>;
   setDeliveryClientId: Dispatch<SetStateAction<string | null>>;
-  setDeliveryDraft: Dispatch<SetStateAction<ClientDeliveryConfig>>;
-  setDeliverySaveAttempted: Dispatch<SetStateAction<boolean>>;
-  setDeliveryTab: Dispatch<SetStateAction<"request" | "response">>;
   setLocalClientLinks: Dispatch<
     SetStateAction<NonNullable<Campaign["clients"]>>
   >;
@@ -201,8 +195,6 @@ interface ParticipantModalsProps {
   formatLogicOperatorLabel: (operator: string) => string;
   formatLogicConditionValue: (value?: string | string[]) => string;
   getLogicCatalogSet: typeof getLogicCatalogSet;
-  defaultDeliveryConfig: typeof defaultDeliveryConfig;
-  normalizeDeliveryMappingRows: typeof normalizeDeliveryMappingRows;
 }
 
 export function ParticipantModals(props: ParticipantModalsProps) {
@@ -271,9 +263,6 @@ export function ParticipantModals(props: ParticipantModalsProps) {
     setPinnedBaseLogicViewerOpen,
     setPinnedBaseExpandedRules,
     setDeliveryClientId,
-    setDeliveryDraft,
-    setDeliverySaveAttempted,
-    setDeliveryTab,
     setLocalClientLinks,
     setLocalAffiliateLinks,
     setAffiliateCapModalId,
@@ -309,8 +298,6 @@ export function ParticipantModals(props: ParticipantModalsProps) {
     clientLinkMap,
     affiliateLinkMap,
     getLogicCatalogSet,
-    defaultDeliveryConfig,
-    normalizeDeliveryMappingRows,
   } = props as ParticipantModalsProps;
 
   if (!campaign) return null;
@@ -654,26 +641,6 @@ export function ParticipantModals(props: ParticipantModalsProps) {
                   size="sm"
                   variant="outline"
                   onClick={() => {
-                    const existing = (currentLink as CampaignClient | undefined)
-                      ?.delivery_config;
-                    setDeliveryDraft(
-                      existing
-                        ? {
-                            url: existing.url ?? "",
-                            method: existing.method ?? "POST",
-                            headers: existing.headers,
-                            payload_mapping: normalizeDeliveryMappingRows(
-                              existing.payload_mapping,
-                            ),
-                            acceptance_rules:
-                              existing.acceptance_rules?.length > 0
-                                ? existing.acceptance_rules
-                                : [],
-                          }
-                        : defaultDeliveryConfig(),
-                    );
-                    setDeliverySaveAttempted(false);
-                    setDeliveryTab("request");
                     setDeliveryClientId(pid);
                     setParticipantAction(null);
                   }}
@@ -787,13 +754,7 @@ export function ParticipantModals(props: ParticipantModalsProps) {
 
           {localLogicSetId && localLogicSetVersion != null && (
             <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-[11px] text-sky-700">
-              Base campaign logic:{" "}
-              <strong>
-                {localLogicSetName ??
-                  logicCatalogSets.find((s) => s.id === localLogicSetId)
-                    ?.name ??
-                  localLogicSetId}
-              </strong>{" "}
+              Participants inherit campaign logic automatically.{" "}
               <button
                 type="button"
                 className="underline decoration-dotted underline-offset-2 hover:text-sky-900 transition-colors"
@@ -802,9 +763,13 @@ export function ParticipantModals(props: ParticipantModalsProps) {
                   setPinnedBaseLogicViewerOpen(true);
                 }}
               >
-                v{localLogicSetVersion} — view rules
+                View base rules
               </button>
-              . Participants inherit campaign logic automatically.
+              {(participantLogicSetId || participantLogicBaseSetId) && (
+                <span className="ml-1 font-medium">
+                  · Has {participantLogicSetId ? "catalog override" : "custom extensions"}
+                </span>
+              )}
             </div>
           )}
 
@@ -1310,7 +1275,7 @@ export function ParticipantModals(props: ParticipantModalsProps) {
 
       {/* ── Pinned Base Campaign Logic Viewer ─────────────────────────── */}
       <Modal
-        title={`Base Campaign Logic — ${localLogicSetName ?? localLogicSetId ?? "Campaign"} v${localLogicSetVersion ?? "?"}`}
+        title={`Base Campaign Logic — ${localLogicSetName ?? localLogicSetId ?? "Campaign"}`}
         isOpen={pinnedBaseLogicViewerOpen}
         onClose={() => setPinnedBaseLogicViewerOpen(false)}
         width={620}

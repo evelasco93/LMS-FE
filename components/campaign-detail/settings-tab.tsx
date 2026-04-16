@@ -8,6 +8,7 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Lock,
   Pencil,
   Plus,
   Trash2,
@@ -38,6 +39,7 @@ import type {
   DistributionMode,
   LogicRule,
   LogicRuleOperator,
+  CasingMode,
 } from "@/lib/types";
 import { inputClass } from "@/lib/utils";
 
@@ -49,6 +51,7 @@ type FieldDraft = {
   description: string;
   state_mapping: "abbr_to_name" | "name_to_abbr" | null;
   options: CriteriaFieldOption[];
+  casing: CasingMode;
 };
 
 interface SettingsTabProps {
@@ -345,9 +348,7 @@ export default function SettingsTab({
     Number: "Number",
     Date: "Date",
     List: "List",
-    "US State": "US State",
     Boolean: "Boolean",
-    "Yes/No": "Yes/No",
   };
 
   const getClientLeadCount = (link?: CampaignClient) => {
@@ -396,25 +397,9 @@ export default function SettingsTab({
             {/* Header */}
             <div className="flex items-center justify-between gap-2">
               <div className="min-h-[28px] flex items-center">
-                {localCriteriaSetId && localCriteriaSetVersion != null ? (
-                  <div className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] text-emerald-700">
-                    <Check size={12} className="shrink-0 text-emerald-600" />
-                    <span>
-                      Active catalog:{" "}
-                      <strong>
-                        {localCriteriaSetName ??
-                          catalogSets.find((s) => s.id === localCriteriaSetId)
-                            ?.name ??
-                          localCriteriaSetId}
-                      </strong>{" "}
-                      v{localCriteriaSetVersion}
-                    </span>
-                  </div>
-                ) : (
-                  <p className="text-[11px] text-[--color-text-muted]">
-                    No active fields catalog applied.
-                  </p>
-                )}
+                <p className="text-sm font-medium text-[--color-text]">
+                  Lead Fields
+                </p>
               </div>
               <div className="flex items-center gap-2">
                 {criteriaFields.length > 0 && (
@@ -432,7 +417,7 @@ export default function SettingsTab({
                     }}
                     className="shrink-0 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-3 py-1.5 text-[11px] font-medium text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg] transition-colors"
                   >
-                    Save to Catalog
+                    Save to Presets
                   </button>
                 )}
                 <button
@@ -440,7 +425,7 @@ export default function SettingsTab({
                   onClick={openCriteriaCatalogModal}
                   className="shrink-0 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-3 py-1.5 text-[11px] font-medium text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg] transition-colors"
                 >
-                  Fields Catalog
+                  Presets Library
                 </button>
                 <button
                   type="button"
@@ -632,7 +617,7 @@ export default function SettingsTab({
                           onClick={openCriteriaCatalogModal}
                           className="rounded-md bg-[--color-primary] px-4 py-2 text-[13px] font-medium text-white hover:opacity-90 transition-opacity"
                         >
-                          Apply from Fields Catalog
+                          Apply from Presets
                         </button>
                         <button
                           type="button"
@@ -697,6 +682,7 @@ export default function SettingsTab({
                                       state_mapping:
                                         field.state_mapping ?? null,
                                       options: field.options ?? [],
+                                      casing: field.casing ?? "default",
                                     });
                                     setEditFieldData(field);
                                     setAddFieldOpen(true);
@@ -705,6 +691,12 @@ export default function SettingsTab({
                                 >
                                   {field.field_label}
                                 </button>
+                                {field.system_field && (
+                                  <span className="ml-2 inline-flex items-center gap-1 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-1.5 py-0.5 text-[10px] text-[--color-text-muted]">
+                                    <Lock size={10} />
+                                    System
+                                  </span>
+                                )}
                               </td>
                               <td className="px-4 py-3 font-mono text-xs text-[--color-text-muted]">
                                 {field.field_name}
@@ -722,6 +714,7 @@ export default function SettingsTab({
                                         description: field.description ?? "",
                                         state_mapping:
                                           field.state_mapping ?? null,
+                                        casing: field.casing ?? "default",
                                         options: field.options ?? [],
                                       });
                                       setEditFieldData(field);
@@ -789,6 +782,7 @@ export default function SettingsTab({
                                         state_mapping:
                                           field.state_mapping ?? null,
                                         options: field.options ?? [],
+                                        casing: field.casing ?? "default",
                                       });
                                       setEditFieldData(field);
                                       setAddFieldOpen(true);
@@ -799,9 +793,14 @@ export default function SettingsTab({
                                   </button>
                                   <button
                                     type="button"
-                                    title="Delete field"
+                                    title={
+                                      field.system_field
+                                        ? "System fields cannot be deleted"
+                                        : "Delete field"
+                                    }
+                                    disabled={field.system_field}
                                     onClick={() => setDeleteFieldTarget(field)}
-                                    className="text-[--color-text-muted] transition-colors hover:text-red-500"
+                                    className={`text-[--color-text-muted] transition-colors ${field.system_field ? "opacity-30 cursor-not-allowed" : "hover:text-red-500"}`}
                                   >
                                     <Trash2 size={13} />
                                   </button>
@@ -1292,20 +1291,9 @@ export default function SettingsTab({
             {/* Header */}
             <div className="flex items-center justify-between gap-2">
               <div className="min-h-[28px] flex items-center">
-                {localLogicSetId && localLogicSetVersion != null ? (
-                  <div className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] text-emerald-700">
-                    <Check size={12} className="shrink-0 text-emerald-600" />
-                    <span>
-                      Active catalog:{" "}
-                      <strong>{localLogicSetName ?? localLogicSetId}</strong> v
-                      {localLogicSetVersion}
-                    </span>
-                  </div>
-                ) : (
-                  <p className="text-[11px] text-[--color-text-muted]">
-                    No active rules catalog applied.
-                  </p>
-                )}
+                <p className="text-sm font-medium text-[--color-text]">
+                  Logic Rules
+                </p>
               </div>
               <div className="flex items-center gap-2">
                 {logicRules.length > 0 && (
@@ -1323,7 +1311,7 @@ export default function SettingsTab({
                     }}
                     className="shrink-0 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-3 py-1.5 text-[11px] font-medium text-[--color-text-muted] hover:bg-[--color-bg] hover:text-[--color-text] transition-colors"
                   >
-                    Save to Catalog
+                    Save to Presets
                   </button>
                 )}
                 <button
@@ -1331,7 +1319,7 @@ export default function SettingsTab({
                   onClick={openLogicCatalogModal}
                   className="shrink-0 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-3 py-1.5 text-[11px] font-medium text-[--color-text-muted] hover:bg-[--color-bg] hover:text-[--color-text] transition-colors"
                 >
-                  Rules Catalog
+                  Rules Presets
                 </button>
                 <Button
                   size="sm"

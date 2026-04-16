@@ -116,8 +116,7 @@ export interface ParticipantHistoryEntry {
 export interface Client {
   id: string;
   name: string;
-  email: string;
-  phone?: string;
+  notes?: string;
   client_code?: string;
   status: ClientStatus;
   created_at?: string;
@@ -134,8 +133,7 @@ export interface Client {
 export interface Affiliate {
   id: string;
   name: string;
-  email: string;
-  phone: string;
+  notes?: string;
   company?: string;
   affiliate_code?: string;
   status: AffiliateStatus;
@@ -173,7 +171,9 @@ export interface CampaignClient {
   client_id: string;
   status?: CampaignParticipantStatus;
   added_at?: string;
+  /** @deprecated Use `destinations` instead. Retained for backward compatibility. */
   delivery_config?: ClientDeliveryConfig;
+  destinations?: Destination[];
   weight?: number;
   leads_delivered_count?: number;
   history?: ParticipantHistoryEntry[];
@@ -280,6 +280,7 @@ export interface Campaign {
   client_overrides?: Record<string, CampaignClientOverride>;
   affiliate_overrides?: Record<string, CampaignAffiliateOverride>;
   default_cherry_pickable?: boolean;
+  default_field_casing?: CasingMode;
 }
 
 export interface TrustedFormResult {
@@ -614,14 +615,37 @@ export interface CognitoUser {
   updatedAt?: string;
 }
 
-export type CriteriaFieldType =
-  | "Text"
-  | "Number"
-  | "Boolean"
-  | "Date"
-  | "List"
-  | "US State"
-  | "Yes/No";
+export type CriteriaFieldType = "Text" | "Number" | "Boolean" | "Date" | "List";
+
+/** @deprecated Retained for backward compatibility during migration. */
+export type LegacyCriteriaFieldType = "US State" | "Yes/No";
+
+export type CasingMode =
+  | "default"
+  | "title_case"
+  | "capitalize_first"
+  | "lowercase"
+  | "uppercase";
+
+export type DestinationType = "webhook" | "email" | "google_sheets";
+
+export interface Destination {
+  id: string;
+  name: string;
+  type: DestinationType;
+  url: string;
+  method: WebhookMethod;
+  headers?: Record<string, string>;
+  payload_mapping: WebhookFieldMapping[];
+  acceptance_rules: WebhookAcceptanceRule[];
+  state_mapping_override?: Record<
+    string,
+    "abbr_to_name" | "name_to_abbr" | null
+  >;
+  is_primary: boolean;
+  claim_trusted_form?: boolean;
+  require_successful_claim?: boolean;
+}
 
 export interface CriteriaValueMapping {
   from: string[];
@@ -647,6 +671,8 @@ export interface CriteriaField {
   state_mapping?: "abbr_to_name" | "name_to_abbr" | null;
   client_override?: boolean;
   affiliate_override?: boolean;
+  casing?: CasingMode;
+  system_field?: boolean;
   created_at?: string;
   updated_at?: string;
 }
@@ -684,6 +710,8 @@ export interface CriteriaCatalogVersion {
     state_mapping?: "abbr_to_name" | "name_to_abbr" | null;
     client_override?: boolean;
     affiliate_override?: boolean;
+    casing?: CasingMode;
+    system_field?: boolean;
   }>;
   campaigns_using: string[];
   created_at: string;

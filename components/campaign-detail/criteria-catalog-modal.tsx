@@ -3,14 +3,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import {
-  Check,
-  ChevronDown,
-  ChevronRight,
-  Plus,
-  Trash2,
-  Upload,
-} from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Modal } from "@/components/modal";
 import { Button } from "@/components/button";
@@ -153,10 +146,10 @@ export function CriteriaCatalogModal({
       <Modal
         title={
           catalogFormMode === "create"
-            ? "New Catalog Set"
+            ? "New Preset"
             : catalogFormMode === "edit"
               ? `Edit: ${editingCatalogSet?.name ?? ""}`
-              : "Fields Catalog"
+              : "Presets Library"
         }
         isOpen={catalogOpen}
         onClose={() => {
@@ -196,26 +189,6 @@ export function CriteriaCatalogModal({
                 </button>
               </div>
 
-              {/* currently applied badge */}
-              {localCriteriaSetId && (
-                <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 px-3 py-2 flex items-center gap-2 text-[11px]">
-                  <Check
-                    size={12}
-                    className="text-emerald-600 dark:text-emerald-400 shrink-0"
-                  />
-                  <span className="text-emerald-700 dark:text-emerald-400">
-                    Currently applied:{" "}
-                    <strong>
-                      {localCriteriaSetName ??
-                        catalogSets.find((s) => s.id === localCriteriaSetId)
-                          ?.name ??
-                        localCriteriaSetId}
-                    </strong>{" "}
-                    v{localCriteriaSetVersion}
-                  </span>
-                </div>
-              )}
-
               {/* Tag filter pills */}
               {allTags.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
@@ -254,8 +227,8 @@ export function CriteriaCatalogModal({
               ) : filteredSets.length === 0 ? (
                 <p className="text-sm text-[--color-text-muted]">
                   {activeTag
-                    ? `No catalog sets with tag "${activeTag}".`
-                    : "No catalog sets yet. Create one to get started."}
+                    ? `No presets with tag "${activeTag}".`
+                    : "No presets yet. Create one to get started."}
                 </p>
               ) : (
                 <div className="divide-y divide-[--color-border] rounded-xl border border-[--color-border] overflow-hidden">
@@ -300,16 +273,8 @@ export function CriteriaCatalogModal({
                               {set.name}
                             </span>
                             <span className="font-mono text-[10px] text-[--color-text-muted] bg-[--color-bg-muted] border border-[--color-border] rounded px-1.5 py-0.5">
-                              {localCriteriaSetId === set.id &&
-                              localCriteriaSetVersion != null
-                                ? `v${localCriteriaSetVersion}`
-                                : `v${set.latest_version}`}
+                              v{set.latest_version}
                             </span>
-                            {localCriteriaSetId === set.id && (
-                              <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded px-1.5 py-0.5">
-                                Active
-                              </span>
-                            )}
                           </div>
                           {set.description && (
                             <p className="mt-0.5 text-[11px] text-[--color-text-muted]">
@@ -355,9 +320,6 @@ export function CriteriaCatalogModal({
                               [...(setVersionsMap[set.id] ?? [])]
                                 .sort((a, b) => b.version - a.version)
                                 .map((v) => {
-                                  const isApplied =
-                                    localCriteriaSetId === set.id &&
-                                    localCriteriaSetVersion === v.version;
                                   const applyKey = `${set.id}#v${v.version}`;
                                   return (
                                     <div
@@ -414,57 +376,36 @@ export function CriteriaCatalogModal({
                                             : ""}
                                         </span>
                                         <div className="shrink-0">
-                                          {isApplied ? (
-                                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-                                              <Check size={11} />
-                                              Applied
-                                            </span>
-                                          ) : (
-                                            <button
-                                              type="button"
-                                              disabled={
-                                                applyingCatalog !== null
+                                          <button
+                                            type="button"
+                                            disabled={applyingCatalog !== null}
+                                            onClick={async () => {
+                                              setApplyingCatalog(applyKey);
+                                              try {
+                                                await applyCriteriaCatalog(
+                                                  campaign.id,
+                                                  set.id,
+                                                  v.version,
+                                                );
+                                                toast.success(
+                                                  `Applied "${set.name}" v${v.version}.`,
+                                                );
+                                                await refreshCriteria();
+                                              } catch (err: any) {
+                                                toast.error(
+                                                  err?.message ||
+                                                    "Failed to apply preset version.",
+                                                );
+                                              } finally {
+                                                setApplyingCatalog(null);
                                               }
-                                              onClick={async () => {
-                                                setApplyingCatalog(applyKey);
-                                                try {
-                                                  await applyCriteriaCatalog(
-                                                    campaign.id,
-                                                    set.id,
-                                                    v.version,
-                                                  );
-                                                  toast.success(
-                                                    `Applied "${set.name}" v${v.version}.`,
-                                                  );
-                                                  setLocalCriteriaSetId(set.id);
-                                                  setLocalCriteriaSetName(
-                                                    set.name,
-                                                  );
-                                                  setLocalCriteriaSetVersion(
-                                                    v.version,
-                                                  );
-                                                  onCampaignUpdate?.({
-                                                    criteria_set_id: set.id,
-                                                    criteria_set_version:
-                                                      v.version,
-                                                  });
-                                                  await refreshCriteria();
-                                                } catch (err: any) {
-                                                  toast.error(
-                                                    err?.message ||
-                                                      "Failed to apply catalog version.",
-                                                  );
-                                                } finally {
-                                                  setApplyingCatalog(null);
-                                                }
-                                              }}
-                                              className="inline-flex items-center gap-1 rounded-md border border-[--color-border] bg-[--color-surface] px-2.5 py-1 text-[11px] font-medium text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg] disabled:opacity-50 transition-colors"
-                                            >
-                                              {applyingCatalog === applyKey
-                                                ? "Applying…"
-                                                : "Apply"}
-                                            </button>
-                                          )}
+                                            }}
+                                            className="inline-flex items-center gap-1 rounded-md border border-[--color-border] bg-[--color-surface] px-2.5 py-1 text-[11px] font-medium text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg] disabled:opacity-50 transition-colors"
+                                          >
+                                            {applyingCatalog === applyKey
+                                              ? "Applying…"
+                                              : "Apply"}
+                                          </button>
                                         </div>
                                       </div>
                                       {/* expandable fields table */}
@@ -570,7 +511,7 @@ export function CriteriaCatalogModal({
                 className="inline-flex items-center gap-1 text-[11px] text-[--color-text-muted] hover:text-[--color-text] transition-colors"
               >
                 <ChevronRight size={11} className="rotate-180" />
-                Back to catalog
+                Back to presets
               </button>
 
               {/* name */}
@@ -966,7 +907,7 @@ export function CriteriaCatalogModal({
                             : {}),
                           ...(fields.length > 0 ? { fields } : {}),
                         });
-                        toast.success("Catalog set created.");
+                        toast.success("Preset created.");
                       } else {
                         await updateCriteriaCatalogSet(editingCatalogSet!.id, {
                           name: catalogFormDraft.name.trim(),
@@ -981,26 +922,16 @@ export function CriteriaCatalogModal({
                           delete next[editingCatalogSet!.id];
                           return next;
                         });
-                        toast.success(
-                          "Catalog set updated — new version saved.",
-                        );
+                        toast.success("Preset updated — new version saved.");
                       }
                       // refresh catalog list
                       const res = await listCriteriaCatalog();
                       if (res.success) {
                         setCatalogSets(res.data.items);
-                        if (localCriteriaSetId && !localCriteriaSetName) {
-                          const current = res.data.items.find(
-                            (item) => item.id === localCriteriaSetId,
-                          );
-                          if (current) setLocalCriteriaSetName(current.name);
-                        }
                       }
                       setCatalogFormMode("browse");
                     } catch (err: any) {
-                      toast.error(
-                        err?.message || "Failed to save catalog set.",
-                      );
+                      toast.error(err?.message || "Failed to save preset.");
                     } finally {
                       setSavingCatalog(false);
                     }

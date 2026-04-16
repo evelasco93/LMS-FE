@@ -1,13 +1,14 @@
 "use client";
 
-import type { Dispatch, SetStateAction } from "react";
+import { type Dispatch, type SetStateAction, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowRight, X } from "lucide-react";
+import { ArrowRight, ChevronDown, ChevronRight, ChevronUp, X } from "lucide-react";
 import { toast } from "sonner";
 import { Modal } from "@/components/modal";
 import { Button } from "@/components/button";
 import type {
   Campaign,
+  CasingMode,
   CriteriaCatalogSet,
   CriteriaField,
   CriteriaFieldOption,
@@ -18,9 +19,33 @@ import {
   createCriteriaField,
   deleteCriteriaCatalogSet,
   deleteCriteriaField,
+  listPlatformPresets,
+  listTenantPresets,
   updateCriteriaField,
   updateCriteriaValueMappings,
 } from "@/lib/api";
+
+type OptionPreset = {
+  id: string;
+  name: string;
+  scope: "platform" | "tenant";
+  options: CriteriaFieldOption[];
+};
+
+function applyCasing(label: string, mode: CasingMode): string {
+  switch (mode) {
+    case "title_case":
+      return label.replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+    case "capitalize_first":
+      return label.charAt(0).toUpperCase() + label.slice(1).toLowerCase();
+    case "lowercase":
+      return label.toLowerCase();
+    case "uppercase":
+      return label.toUpperCase();
+    default:
+      return label;
+  }
+}
 
 type FieldDraft = {
   field_label: string;
@@ -30,6 +55,7 @@ type FieldDraft = {
   description: string;
   state_mapping: "abbr_to_name" | "name_to_abbr" | null;
   options: CriteriaFieldOption[];
+  casing: CasingMode;
 };
 
 interface CriteriaFieldModalsProps {
@@ -161,6 +187,47 @@ export function CriteriaFieldModals({
   onCampaignUpdate,
   inputClass,
 }: CriteriaFieldModalsProps) {
+  // ── Fetch list-option presets for the Bulk tab ──────────────────────────
+  const [optionPresets, setOptionPresets] = useState<OptionPreset[]>([]);
+  const [presetsLoaded, setPresetsLoaded] = useState(false);
+  const [presetsExpanded, setPresetsExpanded] = useState(false);
+
+  useEffect(() => {
+    if (!addFieldOpen || presetsLoaded) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [platResult, tenResult] = await Promise.allSettled([
+          listPlatformPresets(),
+          listTenantPresets(),
+        ]);
+        if (cancelled) return;
+        const toArray = (d: unknown): unknown[] => Array.isArray(d) ? d : (d as any)?.items ?? [];
+        const toPreset = (r: Record<string, unknown>, scope: "platform" | "tenant"): OptionPreset | null => {
+          const opts = r.options as CriteriaFieldOption[] | undefined;
+          if (!opts?.length || r.data_type !== "List") return null;
+          return { id: r.id as string, name: r.name as string, scope, options: opts };
+        };
+        const merged: OptionPreset[] = [];
+        if (platResult.status === "fulfilled") {
+          for (const r of toArray(platResult.value.data) as Record<string, unknown>[]) {
+            const p = toPreset(r, "platform");
+            if (p) merged.push(p);
+          }
+        }
+        if (tenResult.status === "fulfilled") {
+          for (const r of toArray(tenResult.value.data) as Record<string, unknown>[]) {
+            const p = toPreset(r, "tenant");
+            if (p) merged.push(p);
+          }
+        }
+        setOptionPresets(merged);
+      } catch { /* non-critical */ }
+      if (!cancelled) setPresetsLoaded(true);
+    })();
+    return () => { cancelled = true; };
+  }, [addFieldOpen, presetsLoaded]);
+
   if (!campaign) return null;
 
   const CRITERIA_TYPE_LABELS: Record<CriteriaFieldType, string> = {
@@ -168,9 +235,7 @@ export function CriteriaFieldModals({
     Number: "Number",
     Date: "Date",
     List: "List",
-    "US State": "US State",
     Boolean: "Boolean",
-    "Yes/No": "Yes/No",
   };
 
   return (
@@ -183,9 +248,10 @@ export function CriteriaFieldModals({
           setEditFieldData(null);
         }}
         width={440}
+        bodyClassName="flex flex-col overflow-hidden"
       >
         {addFieldOpen && (
-          <div className="space-y-4 text-sm">
+          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 text-sm" style={{ maxHeight: "70vh" }}>
             <div className="space-y-1">
               <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
                 Field Label
@@ -254,16 +320,8 @@ export function CriteriaFieldModals({
                   setFieldDraft((p) => ({
                     ...p,
                     data_type: dt,
-                    // Auto-fill Yes / No options when switching to Yes/No
                     options:
-                      dt === "Yes/No"
-                        ? [
-                            { value: "yes", label: "Yes" },
-                            { value: "no", label: "No" },
-                          ]
-                        : dt !== "List" && p.data_type !== dt
-                          ? []
-                          : p.options,
+                      dt !== "List" && p.data_type !== dt ? [] : p.options,
                   }));
                 }}
               >
@@ -273,7 +331,6 @@ export function CriteriaFieldModals({
                     "Number",
                     "Date",
                     "List",
-                    "US State",
                     "Boolean",
                   ] as CriteriaFieldType[]
                 ).map((t) => (
@@ -312,49 +369,6 @@ export function CriteriaFieldModals({
                 }
               />
             </div>
-            {/* ── List Options (Yes/No — read-only hint) ────────────── */}
-            {fieldDraft.data_type === "Yes/No" && (
-              <div className="space-y-1">
-                <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
-                  Options
-                </p>
-                <p className="text-[11px] text-[--color-text-muted]">
-                  Pre-filled with <strong>Yes</strong> / <strong>No</strong>.
-                </p>
-              </div>
-            )}
-            {/* ── State Mapping preset (US State only) ──────────────── */}
-            {fieldDraft.data_type === "US State" && (
-              <div className="space-y-1">
-                <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
-                  State Mapping Preset
-                </p>
-                <select
-                  className={inputClass}
-                  value={fieldDraft.state_mapping ?? ""}
-                  onChange={(e) =>
-                    setFieldDraft((p) => ({
-                      ...p,
-                      state_mapping: (e.target.value || null) as
-                        | "abbr_to_name"
-                        | "name_to_abbr"
-                        | null,
-                    }))
-                  }
-                >
-                  <option value="">None</option>
-                  <option value="abbr_to_name">
-                    Abbreviation → Full name (CA → California)
-                  </option>
-                  <option value="name_to_abbr">
-                    Full name → Abbreviation (California → CA)
-                  </option>
-                </select>
-                <p className="text-[11px] text-[--color-text-muted]">
-                  Covers all 50 US states automatically.
-                </p>
-              </div>
-            )}
             {/* ── List Options (List only) ───────────────────────────── */}
             {fieldDraft.data_type === "List" && (
               <div className="space-y-2">
@@ -397,10 +411,11 @@ export function CriteriaFieldModals({
                     transition={{ duration: 0.13, ease: "easeOut" }}
                   >
                     {optionsTab === "manual" ? (
-                      <>
+                      <div className="space-y-2">
                         {/* column headers */}
                         {fieldDraft.options.length > 0 && (
-                          <div className="grid grid-cols-[1fr_1fr_auto] gap-x-2 px-0.5">
+                          <div className="grid grid-cols-[auto_1fr_1fr_auto] gap-x-2 px-0.5">
+                            <span />
                             <p className="text-[10px] uppercase tracking-wide text-[--color-text-muted]">
                               Value (internal)
                             </p>
@@ -413,8 +428,39 @@ export function CriteriaFieldModals({
                         {fieldDraft.options.map((opt, i) => (
                           <div
                             key={i}
-                            className="grid grid-cols-[1fr_1fr_auto] items-center gap-2"
+                            className="grid grid-cols-[auto_1fr_1fr_auto] items-center gap-2"
                           >
+                            {/* reorder controls */}
+                            <div className="flex flex-col -my-1">
+                              <button
+                                type="button"
+                                disabled={i === 0}
+                                onClick={() =>
+                                  setFieldDraft((p) => {
+                                    const opts = [...p.options];
+                                    [opts[i - 1], opts[i]] = [opts[i], opts[i - 1]];
+                                    return { ...p, options: opts };
+                                  })
+                                }
+                                className="text-[--color-text-muted] hover:text-[--color-text] disabled:opacity-25 transition-colors"
+                              >
+                                <ChevronUp size={12} />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={i === fieldDraft.options.length - 1}
+                                onClick={() =>
+                                  setFieldDraft((p) => {
+                                    const opts = [...p.options];
+                                    [opts[i], opts[i + 1]] = [opts[i + 1], opts[i]];
+                                    return { ...p, options: opts };
+                                  })
+                                }
+                                className="text-[--color-text-muted] hover:text-[--color-text] disabled:opacity-25 transition-colors"
+                              >
+                                <ChevronDown size={12} />
+                              </button>
+                            </div>
                             {/* value — left */}
                             <input
                               className={inputClass}
@@ -422,26 +468,16 @@ export function CriteriaFieldModals({
                               value={opt.value}
                               onChange={(e) => {
                                 const val = e.target.value;
-                                const titleCased = val
-                                  .replace(/_/g, " ")
-                                  .replace(/\b\w/g, (c) => c.toUpperCase());
                                 setFieldDraft((p) => ({
                                   ...p,
                                   options: p.options.map((o, oi) =>
                                     oi === i
                                       ? {
                                           value: val,
-                                          // autofill label title-cased when it was empty or matched old auto-value
                                           label:
                                             o.label === "" ||
-                                            o.label === o.value ||
-                                            o.label ===
-                                              o.value
-                                                .replace(/_/g, " ")
-                                                .replace(/\b\w/g, (c) =>
-                                                  c.toUpperCase(),
-                                                )
-                                              ? titleCased
+                                            o.label === o.value
+                                              ? applyCasing(val, p.casing)
                                               : o.label,
                                         }
                                       : o,
@@ -481,28 +517,102 @@ export function CriteriaFieldModals({
                             </button>
                           </div>
                         ))}
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setFieldDraft((p) => ({
-                              ...p,
-                              options: [...p.options, { value: "", label: "" }],
-                            }))
-                          }
-                          className="w-full rounded-lg border border-dashed border-[--color-border] py-2 text-xs text-[--color-text-muted] hover:border-[--color-primary] hover:text-[--color-primary] transition-colors"
-                        >
-                          + Add Option
-                        </button>
-                      </>
+                        <div className="flex gap-2 pt-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setFieldDraft((p) => ({
+                                ...p,
+                                options: [
+                                  ...p.options,
+                                  { value: "", label: "" },
+                                ],
+                              }))
+                            }
+                            className="flex-1 rounded-lg border border-dashed border-[--color-border] py-2 text-xs text-[--color-text-muted] hover:border-[--color-primary] hover:text-[--color-primary] transition-colors"
+                          >
+                            + Add Option
+                          </button>
+                          {fieldDraft.options.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setFieldDraft((p) => ({ ...p, options: [] }))
+                              }
+                              className="rounded-lg border border-[--color-border] px-3 py-2 text-xs text-red-500 hover:bg-red-500/10 transition-colors"
+                            >
+                              Clear All
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     ) : (
                       /* ── Bulk import tab ── */
                       <div className="space-y-2">
+                        {/* ── Quick-apply presets (collapsible) ── */}
+                        {optionPresets.length > 0 && (
+                          <div>
+                            <button
+                              type="button"
+                              onClick={() => setPresetsExpanded((v) => !v)}
+                              className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-[--color-text-muted] hover:text-[--color-text] transition-colors w-full"
+                            >
+                              <span className="shrink-0">{presetsExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
+                              Quick Apply from Presets
+                              <span className="text-[9px] font-normal normal-case">({optionPresets.length})</span>
+                            </button>
+                            <AnimatePresence initial={false}>
+                              {presetsExpanded && (
+                                <motion.div
+                                  key="presets-panel"
+                                  initial={{ height: 0, opacity: 0 }}
+                                  animate={{ height: "auto", opacity: 1 }}
+                                  exit={{ height: 0, opacity: 0 }}
+                                  transition={{ duration: 0.18, ease: "easeOut" }}
+                                  className="overflow-hidden"
+                                >
+                                  <div className="flex flex-wrap gap-1.5 pt-1.5">
+                                    {optionPresets.map((pr) => (
+                                      <button
+                                        key={pr.id}
+                                        type="button"
+                                        onClick={() => {
+                                          setFieldDraft((p) => ({
+                                            ...p,
+                                            options: [
+                                              ...p.options.filter(
+                                                (o) =>
+                                                  !pr.options.some(
+                                                    (n) => n.value === o.value,
+                                                  ),
+                                              ),
+                                              ...pr.options,
+                                            ],
+                                          }));
+                                          setOptionsTab("manual");
+                                        }}
+                                        className="inline-flex items-center gap-1 rounded-md border border-[--color-border] bg-[--color-bg] px-2 py-1 text-[11px] text-[--color-text] hover:border-[--color-primary] hover:text-[--color-primary] transition-colors"
+                                      >
+                                        <ArrowRight size={10} />
+                                        {pr.name}
+                                        {pr.scope === "platform" && (
+                                          <span className="ml-0.5 rounded bg-blue-500/10 px-1 py-px text-[9px] font-semibold uppercase text-blue-600 dark:text-blue-400">
+                                            Platform
+                                          </span>
+                                        )}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+                          </div>
+                        )}
                         <p className="text-[11px] text-[--color-text-muted]">
-                          Enter values separated by commas. Labels will be
-                          title-cased automatically.
+                          Enter values separated by commas.
                         </p>
                         <textarea
-                          className={`${inputClass} min-h-[80px] resize-y font-mono`}
+                          className={`${inputClass} h-[120px] resize-none font-mono`}
                           placeholder="uber,lyft,doordash,instacart"
                           value={optionsBulkText}
                           onChange={(e) => setOptionsBulkText(e.target.value)}
@@ -516,9 +626,7 @@ export function CriteriaFieldModals({
                               .filter(Boolean)
                               .map((v) => ({
                                 value: v,
-                                label: v
-                                  .replace(/_/g, " ")
-                                  .replace(/\b\w/g, (c) => c.toUpperCase()),
+                                label: applyCasing(v, fieldDraft.casing),
                               }));
                             setFieldDraft((p) => ({
                               ...p,
@@ -541,6 +649,39 @@ export function CriteriaFieldModals({
                     )}
                   </motion.div>
                 </AnimatePresence>
+
+                {/* ── Label Casing ─────────────────────────────────── */}
+                <div className="space-y-1 pt-1">
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs uppercase tracking-wide text-[--color-text-muted] shrink-0">
+                      Label Casing
+                    </p>
+                    <select
+                      className={`${inputClass} !py-1 !text-xs max-w-[160px]`}
+                      value={fieldDraft.casing}
+                      onChange={(e) => {
+                        const next = e.target.value as CasingMode;
+                        setFieldDraft((p) => ({
+                          ...p,
+                          casing: next,
+                          options: p.options.map((o) => ({
+                            ...o,
+                            label: o.label ? applyCasing(o.label, next) : o.label,
+                          })),
+                        }));
+                      }}
+                    >
+                      <option value="default">None</option>
+                      <option value="title_case">Title Case</option>
+                      <option value="capitalize_first">First Letter</option>
+                      <option value="lowercase">lowercase</option>
+                      <option value="uppercase">UPPERCASE</option>
+                    </select>
+                  </div>
+                  <p className="text-[10px] text-[--color-text-muted]">
+                    Controls how the label (display) values are shown. Does not affect internal values.
+                  </p>
+                </div>
               </div>
             )}
             <div className="flex justify-end gap-2 pt-2">
@@ -572,6 +713,7 @@ export function CriteriaFieldModals({
                         required: fieldDraft.required,
                         description: fieldDraft.description || undefined,
                         state_mapping: fieldDraft.state_mapping ?? null,
+                        casing: fieldDraft.casing,
                         ...(fieldDraft.data_type === "List"
                           ? { options: fieldDraft.options }
                           : {}),
@@ -589,20 +731,12 @@ export function CriteriaFieldModals({
                         ...(fieldDraft.state_mapping
                           ? { state_mapping: fieldDraft.state_mapping }
                           : {}),
+                        casing: fieldDraft.casing,
                         ...(fieldDraft.data_type === "List"
                           ? { options: fieldDraft.options }
                           : {}),
                       });
                       toast.success("Field added");
-                      // Adding a custom field de-syncs the campaign from the
-                      // applied catalog version.
-                      setLocalCriteriaSetId(null);
-                      setLocalCriteriaSetVersion(null);
-                      setLocalCriteriaSetName(null);
-                      onCampaignUpdate?.({
-                        criteria_set_id: null,
-                        criteria_set_version: null,
-                      });
                     }
                     await refreshCriteria();
                     setAddFieldOpen(false);
@@ -636,8 +770,9 @@ export function CriteriaFieldModals({
       >
         {valueMappingsField && (
           <div className="space-y-4 text-sm">
-            {/* State mapping preset — only for US State fields */}
-            {valueMappingsField.data_type === "US State" && (
+            {/* State mapping preset — for fields with state mapping support */}
+            {(valueMappingsField.data_type === "List" ||
+              valueMappingsField.data_type === ("US State" as string)) && (
               <div className="space-y-2 rounded-xl border border-[--color-border] p-3">
                 <p className="text-[10px] font-medium uppercase tracking-wide text-[--color-text-muted]">
                   State Mapping Preset
@@ -715,8 +850,7 @@ export function CriteriaFieldModals({
                     }
                   />
                   <ArrowRight size={13} className="text-[--color-text-muted]" />
-                  {(valueMappingsField.data_type === "List" ||
-                    valueMappingsField.data_type === "Yes/No") &&
+                  {valueMappingsField.data_type === "List" &&
                   (valueMappingsField.options?.length ?? 0) > 0 ? (
                     <select
                       className={inputClass}
@@ -791,18 +925,6 @@ export function CriteriaFieldModals({
                   if (!valueMappingsField) return;
                   setValueMappingsSaving(true);
                   try {
-                    // Save state_mapping preset if this is a US State field and it changed
-                    if (
-                      valueMappingsField.data_type === "US State" &&
-                      valueMappingsStateDraft !==
-                        valueMappingsField.state_mapping
-                    ) {
-                      await updateCriteriaField(
-                        campaign.id,
-                        valueMappingsField.id,
-                        { state_mapping: valueMappingsStateDraft },
-                      );
-                    }
                     // Save custom value_mappings
                     const mappings: CriteriaValueMapping[] = valueMappingsDraft
                       .map((r) => ({
@@ -835,7 +957,7 @@ export function CriteriaFieldModals({
         )}
       </Modal>
       <Modal
-        title="Delete Catalog Set?"
+        title="Delete Preset?"
         isOpen={!!confirmDeleteSet}
         onClose={() => setConfirmDeleteSet(null)}
         width={400}
@@ -848,7 +970,7 @@ export function CriteriaFieldModals({
                 {confirmDeleteSet.name}
               </span>
               ? This cannot be undone. Campaigns actively using a version of
-              this set will retain their criteria fields but lose the catalog
+              this set will retain their lead fields but lose the preset
               link.
             </p>
             <div className="flex justify-end gap-2 pt-1">
@@ -874,7 +996,7 @@ export function CriteriaFieldModals({
                     );
                     setConfirmDeleteSet(null);
                   } catch {
-                    toast.error("Failed to delete catalog set.");
+                    toast.error("Failed to delete preset.");
                   } finally {
                     setDeletingSet(false);
                   }
@@ -922,14 +1044,7 @@ export function CriteriaFieldModals({
                     );
                     await refreshCriteria();
                     toast.success("Field deleted");
-                    // Deleting a field de-syncs the campaign from the applied catalog.
-                    setLocalCriteriaSetId(null);
-                    setLocalCriteriaSetVersion(null);
-                    setLocalCriteriaSetName(null);
-                    onCampaignUpdate?.({
-                      criteria_set_id: null,
-                      criteria_set_version: null,
-                    });
+                    setDeleteFieldTarget(null);
                     setDeleteFieldTarget(null);
                   } catch (err: any) {
                     toast.error(err?.message || "Unable to delete field");
@@ -945,7 +1060,7 @@ export function CriteriaFieldModals({
         )}
       </Modal>
       <Modal
-        title="Save Fields to Catalog"
+        title="Save Fields to Presets"
         isOpen={saveCriteriaToSetOpen}
         onClose={() => setSaveCriteriaToSetOpen(false)}
         width={470}
@@ -954,7 +1069,7 @@ export function CriteriaFieldModals({
           <p className="text-[13px] text-[--color-text-muted]">
             Save this campaign's {criteriaFields.length} field
             {criteriaFields.length !== 1 ? "s" : ""} as either a new version of
-            the active catalog entry or as a brand new set.
+            the active preset or as a brand new preset.
           </p>
 
           <div className="space-y-2">
@@ -977,8 +1092,8 @@ export function CriteriaFieldModals({
                 </p>
                 <p className="text-[11px] text-[--color-text-muted]">
                   {localCriteriaSetId
-                    ? `Adds a version to ${localCriteriaSetName ?? localCriteriaSetId}.`
-                    : "No active catalog is applied to this campaign yet."}
+                    ? `Adds a version to "${localCriteriaSetName || "Unnamed Preset"}".`
+                    : "No active preset is applied to this campaign yet."}
                 </p>
               </button>
               <button
@@ -991,10 +1106,10 @@ export function CriteriaFieldModals({
                 }`}
               >
                 <p className="text-xs font-medium text-[--color-text]">
-                  Save as new set
+                  Save as new Preset
                 </p>
                 <p className="text-[11px] text-[--color-text-muted]">
-                  Creates a new catalog entry with version 1.
+                  Creates a new preset with version 1.
                 </p>
               </button>
             </div>
@@ -1002,7 +1117,7 @@ export function CriteriaFieldModals({
 
           <div className="space-y-1">
             <label className="text-xs uppercase tracking-wide text-[--color-text-muted]">
-              Set Name{saveCriteriaToSetMode === "new_set" ? " *" : ""}
+              Preset Name{saveCriteriaToSetMode === "new_set" ? " *" : ""}
             </label>
             <input
               type="text"

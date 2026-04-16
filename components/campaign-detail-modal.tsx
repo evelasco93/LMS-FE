@@ -1046,43 +1046,6 @@ export function CampaignDetailModal({
   );
 
   const [deliveryClientId, setDeliveryClientId] = useState<string | null>(null);
-  const [deliveryTab, setDeliveryTab] = useState<"request" | "response">(
-    "request",
-  );
-  const [deliveryDraft, setDeliveryDraft] = useState<ClientDeliveryConfig>(
-    defaultDeliveryConfig(),
-  );
-  const [savingDeliveryConfig, setSavingDeliveryConfig] = useState(false);
-  const [deliverySaveAttempted, setDeliverySaveAttempted] = useState(false);
-  const deliveryHasUrl = deliveryDraft.url.trim().length > 0;
-  const deliveryHasMappings =
-    deliveryDraft.payload_mapping.length > 0 &&
-    deliveryDraft.payload_mapping.every(
-      (m) =>
-        m.key.trim().length > 0 &&
-        (m.parameter_target === undefined ||
-          m.parameter_target === "query" ||
-          m.parameter_target === "body") &&
-        (m.value_source === "field"
-          ? (m.field_name ?? "").trim().length > 0
-          : String(m.static_value ?? "").trim().length > 0),
-    );
-  const deliveryHasValidationRule =
-    deliveryDraft.acceptance_rules.length > 0 &&
-    deliveryDraft.acceptance_rules.every(
-      (r) => r.match_value.trim().length > 0,
-    );
-  const deliveryInvalidUrl = deliverySaveAttempted && !deliveryHasUrl;
-  const deliveryInvalidMappings = deliverySaveAttempted && !deliveryHasMappings;
-  const deliveryInvalidRules =
-    deliverySaveAttempted && !deliveryHasValidationRule;
-  const deliverySaveDisabledReason = !deliveryHasValidationRule
-    ? "Add at least one complete response validation rule before saving."
-    : !deliveryHasUrl
-      ? "Webhook URL is required."
-      : !deliveryHasMappings
-        ? "Add at least one complete payload mapping before saving."
-        : "";
 
   const [pixelAffiliateId, setPixelAffiliateId] = useState<string | null>(null);
   const [pixelDraft, setPixelDraft] = useState<AffiliateSoldPixelConfig>(
@@ -1238,7 +1201,7 @@ export function CampaignDetailModal({
     mutate: refreshLogicRules,
     isLoading: logicRulesLoading,
   } = useSWR(
-    isOpen && campaign?.id && (tab === "settings" || tab === "overview")
+    isOpen && campaign?.id && (tab === "settings" || tab === "overview" || tab === "clients" || tab === "affiliates")
       ? `logic-rules-${campaign.id}`
       : null,
     () => listLogicRules(campaign!.id),
@@ -1360,7 +1323,6 @@ export function CampaignDetailModal({
     } else if (deliveryClientId) {
       nestedWindow = "delivery";
       window_id = deliveryClientId;
-      window_tab = deliveryTab;
     } else if (affiliateCapModalId) {
       nestedWindow = "lead-cap";
       window_id = affiliateCapModalId;
@@ -1384,7 +1346,6 @@ export function CampaignDetailModal({
     pixelAffiliateId,
     pixelConfigTab,
     deliveryClientId,
-    deliveryTab,
     affiliateCapModalId,
     linkClientModalOpen,
     linkAffiliateModalOpen,
@@ -1467,11 +1428,6 @@ export function CampaignDetailModal({
         toast.success("Rule created.");
       }
       await refreshLogicRules();
-      // Manual rule edits de-sync the campaign from any applied logic catalog.
-      setLocalLogicSetId(null);
-      setLocalLogicSetVersion(null);
-      setLocalLogicSetName(null);
-      onCampaignUpdate?.({ logic_set_id: null, logic_set_version: null });
       setLogicBuilderOpen(false);
       setEditingRule(null);
     } catch (err: any) {
@@ -1513,10 +1469,6 @@ export function CampaignDetailModal({
         toast.success("Rule created.");
       }
       await refreshLogicRules();
-      setLocalLogicSetId(null);
-      setLocalLogicSetVersion(null);
-      setLocalLogicSetName(null);
-      onCampaignUpdate?.({ logic_set_id: null, logic_set_version: null });
       return true;
     } catch (err: any) {
       toast.error(err?.message || "An error occurred.");
@@ -1537,10 +1489,6 @@ export function CampaignDetailModal({
       }
       toast.success("Rule deleted.");
       await refreshLogicRules();
-      setLocalLogicSetId(null);
-      setLocalLogicSetVersion(null);
-      setLocalLogicSetName(null);
-      onCampaignUpdate?.({ logic_set_id: null, logic_set_version: null });
     } catch (err: any) {
       toast.error(err?.message || "An error occurred.");
     } finally {
@@ -1559,10 +1507,6 @@ export function CampaignDetailModal({
         return;
       }
       await refreshLogicRules();
-      setLocalLogicSetId(null);
-      setLocalLogicSetVersion(null);
-      setLocalLogicSetName(null);
-      onCampaignUpdate?.({ logic_set_id: null, logic_set_version: null });
     } catch (err: any) {
       toast.error(err?.message || "An error occurred.");
     }
@@ -1826,7 +1770,30 @@ export function CampaignDetailModal({
       type === "affiliate"
         ? await listAffiliateLogicRules(campaign.id, participantId)
         : await listClientLogicRules(campaign.id, participantId);
-    setParticipantLogicRules((res as any)?.data ?? []);
+    const rules = (res as any)?.data ?? [];
+    setParticipantLogicRules(rules);
+    // Keep campaign.client_overrides / affiliate_overrides in sync so badges update immediately
+    if (type === "client") {
+      onCampaignUpdate?.({
+        client_overrides: {
+          ...((campaign as any)?.client_overrides ?? {}),
+          [participantId]: {
+            ...((campaign as any)?.client_overrides?.[participantId] ?? {}),
+            logic_rules: rules,
+          },
+        },
+      } as any);
+    } else {
+      onCampaignUpdate?.({
+        affiliate_overrides: {
+          ...((campaign as any)?.affiliate_overrides ?? {}),
+          [participantId]: {
+            ...((campaign as any)?.affiliate_overrides?.[participantId] ?? {}),
+            logic_rules: rules,
+          },
+        },
+      } as any);
+    }
   };
 
   const openAffiliateLogicManager = async (affiliateId: string) => {
@@ -2060,7 +2027,7 @@ export function CampaignDetailModal({
         }
       }
     } catch {
-      toast.error("Failed to load rules catalog.");
+      toast.error("Failed to load rules presets.");
     } finally {
       setParticipantLogicCatalogLoading(false);
     }
@@ -2094,7 +2061,7 @@ export function CampaignDetailModal({
               version,
             );
       if ((res as any)?.result === false) {
-        toast.error((res as any)?.message || "Failed to apply catalog.");
+        toast.error((res as any)?.message || "Failed to apply preset.");
         return;
       }
       toast.success(`Applied "${set.name}" v${version}.`);
@@ -2131,7 +2098,7 @@ export function CampaignDetailModal({
       }
       setParticipantLogicCatalogOpen(false);
     } catch (err: any) {
-      toast.error(err?.message || "Failed to apply catalog.");
+      toast.error(err?.message || "Failed to apply preset.");
     } finally {
       setParticipantLogicApplyingCatalogId(null);
     }
@@ -2207,7 +2174,7 @@ export function CampaignDetailModal({
       saveParticipantLogicMode === "new_version" &&
       !participantLogicBaseSetId
     ) {
-      toast.warning("No active logic catalog set to version.");
+      toast.warning("No active logic preset to version.");
       return;
     }
 
@@ -2234,7 +2201,7 @@ export function CampaignDetailModal({
           },
         );
         if (!updateRes.success) {
-          throw new Error("Failed to create new catalog version");
+          throw new Error("Failed to create new preset version");
         }
         targetSet = updateRes.data.set;
         targetVersion = targetSet.latest_version;
@@ -2247,7 +2214,7 @@ export function CampaignDetailModal({
           ...(rules.length > 0 ? { rules } : {}),
         });
         if (!createRes.success) {
-          throw new Error("Failed to create rules catalog set");
+          throw new Error("Failed to create rules preset");
         }
         targetSet = createRes.data.set;
         targetVersion = 1;
@@ -2260,7 +2227,7 @@ export function CampaignDetailModal({
         participantLogicBaseSetId ? "new_version" : "new_set",
       );
     } catch (err: any) {
-      toast.error(err?.message || "Failed to save logic catalog set.");
+      toast.error(err?.message || "Failed to save logic preset.");
     } finally {
       setSavingParticipantLogicToCatalog(false);
     }
@@ -2285,7 +2252,7 @@ export function CampaignDetailModal({
         }
       }
     } catch {
-      toast.error("Failed to load rules catalog.");
+      toast.error("Failed to load rules presets.");
     } finally {
       setLogicCatalogLoading(false);
     }
@@ -2298,7 +2265,7 @@ export function CampaignDetailModal({
       return;
     }
     if (saveLogicToSetMode === "new_version" && !localLogicSetId) {
-      toast.warning("No active rules catalog set to version.");
+      toast.warning("No active rules preset to version.");
       return;
     }
 
@@ -2319,7 +2286,7 @@ export function CampaignDetailModal({
           rules,
         });
         if (!updateRes.success) {
-          throw new Error("Failed to create new rules catalog version.");
+          throw new Error("Failed to create new rules preset version.");
         }
         targetSet = updateRes.data.set;
         targetVersion = targetSet.latest_version;
@@ -2332,7 +2299,7 @@ export function CampaignDetailModal({
           ...(rules.length > 0 ? { rules } : {}),
         });
         if (!createRes.success) {
-          throw new Error("Failed to create rules catalog set.");
+          throw new Error("Failed to create rules preset.");
         }
         targetSet = createRes.data.set;
         targetVersion = 1;
@@ -2344,10 +2311,6 @@ export function CampaignDetailModal({
       setLocalLogicSetId(targetSet.id);
       setLocalLogicSetVersion(targetVersion);
       setLocalLogicSetName(targetSet.name);
-      onCampaignUpdate?.({
-        logic_set_id: targetSet.id,
-        logic_set_version: targetVersion,
-      });
 
       toast.success(
         `Saved to "${targetSet.name}" v${targetVersion} and applied.`,
@@ -2356,7 +2319,7 @@ export function CampaignDetailModal({
       setSaveLogicToSetDraft({ name: "", description: "" });
       setSaveLogicToSetMode("new_version");
     } catch (err: any) {
-      toast.error(err?.message || "Failed to save rules catalog set.");
+      toast.error(err?.message || "Failed to save rules preset.");
     } finally {
       setSavingLogicToSet(false);
     }
@@ -2403,10 +2366,9 @@ export function CampaignDetailModal({
       setLocalLogicSetId(setId);
       setLocalLogicSetVersion(version);
       setLocalLogicSetName(setName);
-      onCampaignUpdate?.({ logic_set_id: setId, logic_set_version: version });
       toast.success(`Applied "${setName}" v${version}.`);
     } catch (err: any) {
-      toast.error(err?.message || "Failed to apply rules catalog version.");
+      toast.error(err?.message || "Failed to apply rules preset version.");
     } finally {
       setApplyingLogicCatalog(null);
     }
@@ -2427,7 +2389,7 @@ export function CampaignDetailModal({
         }
       }
     } catch {
-      toast.error("Failed to load catalog.");
+      toast.error("Failed to load presets.");
     } finally {
       setCatalogLoading(false);
     }
@@ -2443,7 +2405,7 @@ export function CampaignDetailModal({
       return;
     }
     if (saveCriteriaToSetMode === "new_version" && !localCriteriaSetId) {
-      toast.warning("No active fields catalog set to version.");
+      toast.warning("No active fields preset to version.");
       return;
     }
 
@@ -2474,7 +2436,7 @@ export function CampaignDetailModal({
           fields,
         });
         if (!updateRes.success) {
-          throw new Error("Failed to create new catalog version");
+          throw new Error("Failed to create new preset version");
         }
         targetSet = updateRes.data.set;
         targetVersion = targetSet.latest_version;
@@ -2495,10 +2457,6 @@ export function CampaignDetailModal({
       setLocalCriteriaSetId(targetSet.id);
       setLocalCriteriaSetVersion(targetVersion);
       setLocalCriteriaSetName(targetSet.name);
-      onCampaignUpdate?.({
-        criteria_set_id: targetSet.id,
-        criteria_set_version: targetVersion,
-      });
 
       toast.success(
         saveCriteriaToSetMode === "new_version"
@@ -2510,7 +2468,7 @@ export function CampaignDetailModal({
       setSaveCriteriaToSetMode(localCriteriaSetId ? "new_version" : "new_set");
       await refreshCriteria();
     } catch (err: any) {
-      toast.error(err?.message || "Failed to save fields catalog.");
+      toast.error(err?.message || "Failed to save fields preset.");
     } finally {
       setSavingCriteriaToSet(false);
     }
@@ -2756,9 +2714,7 @@ export function CampaignDetailModal({
     Number: "Number",
     Date: "Date",
     List: "List",
-    "US State": "US State",
     Boolean: "Boolean",
-    "Yes/No": "Yes/No",
   };
 
   const saveTitleEdit = async () => {
@@ -2978,14 +2934,13 @@ export function CampaignDetailModal({
                       linkedClients={linkedClients}
                       clientLinkMap={clientLinkMap}
                       availableClients={availableClients}
+                      criteriaFields={criteriaFields}
                       logicRules={logicRules}
                       getClientLeadMode={getClientLeadMode}
                       getClientLeadCount={getClientLeadCount}
                       resolveChangedBy={resolveChangedBy}
                       onOpenLeadsForCampaign={onOpenLeadsForCampaign}
                       openClientLogicManager={openClientLogicManager}
-                      setDeliveryDraft={setDeliveryDraft}
-                      setDeliveryTab={setDeliveryTab}
                       setDeliveryClientId={setDeliveryClientId}
                       setLinkClientModalOpen={setLinkClientModalOpen}
                       setParticipantAction={setParticipantAction}
@@ -3002,6 +2957,7 @@ export function CampaignDetailModal({
                       linkedAffiliates={linkedAffiliates}
                       affiliateLinkMap={affiliateLinkMap}
                       availableAffiliates={availableAffiliates}
+                      criteriaFields={criteriaFields}
                       logicRules={logicRules}
                       focusAffiliateId={focusAffiliateId}
                       leadsByCampaignKey={leadsByCampaignKey}
@@ -3377,9 +3333,6 @@ export function CampaignDetailModal({
         setPinnedBaseLogicViewerOpen={setPinnedBaseLogicViewerOpen}
         setPinnedBaseExpandedRules={setPinnedBaseExpandedRules}
         setDeliveryClientId={setDeliveryClientId}
-        setDeliveryDraft={setDeliveryDraft}
-        setDeliverySaveAttempted={setDeliverySaveAttempted}
-        setDeliveryTab={setDeliveryTab}
         setLocalClientLinks={setLocalClientLinks}
         setLocalAffiliateLinks={setLocalAffiliateLinks}
         setAffiliateCapModalId={setAffiliateCapModalId}
@@ -3410,8 +3363,6 @@ export function CampaignDetailModal({
         formatLogicOperatorLabel={formatLogicOperatorLabel}
         formatLogicConditionValue={formatLogicConditionValue}
         getLogicCatalogSet={getLogicCatalogSet}
-        defaultDeliveryConfig={defaultDeliveryConfig}
-        normalizeDeliveryMappingRows={normalizeDeliveryMappingRows}
       />
 
       {/* ── Participant rule builder modal ───────────────────────────────── */}
@@ -3428,30 +3379,15 @@ export function CampaignDetailModal({
       />
 
       <ClientDeliveryModal
-        campaign={campaign}
-        clients={clients}
+        campaignId={campaign?.id ?? null}
+        clientId={deliveryClientId}
+        clientName={
+          clients.find((c) => c.id === deliveryClientId)?.name ??
+          deliveryClientId ??
+          ""
+        }
         criteriaFields={criteriaFields}
-        deliveryClientId={deliveryClientId}
-        deliveryDraft={deliveryDraft}
-        deliveryTab={deliveryTab}
-        savingDeliveryConfig={savingDeliveryConfig}
-        deliverySaveAttempted={deliverySaveAttempted}
-        deliveryHasUrl={deliveryHasUrl}
-        deliveryHasMappings={deliveryHasMappings}
-        deliveryHasValidationRule={deliveryHasValidationRule}
-        deliveryInvalidUrl={deliveryInvalidUrl}
-        deliveryInvalidMappings={deliveryInvalidMappings}
-        deliveryInvalidRules={deliveryInvalidRules}
-        deliverySaveDisabledReason={deliverySaveDisabledReason}
-        setDeliveryClientId={setDeliveryClientId}
-        setDeliveryDraft={setDeliveryDraft}
-        setDeliveryTab={setDeliveryTab}
-        setSavingDeliveryConfig={setSavingDeliveryConfig}
-        setDeliverySaveAttempted={setDeliverySaveAttempted}
-        setLocalClientLinks={setLocalClientLinks}
-        onUpdateClientDeliveryConfig={onUpdateClientDeliveryConfig}
-        normalizeFieldLabel={normalizeFieldLabel}
-        inputClass={inputClass}
+        onClose={() => setDeliveryClientId(null)}
       />
 
       {/* ── Affiliate Lead Cap Modal ───────────────────────────────────────── */}
