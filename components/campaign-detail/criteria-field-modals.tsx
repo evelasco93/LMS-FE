@@ -2,7 +2,14 @@
 
 import { type Dispatch, type SetStateAction, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowRight, ChevronDown, ChevronRight, ChevronUp, X } from "lucide-react";
+import {
+  ArrowRight,
+  BookmarkPlus,
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Modal } from "@/components/modal";
 import { Button } from "@/components/button";
@@ -17,6 +24,7 @@ import type {
 } from "@/lib/types";
 import {
   createCriteriaField,
+  createTenantPreset,
   deleteCriteriaCatalogSet,
   deleteCriteriaField,
   listPlatformPresets,
@@ -35,7 +43,10 @@ type OptionPreset = {
 function applyCasing(label: string, mode: CasingMode): string {
   switch (mode) {
     case "title_case":
-      return label.replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+      return label.replace(
+        /\w\S*/g,
+        (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase(),
+      );
     case "capitalize_first":
       return label.charAt(0).toUpperCase() + label.slice(1).toLowerCase();
     case "lowercase":
@@ -192,6 +203,34 @@ export function CriteriaFieldModals({
   const [presetsLoaded, setPresetsLoaded] = useState(false);
   const [presetsExpanded, setPresetsExpanded] = useState(false);
 
+  // ── Save-as-preset ──────────────────────────────────────────────────────
+  const [presetNameOpen, setPresetNameOpen] = useState(false);
+  const [presetName, setPresetName] = useState("");
+  const [presetSaving, setPresetSaving] = useState(false);
+
+  const handleSaveAsPreset = async () => {
+    const name = presetName.trim();
+    if (!name) return;
+    setPresetSaving(true);
+    try {
+      await createTenantPreset({
+        name,
+        data_type: fieldDraft.data_type,
+        options: fieldDraft.options,
+        casing: fieldDraft.casing,
+      });
+      toast.success(`Preset "${name}" saved.`);
+      setPresetNameOpen(false);
+      setPresetName("");
+      // refresh presets so it shows up in bulk tab
+      setPresetsLoaded(false);
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to save preset.");
+    } finally {
+      setPresetSaving(false);
+    }
+  };
+
   useEffect(() => {
     if (!addFieldOpen || presetsLoaded) return;
     let cancelled = false;
@@ -202,30 +241,49 @@ export function CriteriaFieldModals({
           listTenantPresets(),
         ]);
         if (cancelled) return;
-        const toArray = (d: unknown): unknown[] => Array.isArray(d) ? d : (d as any)?.items ?? [];
-        const toPreset = (r: Record<string, unknown>, scope: "platform" | "tenant"): OptionPreset | null => {
+        const toArray = (d: unknown): unknown[] =>
+          Array.isArray(d) ? d : ((d as any)?.items ?? []);
+        const toPreset = (
+          r: Record<string, unknown>,
+          scope: "platform" | "tenant",
+        ): OptionPreset | null => {
           const opts = r.options as CriteriaFieldOption[] | undefined;
           if (!opts?.length || r.data_type !== "List") return null;
-          return { id: r.id as string, name: r.name as string, scope, options: opts };
+          return {
+            id: r.id as string,
+            name: r.name as string,
+            scope,
+            options: opts,
+          };
         };
         const merged: OptionPreset[] = [];
         if (platResult.status === "fulfilled") {
-          for (const r of toArray(platResult.value.data) as Record<string, unknown>[]) {
+          for (const r of toArray(platResult.value.data) as Record<
+            string,
+            unknown
+          >[]) {
             const p = toPreset(r, "platform");
             if (p) merged.push(p);
           }
         }
         if (tenResult.status === "fulfilled") {
-          for (const r of toArray(tenResult.value.data) as Record<string, unknown>[]) {
+          for (const r of toArray(tenResult.value.data) as Record<
+            string,
+            unknown
+          >[]) {
             const p = toPreset(r, "tenant");
             if (p) merged.push(p);
           }
         }
         setOptionPresets(merged);
-      } catch { /* non-critical */ }
+      } catch {
+        /* non-critical */
+      }
       if (!cancelled) setPresetsLoaded(true);
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [addFieldOpen, presetsLoaded]);
 
   if (!campaign) return null;
@@ -251,7 +309,10 @@ export function CriteriaFieldModals({
         bodyClassName="flex flex-col overflow-hidden"
       >
         {addFieldOpen && (
-          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 text-sm" style={{ maxHeight: "70vh" }}>
+          <div
+            className="flex-1 overflow-y-auto px-5 py-4 space-y-4 text-sm"
+            style={{ maxHeight: "70vh" }}
+          >
             <div className="space-y-1">
               <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
                 Field Label
@@ -438,7 +499,10 @@ export function CriteriaFieldModals({
                                 onClick={() =>
                                   setFieldDraft((p) => {
                                     const opts = [...p.options];
-                                    [opts[i - 1], opts[i]] = [opts[i], opts[i - 1]];
+                                    [opts[i - 1], opts[i]] = [
+                                      opts[i],
+                                      opts[i - 1],
+                                    ];
                                     return { ...p, options: opts };
                                   })
                                 }
@@ -452,7 +516,10 @@ export function CriteriaFieldModals({
                                 onClick={() =>
                                   setFieldDraft((p) => {
                                     const opts = [...p.options];
-                                    [opts[i], opts[i + 1]] = [opts[i + 1], opts[i]];
+                                    [opts[i], opts[i + 1]] = [
+                                      opts[i + 1],
+                                      opts[i],
+                                    ];
                                     return { ...p, options: opts };
                                   })
                                 }
@@ -476,7 +543,8 @@ export function CriteriaFieldModals({
                                           value: val,
                                           label:
                                             o.label === "" ||
-                                            o.label === o.value
+                                            o.label ===
+                                              applyCasing(o.value, p.casing)
                                               ? applyCasing(val, p.casing)
                                               : o.label,
                                         }
@@ -557,9 +625,17 @@ export function CriteriaFieldModals({
                               onClick={() => setPresetsExpanded((v) => !v)}
                               className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-[--color-text-muted] hover:text-[--color-text] transition-colors w-full"
                             >
-                              <span className="shrink-0">{presetsExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
+                              <span className="shrink-0">
+                                {presetsExpanded ? (
+                                  <ChevronDown size={12} />
+                                ) : (
+                                  <ChevronRight size={12} />
+                                )}
+                              </span>
                               Quick Apply from Presets
-                              <span className="text-[9px] font-normal normal-case">({optionPresets.length})</span>
+                              <span className="text-[9px] font-normal normal-case">
+                                ({optionPresets.length})
+                              </span>
                             </button>
                             <AnimatePresence initial={false}>
                               {presetsExpanded && (
@@ -568,7 +644,10 @@ export function CriteriaFieldModals({
                                   initial={{ height: 0, opacity: 0 }}
                                   animate={{ height: "auto", opacity: 1 }}
                                   exit={{ height: 0, opacity: 0 }}
-                                  transition={{ duration: 0.18, ease: "easeOut" }}
+                                  transition={{
+                                    duration: 0.18,
+                                    ease: "easeOut",
+                                  }}
                                   className="overflow-hidden"
                                 >
                                   <div className="flex flex-wrap gap-1.5 pt-1.5">
@@ -666,7 +745,12 @@ export function CriteriaFieldModals({
                           casing: next,
                           options: p.options.map((o) => ({
                             ...o,
-                            label: o.label ? applyCasing(o.label, next) : o.label,
+                            label: o.label
+                              ? o.label === applyCasing(o.value, p.casing) ||
+                                o.label === o.value
+                                ? applyCasing(o.value, next)
+                                : applyCasing(o.label, next)
+                              : o.label,
                           })),
                         }));
                       }}
@@ -679,11 +763,64 @@ export function CriteriaFieldModals({
                     </select>
                   </div>
                   <p className="text-[10px] text-[--color-text-muted]">
-                    Controls how the label (display) values are shown. Does not affect internal values.
+                    Controls how the label (display) values are shown. Does not
+                    affect internal values.
                   </p>
                 </div>
               </div>
             )}
+
+            {/* ── Save current options as preset ─────────────────── */}
+            {fieldDraft.data_type === "List" &&
+              fieldDraft.options.length > 0 && (
+                <div className="pt-1">
+                  {presetNameOpen ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        className={`${inputClass} flex-1`}
+                        placeholder="Preset name…"
+                        value={presetName}
+                        onChange={(e) => setPresetName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleSaveAsPreset();
+                          if (e.key === "Escape") {
+                            setPresetNameOpen(false);
+                            setPresetName("");
+                          }
+                        }}
+                        autoFocus
+                      />
+                      <Button
+                        size="sm"
+                        disabled={presetSaving || !presetName.trim()}
+                        onClick={handleSaveAsPreset}
+                      >
+                        {presetSaving ? "Saving…" : "Save"}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setPresetNameOpen(false);
+                          setPresetName("");
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="flex items-center gap-1 text-xs text-[--color-primary] hover:underline"
+                      onClick={() => setPresetNameOpen(true)}
+                    >
+                      <BookmarkPlus size={13} />
+                      Save as Preset
+                    </button>
+                  )}
+                </div>
+              )}
+
             <div className="flex justify-end gap-2 pt-2">
               <Button
                 variant="ghost"
@@ -970,8 +1107,7 @@ export function CriteriaFieldModals({
                 {confirmDeleteSet.name}
               </span>
               ? This cannot be undone. Campaigns actively using a version of
-              this set will retain their lead fields but lose the preset
-              link.
+              this set will retain their lead fields but lose the preset link.
             </p>
             <div className="flex justify-end gap-2 pt-1">
               <Button

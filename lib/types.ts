@@ -27,12 +27,26 @@ export interface WebhookAcceptanceRule {
   action: "passed" | "failed";
 }
 
+export interface ValidationCondition {
+  destination_id: string;
+  match_value: string;
+  action: "passed" | "failed";
+}
+
+export interface ValidationGroup {
+  conditions: ValidationCondition[];
+}
+
+export interface ResponseValidation {
+  groups: ValidationGroup[];
+}
+
 export interface ClientDeliveryConfig {
   url: string;
   method: WebhookMethod;
   headers?: Record<string, string>;
   payload_mapping: WebhookFieldMapping[];
-  acceptance_rules: WebhookAcceptanceRule[];
+  acceptance_rules?: WebhookAcceptanceRule[];
 }
 
 export interface AffiliateSoldPixelConfig {
@@ -174,6 +188,7 @@ export interface CampaignClient {
   /** @deprecated Use `destinations` instead. Retained for backward compatibility. */
   delivery_config?: ClientDeliveryConfig;
   destinations?: Destination[];
+  response_validation?: ResponseValidation;
   weight?: number;
   leads_delivered_count?: number;
   history?: ParticipantHistoryEntry[];
@@ -637,7 +652,7 @@ export interface Destination {
   method: WebhookMethod;
   headers?: Record<string, string>;
   payload_mapping: WebhookFieldMapping[];
-  acceptance_rules: WebhookAcceptanceRule[];
+  acceptance_rules?: WebhookAcceptanceRule[];
   state_mapping_override?: Record<
     string,
     "abbr_to_name" | "name_to_abbr" | null

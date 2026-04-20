@@ -10,6 +10,7 @@ import type {
   Campaign,
   ClientDeliveryConfig,
   Destination,
+  ResponseValidation,
   DistributionMode,
   CampaignParticipantStatus,
   CampaignStatus,
@@ -1654,6 +1655,32 @@ export async function deleteDestination(
       `/campaigns/${encodeURIComponent(campaignId)}/clients/${encodeURIComponent(clientId)}/destinations/${encodeURIComponent(destId)}`,
     ),
     { method: "DELETE" },
+  );
+}
+
+// ─── Response Validation ───────────────────────────────────────────────────────
+
+export async function getResponseValidation(
+  campaignId: string,
+  clientId: string,
+) {
+  return request<ApiResponse<ResponseValidation | null>>(
+    buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/clients/${encodeURIComponent(clientId)}/response-validation`,
+    ),
+  );
+}
+
+export async function saveResponseValidation(
+  campaignId: string,
+  clientId: string,
+  payload: ResponseValidation,
+) {
+  return request<ApiResponse<ResponseValidation>>(
+    buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/clients/${encodeURIComponent(clientId)}/response-validation`,
+    ),
+    { method: "PUT", body: JSON.stringify(payload) },
   );
 }
 

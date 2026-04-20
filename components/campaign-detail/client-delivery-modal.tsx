@@ -1,17 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Globe, Plus, Star, Trash2 } from "lucide-react";
+import { Globe, Plus, Shield, Trash2, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { Modal } from "@/components/modal";
 import { Button } from "@/components/button";
-import type { CriteriaField, Destination } from "@/lib/types";
+import type {
+  CriteriaField,
+  Destination,
+  ValidationCondition,
+  ValidationGroup,
+  ResponseValidation,
+} from "@/lib/types";
 import {
   listDestinations,
   addDestination,
   updateDestination,
   deleteDestination,
+  getResponseValidation,
+  saveResponseValidation,
 } from "@/lib/api";
 
 /* ── helpers ──────────────────────────────────────────────────────────────── */
@@ -23,9 +31,13 @@ function emptyDestinationDraft(): Omit<Destination, "id"> {
     url: "",
     method: "POST",
     payload_mapping: [
-      { key: "", value_source: "field", field_name: "", parameter_target: "body" },
+      {
+        key: "",
+        value_source: "field",
+        field_name: "",
+        parameter_target: "body",
+      },
     ],
-    acceptance_rules: [{ match_value: "", action: "passed" }],
     is_primary: false,
   };
 }
@@ -93,10 +105,32 @@ export function ClientDeliveryModal({
   const [draft, setDraft] = useState<Omit<Destination, "id">>(
     emptyDestinationDraft(),
   );
-  const [editTab, setEditTab] = useState<"request" | "response">("request");
+  const [activeView, setActiveView] = useState<"destination" | "validation">(
+    "destination",
+  );
   const [saving, setSaving] = useState(false);
   const [saveAttempted, setSaveAttempted] = useState(false);
   const [isNew, setIsNew] = useState(false);
+
+  /* ── dirty tracking ──────────────────────────────────────────────────── */
+  const originalDraftRef = useRef<string>("");
+  const isDirty = useMemo(() => {
+    const { acceptance_rules: _ar, ...rest } = draft;
+    return JSON.stringify(rest) !== originalDraftRef.current;
+  }, [draft]);
+
+  /* ── response validation (client-level entity) ───────────────────────── */
+  const [rvGroups, setRvGroups] = useState<ValidationGroup[]>([]);
+  const rvOriginalRef = useRef<string>("");
+  const rvDirty = useMemo(() => {
+    return JSON.stringify({ groups: rvGroups }) !== rvOriginalRef.current;
+  }, [rvGroups]);
+  const [rvSaving, setRvSaving] = useState(false);
+
+  const rvConditionCount = useMemo(
+    () => rvGroups.reduce((sum, g) => sum + g.conditions.length, 0),
+    [rvGroups],
+  );
 
   /* ── fetch destinations ──────────────────────────────────────────────── */
   const fetchDestinations = useCallback(async () => {
@@ -115,11 +149,31 @@ export function ClientDeliveryModal({
     }
   }, [campaignId, clientId]);
 
+  /* ── fetch response validation ─────────────────────────────────────── */
+  const fetchResponseValidation = useCallback(async () => {
+    if (!campaignId || !clientId) return;
+    try {
+      const res = await getResponseValidation(campaignId, clientId);
+      const rv: ResponseValidation | null = (res as any)?.data ?? null;
+      if (rv && rv.groups?.length > 0) {
+        setRvGroups(rv.groups);
+      } else {
+        setRvGroups([]);
+      }
+      const snap = JSON.stringify(rv ?? { groups: [] });
+      rvOriginalRef.current = snap;
+    } catch {
+      /* silently use defaults */
+    }
+  }, [campaignId, clientId]);
+
   useEffect(() => {
     if (!isOpen) return;
     setSaveAttempted(false);
-    setEditTab("request");
+    setActiveView("destination");
     setIsNew(false);
+    setRvGroups([]);
+    rvOriginalRef.current = JSON.stringify({ groups: [] });
     fetchDestinations().then((items) => {
       if (items && items.length > 0) {
         setSelectedId(items[0].id);
@@ -127,14 +181,16 @@ export function ClientDeliveryModal({
       } else {
         setSelectedId(null);
         setDraft(emptyDestinationDraft());
+        originalDraftRef.current = JSON.stringify(emptyDestinationDraft());
       }
     });
+    fetchResponseValidation();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   /* ── load draft from destination ─────────────────────────────────────── */
   const loadDraftFrom = (d: Destination) => {
-    setDraft({
+    const newDraft: Omit<Destination, "id"> = {
       name: d.name,
       type: d.type,
       url: d.url,
@@ -143,18 +199,23 @@ export function ClientDeliveryModal({
       payload_mapping:
         d.payload_mapping.length > 0
           ? d.payload_mapping
-          : [{ key: "", value_source: "field", field_name: "", parameter_target: "body" }],
-      acceptance_rules:
-        d.acceptance_rules.length > 0
-          ? d.acceptance_rules
-          : [{ match_value: "", action: "passed" }],
+          : [
+              {
+                key: "",
+                value_source: "field",
+                field_name: "",
+                parameter_target: "body",
+              },
+            ],
       is_primary: d.is_primary,
       state_mapping_override: d.state_mapping_override,
       claim_trusted_form: d.claim_trusted_form,
       require_successful_claim: d.require_successful_claim,
-    });
+    };
+    setDraft(newDraft);
+    const { acceptance_rules: _ar, ...rest } = newDraft;
+    originalDraftRef.current = JSON.stringify(rest);
     setSaveAttempted(false);
-    setEditTab("request");
     setIsNew(false);
   };
 
@@ -175,9 +236,6 @@ export function ClientDeliveryModal({
           ? (m.field_name ?? "").trim().length > 0
           : String(m.static_value ?? "").trim().length > 0),
     );
-  const hasRules =
-    draft.acceptance_rules.length > 0 &&
-    draft.acceptance_rules.every((r) => r.match_value.trim().length > 0);
 
   const saveDisabledReason = !hasName
     ? "Destination name is required."
@@ -185,9 +243,7 @@ export function ClientDeliveryModal({
       ? "Destination URL is required."
       : !hasMappings
         ? "Complete all payload mapping rows."
-        : !hasRules
-          ? "Add at least one complete acceptance rule."
-          : "";
+        : "";
 
   /* ── add new destination ─────────────────────────────────────────────── */
   const handleAddNew = () => {
@@ -198,13 +254,14 @@ export function ClientDeliveryModal({
     setSelectedId(null);
     setIsNew(true);
     setSaveAttempted(false);
-    setEditTab("request");
+    setActiveView("destination");
   };
 
   /* ── select existing ─────────────────────────────────────────────────── */
   const handleSelect = (d: Destination) => {
     setSelectedId(d.id);
     loadDraftFrom(d);
+    setActiveView("destination");
   };
 
   /* ── save (create or update) ─────────────────────────────────────────── */
@@ -243,11 +300,6 @@ export function ClientDeliveryModal({
               parameter_target: m.parameter_target ?? "body",
             },
       ),
-      acceptance_rules: draft.acceptance_rules.map((r) => ({
-        match_value: r.match_value.trim(),
-        action: r.action,
-      })),
-      is_primary: draft.is_primary,
     };
 
     setSaving(true);
@@ -331,11 +383,15 @@ export function ClientDeliveryModal({
     if (queryEntries.length > 0) {
       try {
         const url = new URL(baseUrl);
-        for (const entry of queryEntries) url.searchParams.set(entry.key, entry.value);
+        for (const entry of queryEntries)
+          url.searchParams.set(entry.key, entry.value);
         queryPreviewUrl = url.toString();
       } catch {
         const query = queryEntries
-          .map((e) => `${encodeURIComponent(e.key)}=${encodeURIComponent(e.value)}`)
+          .map(
+            (e) =>
+              `${encodeURIComponent(e.key)}=${encodeURIComponent(e.value)}`,
+          )
           .join("&");
         queryPreviewUrl = query ? `${baseUrl}?${query}` : baseUrl;
       }
@@ -345,7 +401,8 @@ export function ClientDeliveryModal({
         ? [
             "{",
             ...bodyEntries.map(
-              (e, i) => `  "${e.key}": "${e.value}"${i < bodyEntries.length - 1 ? "," : ""}`,
+              (e, i) =>
+                `  "${e.key}": "${e.value}"${i < bodyEntries.length - 1 ? "," : ""}`,
             ),
             "}",
           ]
@@ -354,8 +411,38 @@ export function ClientDeliveryModal({
     return { queryEntries, bodyEntries, queryPreviewUrl, bodyLines };
   }, [draft.payload_mapping, draft.url, criteriaFields]);
 
+  /* ── response validation helpers ─────────────────────────────────────── */
+  const handleSaveValidation = async () => {
+    if (!campaignId || !clientId) return;
+    const trimmedGroups = rvGroups
+      .map((g) => ({
+        conditions: g.conditions
+          .filter((c) => c.match_value.trim().length > 0 && c.destination_id)
+          .map((c) => ({
+            destination_id: c.destination_id,
+            match_value: c.match_value.trim(),
+            action: c.action,
+          })),
+      }))
+      .filter((g) => g.conditions.length > 0);
+    setRvSaving(true);
+    try {
+      await saveResponseValidation(campaignId, clientId, {
+        groups: trimmedGroups,
+      });
+      toast.success("Response validation saved.");
+      setRvGroups(trimmedGroups);
+      rvOriginalRef.current = JSON.stringify({ groups: trimmedGroups });
+      onDestinationsChanged?.();
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to save validation.");
+    } finally {
+      setRvSaving(false);
+    }
+  };
+
   /* ── render ──────────────────────────────────────────────────────────── */
-  const showForm = isNew || selectedId;
+  const showForm = activeView === "validation" || isNew || selectedId;
 
   return (
     <Modal
@@ -391,7 +478,9 @@ export function ClientDeliveryModal({
 
             {!loading && destinations.length === 0 && !isNew && (
               <div className="px-2 py-6 text-center">
-                <p className="text-xs text-[--color-text-muted]">No destinations yet.</p>
+                <p className="text-xs text-[--color-text-muted]">
+                  No destinations yet.
+                </p>
                 <button
                   type="button"
                   onClick={handleAddNew}
@@ -408,16 +497,13 @@ export function ClientDeliveryModal({
                 type="button"
                 onClick={() => handleSelect(d)}
                 className={`group flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs transition-colors ${
-                  selectedId === d.id && !isNew
+                  selectedId === d.id && !isNew && activeView === "destination"
                     ? "bg-[--color-primary]/10 text-[--color-primary] font-semibold"
                     : "text-[--color-text] hover:bg-[--color-border]/50"
                 }`}
               >
                 <Globe size={12} className="shrink-0 opacity-60" />
                 <span className="min-w-0 flex-1 truncate">{d.name}</span>
-                {d.is_primary && (
-                  <Star size={11} className="shrink-0 fill-amber-400 text-amber-400" />
-                )}
               </button>
             ))}
 
@@ -430,64 +516,57 @@ export function ClientDeliveryModal({
               </div>
             )}
           </div>
+
+          {/* ── response validation nav ────────────────────────────── */}
+          <div className="border-t border-[--color-border] px-1.5 py-2">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveView("validation");
+                setIsNew(false);
+              }}
+              className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs transition-colors ${
+                activeView === "validation"
+                  ? "bg-[--color-primary]/10 text-[--color-primary] font-semibold"
+                  : "text-[--color-text] hover:bg-[--color-border]/50"
+              }`}
+            >
+              <Shield size={12} className="shrink-0 opacity-60" />
+              <span className="min-w-0 flex-1 truncate">
+                Response Validation
+              </span>
+              {rvConditionCount > 0 && (
+                <span className="shrink-0 rounded-full bg-[--color-primary]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[--color-primary]">
+                  {rvConditionCount}
+                </span>
+              )}
+            </button>
+          </div>
         </div>
 
         {/* ── main content ───────────────────────────────────────────── */}
         <div className="flex min-w-0 flex-1 flex-col">
           {showForm ? (
             <>
-              {/* tab bar + actions */}
+              {/* header bar */}
               <div className="flex items-center gap-1 border-b border-[--color-border] px-4 pt-3 pb-2">
-                {(
-                  [
-                    { key: "request" as const, label: "Delivery Request" },
-                    { key: "response" as const, label: "Response Validation" },
-                  ] as const
-                ).map((t) => (
-                  <button
-                    key={t.key}
-                    type="button"
-                    onClick={() => setEditTab(t.key)}
-                    className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
-                      editTab === t.key
-                        ? "bg-[--color-primary] text-white"
-                        : "text-[--color-text-muted] hover:text-[--color-text]"
-                    }`}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-
+                <p className="text-sm font-semibold text-[--color-text]">
+                  {activeView === "validation"
+                    ? "Response Validation"
+                    : isNew
+                      ? "New Destination"
+                      : (selectedDest?.name ?? "Destination")}
+                </p>
                 <div className="ml-auto flex items-center gap-2">
-                  {!isNew && selectedDest && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setDraft((prev) => ({ ...prev, is_primary: !prev.is_primary }))
-                      }
-                      className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
-                        draft.is_primary
-                          ? "border-amber-400/40 bg-amber-400/10 text-amber-600"
-                          : "border-[--color-border] text-[--color-text-muted] hover:border-amber-400/40"
-                      }`}
-                      title={
-                        draft.is_primary
-                          ? "This is the primary destination (determines sold status)"
-                          : "Mark as primary"
-                      }
-                    >
-                      <Star
-                        size={11}
-                        className={draft.is_primary ? "fill-amber-400 text-amber-400" : ""}
-                      />
-                      Primary
-                    </button>
-                  )}
-                  {!isNew && selectedId && (
+                  {activeView === "destination" && !isNew && selectedId && (
                     <button
                       type="button"
                       onClick={() => {
-                        if (confirm(`Delete destination "${selectedDest?.name || selectedId}"?`)) {
+                        if (
+                          confirm(
+                            `Delete destination "${selectedDest?.name || selectedId}"?`,
+                          )
+                        ) {
                           handleDelete(selectedId);
                         }
                       }}
@@ -501,479 +580,691 @@ export function ClientDeliveryModal({
               </div>
 
               {/* scrollable form */}
-              <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-                {editTab === "request" ? (
-                  <div className="space-y-3">
-                    {/* destination name */}
-                    <label className="space-y-1">
-                      <span className="text-xs font-medium text-[--color-text-muted]">
-                        Destination Name <span className="text-red-500">*</span>
-                      </span>
-                      <input
-                        className={`${inputClass} ${
-                          saveAttempted && !hasName
-                            ? "border-red-500/60 focus:border-red-500 focus:ring-red-500/25"
-                            : ""
-                        }`}
-                        value={draft.name}
-                        onChange={(e) =>
-                          setDraft((prev) => ({ ...prev, name: e.target.value }))
-                        }
-                        placeholder="e.g. Primary CRM Webhook"
-                      />
-                    </label>
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <AnimatePresence mode="wait" initial={false}>
+                  <motion.div
+                    key={`${activeView}-${selectedId ?? "new"}`}
+                    initial={{ opacity: 0, x: 10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -10 }}
+                    transition={{ duration: 0.2, ease: "easeInOut" }}
+                    className="px-4 py-3"
+                  >
+                    {activeView === "destination" ? (
+                      <div className="space-y-3">
+                        {/* destination name */}
+                        <label className="space-y-1">
+                          <span className="text-xs font-medium text-[--color-text-muted]">
+                            Destination Name{" "}
+                            <span className="text-red-500">*</span>
+                          </span>
+                          <input
+                            className={`${inputClass} ${
+                              saveAttempted && !hasName
+                                ? "border-red-500/60 focus:border-red-500 focus:ring-red-500/25"
+                                : ""
+                            }`}
+                            value={draft.name}
+                            onChange={(e) =>
+                              setDraft((prev) => ({
+                                ...prev,
+                                name: e.target.value,
+                              }))
+                            }
+                            placeholder="e.g. Primary CRM Webhook"
+                          />
+                        </label>
 
-                    {/* method + URL */}
-                    <div className="grid gap-3 md:grid-cols-[140px_1fr]">
-                      <label className="space-y-1">
-                        <span className="text-xs font-medium text-[--color-text-muted]">
-                          Method
-                        </span>
-                        <select
-                          className={inputClass}
-                          value={draft.method}
-                          onChange={(e) =>
-                            setDraft((prev) => ({
-                              ...prev,
-                              method: e.target.value as Destination["method"],
-                            }))
-                          }
-                        >
-                          {(["POST", "GET", "PUT", "PATCH"] as const).map((m) => (
-                            <option key={m} value={m}>
-                              {m}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="space-y-1">
-                        <span className="text-xs font-medium text-[--color-text-muted]">
-                          Destination URL <span className="text-red-500">*</span>
-                        </span>
-                        <input
-                          className={`${inputClass} ${
-                            saveAttempted && !hasUrl
-                              ? "border-red-500/60 focus:border-red-500 focus:ring-red-500/25"
-                              : ""
-                          }`}
-                          value={draft.url}
-                          onChange={(e) =>
-                            setDraft((prev) => ({ ...prev, url: e.target.value }))
-                          }
-                          placeholder="https://buyer.example.com/leads"
-                        />
-                      </label>
-                    </div>
-
-                    {/* payload mapping */}
-                    <div
-                      className={`space-y-2 rounded-lg border p-3 ${
-                        saveAttempted && !hasMappings
-                          ? "border-red-500/60"
-                          : "border-[--color-border]"
-                      }`}
-                    >
-                      <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
-                        Payload Mapping <span className="text-red-500">*</span>
-                      </p>
-
-                      {/* import from lead fields */}
-                      {criteriaFields.length > 0 &&
-                        (() => {
-                          const alreadyMapped = new Set(
-                            draft.payload_mapping
-                              .map((m) => m.field_name)
-                              .filter(Boolean),
-                          );
-                          const unmappedCount = criteriaFields.filter(
-                            (cf) => !alreadyMapped.has(cf.field_name),
-                          ).length;
-                          if (unmappedCount === 0) return null;
-                          return (
-                            <div className="flex items-center justify-between rounded-lg border border-[--color-border] bg-[--color-bg-muted] px-3 py-2.5">
-                              <div className="min-w-0">
-                                <p className="text-xs font-semibold text-[--color-text-strong]">
-                                  Import from lead fields
-                                </p>
-                                <p className="mt-0.5 text-[11px] text-[--color-text-muted]">
-                                  Add all {unmappedCount} unmapped field
-                                  {unmappedCount !== 1 ? "s" : ""} at once.
-                                </p>
-                              </div>
-                              <button
-                                type="button"
-                                className="ml-3 shrink-0 rounded-md border border-[--color-border] bg-[--color-panel] px-3 py-1.5 text-xs font-semibold text-[--color-text] hover:border-[--color-primary] hover:text-[--color-primary] transition-colors"
-                                onClick={() =>
-                                  setDraft((prev) => {
-                                    const mapped = new Set(
-                                      prev.payload_mapping
-                                        .map((m) => m.field_name)
-                                        .filter(Boolean),
-                                    );
-                                    const toAdd = criteriaFields
-                                      .filter((cf) => !mapped.has(cf.field_name))
-                                      .map((cf) => ({
-                                        key: cf.field_name,
-                                        value_source: "field" as const,
-                                        field_name: cf.field_name,
-                                        parameter_target: "body" as const,
-                                      }));
-                                    if (toAdd.length === 0) return prev;
-                                    const hasOnlyEmptyPlaceholder =
-                                      prev.payload_mapping.length === 1 &&
-                                      !prev.payload_mapping[0].key &&
-                                      !prev.payload_mapping[0].field_name;
-                                    return {
-                                      ...prev,
-                                      payload_mapping: hasOnlyEmptyPlaceholder
-                                        ? toAdd
-                                        : [...prev.payload_mapping, ...toAdd],
-                                    };
-                                  })
-                                }
-                              >
-                                Add All
-                              </button>
-                            </div>
-                          );
-                        })()}
-
-                      {/* mapping rows */}
-                      <div className="space-y-2">
-                        <AnimatePresence initial={false}>
-                          {draft.payload_mapping.map((row, idx) => (
-                            <motion.div
-                              key={`map-${idx}`}
-                              layout
-                              initial={{ opacity: 0, y: 6 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: -6 }}
-                              transition={{ duration: 0.18 }}
-                              className="grid gap-2 md:grid-cols-[minmax(0,1fr)_130px_minmax(0,1fr)_100px_auto]"
+                        {/* method + URL */}
+                        <div className="grid gap-3 md:grid-cols-[140px_1fr]">
+                          <label className="space-y-1">
+                            <span className="text-xs font-medium text-[--color-text-muted]">
+                              Method
+                            </span>
+                            <select
+                              className={inputClass}
+                              value={draft.method}
+                              onChange={(e) =>
+                                setDraft((prev) => ({
+                                  ...prev,
+                                  method: e.target
+                                    .value as Destination["method"],
+                                }))
+                              }
                             >
-                              <input
-                                className={inputClass}
-                                placeholder="Outbound key"
-                                value={row.key}
-                                onChange={(e) =>
-                                  setDraft((prev) => ({
-                                    ...prev,
-                                    payload_mapping: prev.payload_mapping.map(
-                                      (m, i) =>
-                                        i === idx ? { ...m, key: e.target.value } : m,
-                                    ),
-                                  }))
-                                }
-                              />
-                              <select
-                                className={inputClass}
-                                value={row.value_source}
-                                onChange={(e) => {
-                                  const vs = e.target.value as "field" | "static";
-                                  setDraft((prev) => ({
-                                    ...prev,
-                                    payload_mapping: prev.payload_mapping.map(
-                                      (m, i) =>
-                                        i === idx
-                                          ? {
-                                              ...m,
-                                              value_source: vs,
-                                              field_name:
-                                                vs === "field"
-                                                  ? (m.field_name ?? "")
-                                                  : undefined,
-                                              static_value:
-                                                vs === "static"
-                                                  ? (m.static_value ?? "")
-                                                  : undefined,
-                                            }
-                                          : m,
-                                    ),
-                                  }));
-                                }}
+                              {(["POST", "GET", "PUT", "PATCH"] as const).map(
+                                (m) => (
+                                  <option key={m} value={m}>
+                                    {m}
+                                  </option>
+                                ),
+                              )}
+                            </select>
+                          </label>
+                          <label className="space-y-1">
+                            <span className="text-xs font-medium text-[--color-text-muted]">
+                              Destination URL{" "}
+                              <span className="text-red-500">*</span>
+                            </span>
+                            <input
+                              className={`${inputClass} ${
+                                saveAttempted && !hasUrl
+                                  ? "border-red-500/60 focus:border-red-500 focus:ring-red-500/25"
+                                  : ""
+                              }`}
+                              value={draft.url}
+                              onChange={(e) =>
+                                setDraft((prev) => ({
+                                  ...prev,
+                                  url: e.target.value,
+                                }))
+                              }
+                              placeholder="https://buyer.example.com/leads"
+                            />
+                          </label>
+                        </div>
+
+                        {/* payload mapping */}
+                        <div
+                          className={`space-y-2 rounded-lg border p-3 ${
+                            saveAttempted && !hasMappings
+                              ? "border-red-500/60"
+                              : "border-[--color-border]"
+                          }`}
+                        >
+                          <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                            Payload Mapping{" "}
+                            <span className="text-red-500">*</span>
+                          </p>
+
+                          {/* import from lead fields */}
+                          {criteriaFields.length > 0 &&
+                            (() => {
+                              const alreadyMapped = new Set(
+                                draft.payload_mapping
+                                  .map((m) => m.field_name)
+                                  .filter(Boolean),
+                              );
+                              const unmappedCount = criteriaFields.filter(
+                                (cf) => !alreadyMapped.has(cf.field_name),
+                              ).length;
+                              if (unmappedCount === 0) return null;
+                              return (
+                                <div className="flex items-center justify-between rounded-lg border border-[--color-border] bg-[--color-bg-muted] px-3 py-2.5">
+                                  <div className="min-w-0">
+                                    <p className="text-xs font-semibold text-[--color-text-strong]">
+                                      Import from lead fields
+                                    </p>
+                                    <p className="mt-0.5 text-[11px] text-[--color-text-muted]">
+                                      Add all {unmappedCount} unmapped field
+                                      {unmappedCount !== 1 ? "s" : ""} at once.
+                                    </p>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="ml-3 shrink-0 rounded-md border border-[--color-border] bg-[--color-panel] px-3 py-1.5 text-xs font-semibold text-[--color-text] hover:border-[--color-primary] hover:text-[--color-primary] transition-colors"
+                                    onClick={() =>
+                                      setDraft((prev) => {
+                                        const mapped = new Set(
+                                          prev.payload_mapping
+                                            .map((m) => m.field_name)
+                                            .filter(Boolean),
+                                        );
+                                        const toAdd = criteriaFields
+                                          .filter(
+                                            (cf) => !mapped.has(cf.field_name),
+                                          )
+                                          .map((cf) => ({
+                                            key: cf.field_name,
+                                            value_source: "field" as const,
+                                            field_name: cf.field_name,
+                                            parameter_target: "body" as const,
+                                          }));
+                                        if (toAdd.length === 0) return prev;
+                                        const hasOnlyEmptyPlaceholder =
+                                          prev.payload_mapping.length === 1 &&
+                                          !prev.payload_mapping[0].key &&
+                                          !prev.payload_mapping[0].field_name;
+                                        return {
+                                          ...prev,
+                                          payload_mapping:
+                                            hasOnlyEmptyPlaceholder
+                                              ? toAdd
+                                              : [
+                                                  ...prev.payload_mapping,
+                                                  ...toAdd,
+                                                ],
+                                        };
+                                      })
+                                    }
+                                  >
+                                    Add All
+                                  </button>
+                                </div>
+                              );
+                            })()}
+
+                          {/* mapping rows */}
+                          <div className="space-y-2">
+                            <AnimatePresence initial={false}>
+                              {draft.payload_mapping.map((row, idx) => (
+                                <motion.div
+                                  key={`map-${idx}`}
+                                  layout
+                                  initial={{ opacity: 0, y: 6 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, y: -6 }}
+                                  transition={{ duration: 0.18 }}
+                                  className="grid gap-2 md:grid-cols-[minmax(0,1fr)_130px_minmax(0,1fr)_100px_auto]"
+                                >
+                                  <input
+                                    className={inputClass}
+                                    placeholder="Outbound key"
+                                    value={row.key}
+                                    onChange={(e) =>
+                                      setDraft((prev) => ({
+                                        ...prev,
+                                        payload_mapping:
+                                          prev.payload_mapping.map((m, i) =>
+                                            i === idx
+                                              ? { ...m, key: e.target.value }
+                                              : m,
+                                          ),
+                                      }))
+                                    }
+                                  />
+                                  <select
+                                    className={inputClass}
+                                    value={row.value_source}
+                                    onChange={(e) => {
+                                      const vs = e.target.value as
+                                        | "field"
+                                        | "static";
+                                      setDraft((prev) => ({
+                                        ...prev,
+                                        payload_mapping:
+                                          prev.payload_mapping.map((m, i) =>
+                                            i === idx
+                                              ? {
+                                                  ...m,
+                                                  value_source: vs,
+                                                  field_name:
+                                                    vs === "field"
+                                                      ? (m.field_name ?? "")
+                                                      : undefined,
+                                                  static_value:
+                                                    vs === "static"
+                                                      ? (m.static_value ?? "")
+                                                      : undefined,
+                                                }
+                                              : m,
+                                          ),
+                                      }));
+                                    }}
+                                  >
+                                    <option value="field">Lead Field</option>
+                                    <option value="static">Static Value</option>
+                                  </select>
+                                  {row.value_source === "field" ? (
+                                    <select
+                                      className={inputClass}
+                                      value={row.field_name ?? ""}
+                                      onChange={(e) =>
+                                        setDraft((prev) => ({
+                                          ...prev,
+                                          payload_mapping:
+                                            prev.payload_mapping.map((m, i) =>
+                                              i === idx
+                                                ? {
+                                                    ...m,
+                                                    field_name: e.target.value,
+                                                  }
+                                                : m,
+                                            ),
+                                        }))
+                                      }
+                                    >
+                                      <option value="">
+                                        {criteriaFields.length === 0
+                                          ? "No fields defined"
+                                          : "Select lead field\u2026"}
+                                      </option>
+                                      {criteriaFields.map((cf) => (
+                                        <option
+                                          key={cf.id}
+                                          value={cf.field_name}
+                                        >
+                                          {cf.field_label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <input
+                                      className={inputClass}
+                                      placeholder="static_value"
+                                      value={String(row.static_value ?? "")}
+                                      onChange={(e) =>
+                                        setDraft((prev) => ({
+                                          ...prev,
+                                          payload_mapping:
+                                            prev.payload_mapping.map((m, i) =>
+                                              i === idx
+                                                ? {
+                                                    ...m,
+                                                    static_value:
+                                                      e.target.value,
+                                                  }
+                                                : m,
+                                            ),
+                                        }))
+                                      }
+                                    />
+                                  )}
+                                  <select
+                                    className={inputClass}
+                                    value={row.parameter_target ?? "body"}
+                                    onChange={(e) =>
+                                      setDraft((prev) => ({
+                                        ...prev,
+                                        payload_mapping:
+                                          prev.payload_mapping.map((m, i) =>
+                                            i === idx
+                                              ? {
+                                                  ...m,
+                                                  parameter_target: e.target
+                                                    .value as "query" | "body",
+                                                }
+                                              : m,
+                                          ),
+                                      }))
+                                    }
+                                  >
+                                    <option value="query">Query</option>
+                                    <option value="body">Body</option>
+                                  </select>
+                                  <button
+                                    type="button"
+                                    className="flex items-center justify-center rounded p-1.5 text-[--color-text-muted] hover:text-red-500 disabled:opacity-30 transition-colors"
+                                    onClick={() =>
+                                      setDraft((prev) => ({
+                                        ...prev,
+                                        payload_mapping:
+                                          prev.payload_mapping.filter(
+                                            (_, i) => i !== idx,
+                                          ),
+                                      }))
+                                    }
+                                    disabled={draft.payload_mapping.length <= 1}
+                                    title="Remove row"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </motion.div>
+                              ))}
+                            </AnimatePresence>
+                          </div>
+                          <button
+                            type="button"
+                            className="mt-1 flex items-center gap-1 text-xs text-[--color-primary] hover:underline"
+                            onClick={() =>
+                              setDraft((prev) => ({
+                                ...prev,
+                                payload_mapping: [
+                                  ...prev.payload_mapping,
+                                  {
+                                    key: "",
+                                    value_source: "field",
+                                    field_name: "",
+                                    parameter_target: "body",
+                                  },
+                                ],
+                              }))
+                            }
+                          >
+                            <Plus size={12} />
+                            Add mapping
+                          </button>
+                        </div>
+
+                        {/* payload preview */}
+                        {payloadPreview && (
+                          <div className="space-y-2 rounded-lg border border-[--color-border] bg-[--color-bg-muted] p-3">
+                            {payloadPreview.queryEntries.length > 0 && (
+                              <details
+                                className="rounded-md border border-[--color-border] bg-[--color-panel]"
+                                open
                               >
-                                <option value="field">Lead Field</option>
-                                <option value="static">Static Value</option>
-                              </select>
-                              {row.value_source === "field" ? (
-                                <select
-                                  className={inputClass}
-                                  value={row.field_name ?? ""}
-                                  onChange={(e) =>
-                                    setDraft((prev) => ({
-                                      ...prev,
-                                      payload_mapping: prev.payload_mapping.map(
-                                        (m, i) =>
-                                          i === idx
-                                            ? { ...m, field_name: e.target.value }
-                                            : m,
+                                <summary className="cursor-pointer px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                                  Expected URL with Query Params
+                                </summary>
+                                <div className="border-t border-[--color-border] p-3">
+                                  <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-[--color-text]">
+                                    {payloadPreview.queryPreviewUrl}
+                                  </pre>
+                                </div>
+                              </details>
+                            )}
+                            {payloadPreview.bodyLines && (
+                              <details
+                                className="rounded-md border border-[--color-border] bg-[--color-panel]"
+                                open={payloadPreview.queryEntries.length === 0}
+                              >
+                                <summary className="cursor-pointer px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                                  Expected Payload Preview
+                                </summary>
+                                <div className="border-t border-[--color-border] p-3">
+                                  <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-[--color-text]">
+                                    {payloadPreview.bodyLines.join("\n")}
+                                  </pre>
+                                </div>
+                              </details>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      /* ── Response Validation view ────────────────────────── */
+                      <div className="space-y-4">
+                        <p className="text-[11px] text-[--color-text-muted]">
+                          Groups are evaluated with <strong>OR</strong> logic —
+                          lead passes if <em>any</em> group matches. Conditions
+                          within a group use <strong>AND</strong> logic — all
+                          must match.
+                        </p>
+
+                        {/* groups */}
+                        <AnimatePresence initial={false}>
+                          {rvGroups.map((group, gi) => (
+                            <motion.div
+                              key={`grp-${gi}`}
+                              layout
+                              initial={{ opacity: 0, y: 8 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: -8 }}
+                              transition={{ duration: 0.18 }}
+                            >
+                              {gi > 0 && (
+                                <div className="flex items-center gap-3 py-2">
+                                  <div className="flex-1 border-t border-[--color-border]" />
+                                  <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-[--color-text-muted]">
+                                    OR
+                                  </span>
+                                  <div className="flex-1 border-t border-[--color-border]" />
+                                </div>
+                              )}
+                              <div className="rounded-xl border border-[--color-border] border-l-[3px] border-l-blue-400 pl-4 pr-3 py-3 space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <p className="text-[10px] font-bold uppercase tracking-wider text-[--color-text-muted]">
+                                    Group {gi + 1}{" "}
+                                    <span className="font-normal normal-case">
+                                      (all conditions must match)
+                                    </span>
+                                  </p>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setRvGroups((prev) =>
+                                        prev.filter((_, i) => i !== gi),
+                                      )
+                                    }
+                                    className="text-[--color-text-muted] hover:text-red-500 transition-colors"
+                                    title="Remove group"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                </div>
+
+                                <AnimatePresence initial={false}>
+                                  {group.conditions.map((cond, ci) => (
+                                    <motion.div
+                                      key={`grp-${gi}-c-${ci}`}
+                                      layout
+                                      initial={{ opacity: 0, y: 4 }}
+                                      animate={{ opacity: 1, y: 0 }}
+                                      exit={{ opacity: 0, y: -4 }}
+                                      transition={{ duration: 0.15 }}
+                                      className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_110px_auto]"
+                                    >
+                                      {/* destination dropdown */}
+                                      <div className="relative">
+                                        <select
+                                          className={`${inputClass} appearance-none pr-8`}
+                                          value={cond.destination_id}
+                                          onChange={(e) =>
+                                            setRvGroups((prev) =>
+                                              prev.map((g, gIdx) =>
+                                                gIdx !== gi
+                                                  ? g
+                                                  : {
+                                                      ...g,
+                                                      conditions:
+                                                        g.conditions.map(
+                                                          (c, cIdx) =>
+                                                            cIdx !== ci
+                                                              ? c
+                                                              : {
+                                                                  ...c,
+                                                                  destination_id:
+                                                                    e.target
+                                                                      .value,
+                                                                },
+                                                        ),
+                                                    },
+                                              ),
+                                            )
+                                          }
+                                        >
+                                          <option value="" disabled>
+                                            Destination…
+                                          </option>
+                                          {destinations.map((d) => (
+                                            <option key={d.id} value={d.id}>
+                                              {d.name}
+                                            </option>
+                                          ))}
+                                        </select>
+                                        <ChevronDown
+                                          size={14}
+                                          className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[--color-text-muted]"
+                                        />
+                                      </div>
+
+                                      {/* match value */}
+                                      <input
+                                        className={inputClass}
+                                        placeholder="Response contains…"
+                                        value={cond.match_value}
+                                        onChange={(e) =>
+                                          setRvGroups((prev) =>
+                                            prev.map((g, gIdx) =>
+                                              gIdx !== gi
+                                                ? g
+                                                : {
+                                                    ...g,
+                                                    conditions:
+                                                      g.conditions.map(
+                                                        (c, cIdx) =>
+                                                          cIdx !== ci
+                                                            ? c
+                                                            : {
+                                                                ...c,
+                                                                match_value:
+                                                                  e.target
+                                                                    .value,
+                                                              },
+                                                      ),
+                                                  },
+                                            ),
+                                          )
+                                        }
+                                      />
+
+                                      {/* pass / fail toggle */}
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setRvGroups((prev) =>
+                                            prev.map((g, gIdx) =>
+                                              gIdx !== gi
+                                                ? g
+                                                : {
+                                                    ...g,
+                                                    conditions:
+                                                      g.conditions.map(
+                                                        (c, cIdx) =>
+                                                          cIdx !== ci
+                                                            ? c
+                                                            : {
+                                                                ...c,
+                                                                action:
+                                                                  c.action ===
+                                                                  "passed"
+                                                                    ? "failed"
+                                                                    : "passed",
+                                                              },
+                                                      ),
+                                                  },
+                                            ),
+                                          )
+                                        }
+                                        className={`flex w-[100px] items-center justify-between rounded-full border px-1 py-1 text-xs font-semibold transition-colors ${
+                                          cond.action === "passed"
+                                            ? "border-green-500/40 bg-green-500/10"
+                                            : "border-red-500/40 bg-red-500/10"
+                                        }`}
+                                      >
+                                        <span
+                                          className={`flex h-5 w-5 items-center justify-center rounded-full text-white transition-all ${
+                                            cond.action === "passed"
+                                              ? "bg-green-500"
+                                              : "bg-red-500"
+                                          }`}
+                                        >
+                                          {cond.action === "passed" ? "✓" : "✕"}
+                                        </span>
+                                        <span
+                                          className={`flex-1 text-center ${
+                                            cond.action === "passed"
+                                              ? "text-green-600"
+                                              : "text-red-500"
+                                          }`}
+                                        >
+                                          {cond.action === "passed"
+                                            ? "Pass"
+                                            : "Fail"}
+                                        </span>
+                                      </button>
+
+                                      {/* delete condition */}
+                                      <button
+                                        type="button"
+                                        className="flex items-center justify-center rounded p-1.5 text-[--color-text-muted] hover:text-red-500 transition-colors"
+                                        onClick={() =>
+                                          setRvGroups((prev) =>
+                                            prev.map((g, gIdx) =>
+                                              gIdx !== gi
+                                                ? g
+                                                : {
+                                                    ...g,
+                                                    conditions:
+                                                      g.conditions.filter(
+                                                        (_, cIdx) =>
+                                                          cIdx !== ci,
+                                                      ),
+                                                  },
+                                            ),
+                                          )
+                                        }
+                                        title="Remove condition"
+                                      >
+                                        <Trash2 size={14} />
+                                      </button>
+
+                                      {/* AND badge */}
+                                      {ci < group.conditions.length - 1 && (
+                                        <span className="col-span-full flex justify-start">
+                                          <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold bg-red-500 text-white">
+                                            AND
+                                          </span>
+                                        </span>
+                                      )}
+                                    </motion.div>
+                                  ))}
+                                </AnimatePresence>
+
+                                {/* add condition to this group */}
+                                <button
+                                  type="button"
+                                  className="mt-1 flex items-center gap-1 text-xs text-[--color-primary] hover:underline"
+                                  onClick={() =>
+                                    setRvGroups((prev) =>
+                                      prev.map((g, gIdx) =>
+                                        gIdx !== gi
+                                          ? g
+                                          : {
+                                              ...g,
+                                              conditions: [
+                                                ...g.conditions,
+                                                {
+                                                  destination_id:
+                                                    destinations[0]?.id ?? "",
+                                                  match_value: "",
+                                                  action: "passed" as const,
+                                                },
+                                              ],
+                                            },
                                       ),
-                                    }))
+                                    )
                                   }
                                 >
-                                  <option value="">
-                                    {criteriaFields.length === 0
-                                      ? "No fields defined"
-                                      : "Select lead field\u2026"}
-                                  </option>
-                                  {criteriaFields.map((cf) => (
-                                    <option key={cf.id} value={cf.field_name}>
-                                      {cf.field_label}
-                                    </option>
-                                  ))}
-                                </select>
-                              ) : (
-                                <input
-                                  className={inputClass}
-                                  placeholder="static_value"
-                                  value={String(row.static_value ?? "")}
-                                  onChange={(e) =>
-                                    setDraft((prev) => ({
-                                      ...prev,
-                                      payload_mapping: prev.payload_mapping.map(
-                                        (m, i) =>
-                                          i === idx
-                                            ? { ...m, static_value: e.target.value }
-                                            : m,
-                                      ),
-                                    }))
-                                  }
-                                />
-                              )}
-                              <select
-                                className={inputClass}
-                                value={row.parameter_target ?? "body"}
-                                onChange={(e) =>
-                                  setDraft((prev) => ({
-                                    ...prev,
-                                    payload_mapping: prev.payload_mapping.map(
-                                      (m, i) =>
-                                        i === idx
-                                          ? {
-                                              ...m,
-                                              parameter_target: e.target.value as
-                                                | "query"
-                                                | "body",
-                                            }
-                                          : m,
-                                    ),
-                                  }))
-                                }
-                              >
-                                <option value="query">Query</option>
-                                <option value="body">Body</option>
-                              </select>
-                              <button
-                                type="button"
-                                className="flex items-center justify-center rounded p-1.5 text-[--color-text-muted] hover:text-red-500 disabled:opacity-30 transition-colors"
-                                onClick={() =>
-                                  setDraft((prev) => ({
-                                    ...prev,
-                                    payload_mapping: prev.payload_mapping.filter(
-                                      (_, i) => i !== idx,
-                                    ),
-                                  }))
-                                }
-                                disabled={draft.payload_mapping.length <= 1}
-                                title="Remove row"
-                              >
-                                <Trash2 size={14} />
-                              </button>
+                                  <Plus size={12} />
+                                  Add condition
+                                </button>
+                              </div>
                             </motion.div>
                           ))}
                         </AnimatePresence>
-                      </div>
-                      <button
-                        type="button"
-                        className="mt-1 flex items-center gap-1 text-xs text-[--color-primary] hover:underline"
-                        onClick={() =>
-                          setDraft((prev) => ({
-                            ...prev,
-                            payload_mapping: [
-                              ...prev.payload_mapping,
-                              {
-                                key: "",
-                                value_source: "field",
-                                field_name: "",
-                                parameter_target: "body",
-                              },
-                            ],
-                          }))
-                        }
-                      >
-                        <Plus size={12} />
-                        Add mapping
-                      </button>
-                    </div>
 
-                    {/* payload preview */}
-                    {payloadPreview && (
-                      <div className="space-y-2 rounded-lg border border-[--color-border] bg-[--color-bg-muted] p-3">
-                        {payloadPreview.queryEntries.length > 0 && (
-                          <details
-                            className="rounded-md border border-[--color-border] bg-[--color-panel]"
-                            open
-                          >
-                            <summary className="cursor-pointer px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
-                              Expected URL with Query Params
-                            </summary>
-                            <div className="border-t border-[--color-border] p-3">
-                              <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-[--color-text]">
-                                {payloadPreview.queryPreviewUrl}
-                              </pre>
-                            </div>
-                          </details>
+                        {rvGroups.length === 0 && destinations.length === 0 && (
+                          <p className="py-6 text-center text-xs text-[--color-text-muted]">
+                            Create a destination first, then configure response
+                            validation.
+                          </p>
                         )}
-                        {payloadPreview.bodyLines && (
-                          <details
-                            className="rounded-md border border-[--color-border] bg-[--color-panel]"
-                            open={payloadPreview.queryEntries.length === 0}
+                        {rvGroups.length === 0 && destinations.length > 0 && (
+                          <p className="py-6 text-center text-xs text-[--color-text-muted]">
+                            No groups yet. Add one below.
+                          </p>
+                        )}
+
+                        {/* add group */}
+                        {destinations.length > 0 && (
+                          <button
+                            type="button"
+                            className="flex items-center gap-1 text-xs text-[--color-primary] hover:underline"
+                            onClick={() =>
+                              setRvGroups((prev) => [
+                                ...prev,
+                                {
+                                  conditions: [
+                                    {
+                                      destination_id: destinations[0]?.id ?? "",
+                                      match_value: "",
+                                      action: "passed" as const,
+                                    },
+                                  ],
+                                },
+                              ])
+                            }
                           >
-                            <summary className="cursor-pointer px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
-                              Expected Payload Preview
-                            </summary>
-                            <div className="border-t border-[--color-border] p-3">
-                              <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-[--color-text]">
-                                {payloadPreview.bodyLines.join("\n")}
-                              </pre>
-                            </div>
-                          </details>
+                            <Plus size={12} />
+                            Add group
+                          </button>
                         )}
                       </div>
                     )}
-                  </div>
-                ) : (
-                  /* ── Response Validation tab ──────────────────────────── */
-                  <div className="space-y-3">
-                    <div
-                      className={`space-y-2 rounded-lg border p-3 ${
-                        saveAttempted && !hasRules
-                          ? "border-red-500/60"
-                          : "border-[--color-border]"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
-                            Acceptance Rules <span className="text-red-500">*</span>
-                          </p>
-                          <p className="mt-0.5 text-[11px] text-[--color-text-muted]">
-                            Rules are evaluated as OR (first match wins). Matching is
-                            case-insensitive.
-                          </p>
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <AnimatePresence initial={false}>
-                          {draft.acceptance_rules.map((rule, idx) => (
-                            <motion.div
-                              key={`rule-${idx}`}
-                              layout
-                              initial={{ opacity: 0, y: 6 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: -6 }}
-                              transition={{ duration: 0.18 }}
-                              className="grid gap-2 md:grid-cols-[minmax(0,1fr)_110px_auto]"
-                            >
-                              <input
-                                className={inputClass}
-                                placeholder="Response contains..."
-                                value={rule.match_value}
-                                onChange={(e) =>
-                                  setDraft((prev) => ({
-                                    ...prev,
-                                    acceptance_rules: prev.acceptance_rules.map(
-                                      (r, i) =>
-                                        i === idx
-                                          ? { ...r, match_value: e.target.value }
-                                          : r,
-                                    ),
-                                  }))
-                                }
-                              />
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setDraft((prev) => ({
-                                    ...prev,
-                                    acceptance_rules: prev.acceptance_rules.map(
-                                      (r, i) =>
-                                        i === idx
-                                          ? {
-                                              ...r,
-                                              action:
-                                                r.action === "passed"
-                                                  ? "failed"
-                                                  : "passed",
-                                            }
-                                          : r,
-                                    ),
-                                  }))
-                                }
-                                className={`flex w-[100px] items-center justify-between rounded-full border px-1 py-1 text-xs font-semibold transition-colors ${
-                                  rule.action === "passed"
-                                    ? "border-green-500/40 bg-green-500/10"
-                                    : "border-red-500/40 bg-red-500/10"
-                                }`}
-                              >
-                                <span
-                                  className={`flex h-5 w-5 items-center justify-center rounded-full text-white transition-all ${
-                                    rule.action === "passed"
-                                      ? "bg-green-500"
-                                      : "bg-red-500"
-                                  }`}
-                                >
-                                  {rule.action === "passed" ? "✓" : "✕"}
-                                </span>
-                                <span
-                                  className={`flex-1 text-center ${
-                                    rule.action === "passed"
-                                      ? "text-green-600"
-                                      : "text-red-500"
-                                  }`}
-                                >
-                                  {rule.action === "passed" ? "Pass" : "Fail"}
-                                </span>
-                              </button>
-                              <button
-                                type="button"
-                                className="flex items-center justify-center rounded p-1.5 text-[--color-text-muted] hover:text-red-500 disabled:opacity-30 transition-colors"
-                                onClick={() =>
-                                  setDraft((prev) => ({
-                                    ...prev,
-                                    acceptance_rules: prev.acceptance_rules.filter(
-                                      (_, i) => i !== idx,
-                                    ),
-                                  }))
-                                }
-                                disabled={draft.acceptance_rules.length <= 1}
-                                title="Remove rule"
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </motion.div>
-                          ))}
-                        </AnimatePresence>
-                      </div>
-                      <button
-                        type="button"
-                        className="mt-1 flex items-center gap-1 text-xs text-[--color-primary] hover:underline"
-                        onClick={() =>
-                          setDraft((prev) => ({
-                            ...prev,
-                            acceptance_rules: [
-                              ...prev.acceptance_rules,
-                              { match_value: "", action: "passed" },
-                            ],
-                          }))
-                        }
-                      >
-                        <Plus size={12} />
-                        Add rule
-                      </button>
-                    </div>
-                  </div>
-                )}
+                  </motion.div>
+                </AnimatePresence>
               </div>
 
               {/* footer */}
@@ -981,9 +1272,25 @@ export function ClientDeliveryModal({
                 <Button variant="ghost" size="sm" onClick={onClose}>
                   Cancel
                 </Button>
-                <Button size="sm" disabled={saving} onClick={handleSave}>
-                  {isNew ? "Create Destination" : "Save Destination"}
-                </Button>
+                {activeView === "destination"
+                  ? (isNew || isDirty) && (
+                      <Button
+                        size="sm"
+                        disabled={saving || !!saveDisabledReason}
+                        onClick={handleSave}
+                      >
+                        {isNew ? "Create Destination" : "Save Destination"}
+                      </Button>
+                    )
+                  : rvDirty && (
+                      <Button
+                        size="sm"
+                        disabled={rvSaving}
+                        onClick={handleSaveValidation}
+                      >
+                        Save Validation
+                      </Button>
+                    )}
               </div>
             </>
           ) : (
