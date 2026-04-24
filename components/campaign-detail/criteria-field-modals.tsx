@@ -1076,6 +1076,7 @@ export function CriteriaFieldModals({
                       campaign.id,
                       valueMappingsField.id,
                       mappings,
+                      valueMappingsStateDraft,
                     );
                     await refreshCriteria();
                     toast.success("Mappings saved");

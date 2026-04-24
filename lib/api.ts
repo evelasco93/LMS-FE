@@ -269,7 +269,7 @@ export async function updateCampaignPlugins(
 }
 
 export async function linkClientToCampaign(id: string, client_id: string) {
-  const url = `${API_BASE_URL}/campaigns/${id}/clients`;
+  const url = `${API_BASE_URL}/campaigns/${id}/contracts`;
   return request<ApiResponse<Campaign>>(url, {
     method: "POST",
     body: JSON.stringify({ client_id }),
@@ -281,7 +281,7 @@ export async function updateCampaignClientStatus(
   clientId: string,
   status: CampaignParticipantStatus,
 ) {
-  const url = `${API_BASE_URL}/campaigns/${id}/clients/${clientId}`;
+  const url = `${API_BASE_URL}/campaigns/${id}/contracts/${clientId}`;
   return request<ApiResponse<Campaign>>(url, {
     method: "PUT",
     body: JSON.stringify({ status }),
@@ -289,7 +289,7 @@ export async function updateCampaignClientStatus(
 }
 
 export async function removeClientFromCampaign(id: string, clientId: string) {
-  const url = `${API_BASE_URL}/campaigns/${id}/clients/${clientId}`;
+  const url = `${API_BASE_URL}/campaigns/${id}/contracts/${clientId}`;
   return request<ApiResponse<Campaign>>(url, { method: "DELETE" });
 }
 
@@ -383,7 +383,7 @@ export async function setCampaignClientDeliveryConfig(
   clientId: string,
   payload: ClientDeliveryConfig,
 ) {
-  const url = `${API_BASE_URL}/campaigns/${campaignId}/clients/${clientId}/delivery`;
+  const url = `${API_BASE_URL}/campaigns/${campaignId}/contracts/${clientId}/delivery`;
   return request<ApiResponse<Campaign>>(url, {
     method: "PUT",
     body: JSON.stringify(payload),
@@ -398,7 +398,7 @@ export async function setClientWeight(
   deliveryConfig: ClientDeliveryConfig,
   weight: number,
 ) {
-  const url = `${API_BASE_URL}/campaigns/${campaignId}/clients/${clientId}/delivery`;
+  const url = `${API_BASE_URL}/campaigns/${campaignId}/contracts/${clientId}/delivery`;
   return request<ApiResponse<Campaign>>(url, {
     method: "PUT",
     body: JSON.stringify({ ...deliveryConfig, weight }),
@@ -833,13 +833,17 @@ export async function updateCriteriaValueMappings(
   campaignId: string,
   fieldId: string,
   mappings: CriteriaValueMapping[],
+  stateMapping?: "abbr_to_name" | "name_to_abbr" | null,
 ) {
   const url = buildUrl(
     `/campaigns/${encodeURIComponent(campaignId)}/criteria/${encodeURIComponent(fieldId)}/mappings`,
   );
   return request<ApiResponse<CriteriaField>>(url, {
     method: "PUT",
-    body: JSON.stringify({ value_mappings: mappings }),
+    body: JSON.stringify({
+      value_mappings: mappings,
+      ...(stateMapping !== undefined ? { state_mapping: stateMapping } : {}),
+    }),
   });
 }
 
@@ -1352,7 +1356,7 @@ export async function listClientLogicRules(
 ) {
   return request<{ success: boolean; data: LogicRule[] }>(
     buildUrl(
-      `/campaigns/${encodeURIComponent(campaignId)}/clients/${encodeURIComponent(clientId)}/logic-rules`,
+      `/campaigns/${encodeURIComponent(campaignId)}/contracts/${encodeURIComponent(clientId)}/logic-rules`,
     ),
   );
 }
@@ -1364,7 +1368,7 @@ export async function createClientLogicRule(
 ) {
   return request<{ success: boolean; data: LogicRule }>(
     buildUrl(
-      `/campaigns/${encodeURIComponent(campaignId)}/clients/${encodeURIComponent(clientId)}/logic-rules`,
+      `/campaigns/${encodeURIComponent(campaignId)}/contracts/${encodeURIComponent(clientId)}/logic-rules`,
     ),
     { method: "POST", body: JSON.stringify(payload) },
   );
@@ -1378,7 +1382,7 @@ export async function updateClientLogicRule(
 ) {
   return request<{ success: boolean; data: LogicRule }>(
     buildUrl(
-      `/campaigns/${encodeURIComponent(campaignId)}/clients/${encodeURIComponent(clientId)}/logic-rules/${encodeURIComponent(ruleId)}`,
+      `/campaigns/${encodeURIComponent(campaignId)}/contracts/${encodeURIComponent(clientId)}/logic-rules/${encodeURIComponent(ruleId)}`,
     ),
     { method: "PUT", body: JSON.stringify(payload) },
   );
@@ -1391,7 +1395,7 @@ export async function deleteClientLogicRule(
 ) {
   return request<{ success: boolean; data: { id: string } }>(
     buildUrl(
-      `/campaigns/${encodeURIComponent(campaignId)}/clients/${encodeURIComponent(clientId)}/logic-rules/${encodeURIComponent(ruleId)}`,
+      `/campaigns/${encodeURIComponent(campaignId)}/contracts/${encodeURIComponent(clientId)}/logic-rules/${encodeURIComponent(ruleId)}`,
     ),
     { method: "DELETE" },
   );
@@ -1405,7 +1409,7 @@ export async function applyLogicCatalogToClient(
 ) {
   return request<{ success: boolean; data: LogicRule[] }>(
     buildUrl(
-      `/campaigns/${encodeURIComponent(campaignId)}/clients/${encodeURIComponent(clientId)}/logic/apply-catalog`,
+      `/campaigns/${encodeURIComponent(campaignId)}/contracts/${encodeURIComponent(clientId)}/logic/apply-catalog`,
     ),
     { method: "POST", body: JSON.stringify({ logic_set_id, version }) },
   );
@@ -1420,7 +1424,7 @@ export async function syncClientLogicToCampaign(
     data: { kept_rules: LogicRule[]; removed_count: number };
   }>(
     buildUrl(
-      `/campaigns/${encodeURIComponent(campaignId)}/clients/${encodeURIComponent(clientId)}/logic/sync-to-campaign`,
+      `/campaigns/${encodeURIComponent(campaignId)}/contracts/${encodeURIComponent(clientId)}/logic/sync-to-campaign`,
     ),
     { method: "POST" },
   );
@@ -1601,7 +1605,7 @@ export async function executeCherryPick(
 export async function listDestinations(campaignId: string, clientId: string) {
   return request<ApiResponse<Destination[]>>(
     buildUrl(
-      `/campaigns/${encodeURIComponent(campaignId)}/clients/${encodeURIComponent(clientId)}/destinations`,
+      `/campaigns/${encodeURIComponent(campaignId)}/contracts/${encodeURIComponent(clientId)}/destinations`,
     ),
   );
 }
@@ -1613,7 +1617,7 @@ export async function getDestination(
 ) {
   return request<ApiResponse<Destination>>(
     buildUrl(
-      `/campaigns/${encodeURIComponent(campaignId)}/clients/${encodeURIComponent(clientId)}/destinations/${encodeURIComponent(destId)}`,
+      `/campaigns/${encodeURIComponent(campaignId)}/contracts/${encodeURIComponent(clientId)}/destinations/${encodeURIComponent(destId)}`,
     ),
   );
 }
@@ -1625,7 +1629,7 @@ export async function addDestination(
 ) {
   return request<ApiResponse<Destination>>(
     buildUrl(
-      `/campaigns/${encodeURIComponent(campaignId)}/clients/${encodeURIComponent(clientId)}/destinations`,
+      `/campaigns/${encodeURIComponent(campaignId)}/contracts/${encodeURIComponent(clientId)}/destinations`,
     ),
     { method: "POST", body: JSON.stringify(payload) },
   );
@@ -1639,7 +1643,7 @@ export async function updateDestination(
 ) {
   return request<ApiResponse<Destination>>(
     buildUrl(
-      `/campaigns/${encodeURIComponent(campaignId)}/clients/${encodeURIComponent(clientId)}/destinations/${encodeURIComponent(destId)}`,
+      `/campaigns/${encodeURIComponent(campaignId)}/contracts/${encodeURIComponent(clientId)}/destinations/${encodeURIComponent(destId)}`,
     ),
     { method: "PUT", body: JSON.stringify(payload) },
   );
@@ -1652,7 +1656,7 @@ export async function deleteDestination(
 ) {
   return request<ApiResponse<void>>(
     buildUrl(
-      `/campaigns/${encodeURIComponent(campaignId)}/clients/${encodeURIComponent(clientId)}/destinations/${encodeURIComponent(destId)}`,
+      `/campaigns/${encodeURIComponent(campaignId)}/contracts/${encodeURIComponent(clientId)}/destinations/${encodeURIComponent(destId)}`,
     ),
     { method: "DELETE" },
   );
@@ -1666,7 +1670,7 @@ export async function getResponseValidation(
 ) {
   return request<ApiResponse<ResponseValidation | null>>(
     buildUrl(
-      `/campaigns/${encodeURIComponent(campaignId)}/clients/${encodeURIComponent(clientId)}/response-validation`,
+      `/campaigns/${encodeURIComponent(campaignId)}/contracts/${encodeURIComponent(clientId)}/response-validation`,
     ),
   );
 }
@@ -1678,7 +1682,7 @@ export async function saveResponseValidation(
 ) {
   return request<ApiResponse<ResponseValidation>>(
     buildUrl(
-      `/campaigns/${encodeURIComponent(campaignId)}/clients/${encodeURIComponent(clientId)}/response-validation`,
+      `/campaigns/${encodeURIComponent(campaignId)}/contracts/${encodeURIComponent(clientId)}/response-validation`,
     ),
     { method: "PUT", body: JSON.stringify(payload) },
   );

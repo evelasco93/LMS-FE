@@ -956,6 +956,32 @@ type ListPreset = {
   optionCount: number;
   options: { value: string; label: string }[];
 };
+
+const normalizePresetOptionValue = (value: string) =>
+  value.trim().toLowerCase().replace(/\s+/g, "_");
+
+const normalizePresetOptions = (
+  options: { value: string; label: string }[],
+) => {
+  const seen = new Set<string>();
+  const normalized: { value: string; label: string }[] = [];
+
+  for (const option of options) {
+    const normalizedValue = normalizePresetOptionValue(
+      String(option.value ?? ""),
+    );
+    if (!normalizedValue || seen.has(normalizedValue)) continue;
+    seen.add(normalizedValue);
+
+    normalized.push({
+      value: normalizedValue,
+      label: String(option.label ?? "").trim() || normalizedValue,
+    });
+  }
+
+  return normalized;
+};
+
 type FieldPreset = {
   id: string;
   name: string;
@@ -1911,10 +1937,12 @@ export function AdminView({
             unknown
           >[]) {
             if (r.data_type === "FieldSet") continue;
-            const opts = (r.options ?? []) as {
-              value: string;
-              label: string;
-            }[];
+            const opts = normalizePresetOptions(
+              ((r.options ?? []) as {
+                value: string;
+                label: string;
+              }[]) ?? [],
+            );
             merged.push({
               id: r.id as string,
               name: r.name as string,
@@ -1930,10 +1958,12 @@ export function AdminView({
             unknown
           >[]) {
             if (r.data_type === "FieldSet") continue;
-            const opts = (r.options ?? []) as {
-              value: string;
-              label: string;
-            }[];
+            const opts = normalizePresetOptions(
+              ((r.options ?? []) as {
+                value: string;
+                label: string;
+              }[]) ?? [],
+            );
             merged.push({
               id: r.id as string,
               name: r.name as string,
@@ -2342,7 +2372,12 @@ export function AdminView({
       if (data) {
         setListEditorDescription((data.description as string) ?? "");
         setListEditorOptions(
-          (data.options as { value: string; label: string }[]) ?? [],
+          normalizePresetOptions(
+            ((data.options as { value: string; label: string }[]) ?? []) as {
+              value: string;
+              label: string;
+            }[],
+          ),
         );
       }
     } catch {
@@ -2354,7 +2389,17 @@ export function AdminView({
     const v = listEditorNewValue.trim();
     const l = listEditorNewLabel.trim();
     if (!v) return;
-    setListEditorOptions((prev) => [...prev, { value: v, label: l || v }]);
+    const normalizedValue = normalizePresetOptionValue(v);
+    if (!normalizedValue) return;
+    if (listEditorOptions.some((option) => option.value === normalizedValue)) {
+      toast.error(`Option key "${normalizedValue}" already exists`);
+      return;
+    }
+
+    setListEditorOptions((prev) => [
+      ...prev,
+      { value: normalizedValue, label: l || v },
+    ]);
     setListEditorNewValue("");
     setListEditorNewLabel("");
   };
@@ -2369,13 +2414,15 @@ export function AdminView({
       toast.error("Preset name is required");
       return;
     }
+    const normalizedOptions = normalizePresetOptions(listEditorOptions);
+
     setListEditorSaving(true);
     try {
       const payload: Record<string, unknown> = {
         name,
         description: listEditorDescription.trim() || undefined,
         data_type: "List",
-        options: listEditorOptions,
+        options: normalizedOptions,
       };
       if (listEditorMode === "create") {
         const fn =
@@ -2394,7 +2441,7 @@ export function AdminView({
         const res = await fn(listEditorId, {
           name,
           description: payload.description,
-          options: listEditorOptions,
+          options: normalizedOptions,
         });
         if (!(res as any)?.success)
           throw new Error((res as any)?.message || "Failed to update preset");
@@ -2416,10 +2463,12 @@ export function AdminView({
             unknown
           >[]) {
             if (r.data_type === "FieldSet") continue;
-            const opts = (r.options ?? []) as {
-              value: string;
-              label: string;
-            }[];
+            const opts = normalizePresetOptions(
+              ((r.options ?? []) as {
+                value: string;
+                label: string;
+              }[]) ?? [],
+            );
             merged.push({
               id: r.id as string,
               name: r.name as string,
@@ -2435,10 +2484,12 @@ export function AdminView({
             unknown
           >[]) {
             if (r.data_type === "FieldSet") continue;
-            const opts = (r.options ?? []) as {
-              value: string;
-              label: string;
-            }[];
+            const opts = normalizePresetOptions(
+              ((r.options ?? []) as {
+                value: string;
+                label: string;
+              }[]) ?? [],
+            );
             merged.push({
               id: r.id as string,
               name: r.name as string,

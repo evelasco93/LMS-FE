@@ -38,7 +38,7 @@ export interface ValidationGroup {
 }
 
 export interface ResponseValidation {
-  groups: ValidationGroup[];
+  rules: ValidationCondition[];
 }
 
 export interface ClientDeliveryConfig {
@@ -182,6 +182,7 @@ export interface CampaignAffiliate {
 }
 
 export interface CampaignClient {
+  contract_id?: string;
   client_id: string;
   status?: CampaignParticipantStatus;
   added_at?: string;
@@ -658,6 +659,7 @@ export interface Destination {
     "abbr_to_name" | "name_to_abbr" | null
   >;
   is_primary: boolean;
+  non_webhook_delivery_action?: "passed" | "failed";
   claim_trusted_form?: boolean;
   require_successful_claim?: boolean;
 }

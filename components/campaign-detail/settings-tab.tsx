@@ -522,7 +522,6 @@ export default function SettingsTab({
                             "Boolean",
                             "Date",
                             "List",
-                            "US State",
                           ];
                           const toCreate: Array<{
                             field_label: string;

@@ -655,7 +655,6 @@ export function CriteriaCatalogModal({
                                 "Boolean",
                                 "Date",
                                 "List",
-                                "US State",
                               ];
                               const imported: CatalogFieldDraft[] = [];
                               for (const item of parsed) {
@@ -787,7 +786,6 @@ export function CriteriaCatalogModal({
                                 "Boolean",
                                 "Date",
                                 "List",
-                                "US State",
                               ] as CriteriaFieldType[]
                             ).map((t) => (
                               <option key={t} value={t}>

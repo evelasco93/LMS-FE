@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Globe, Plus, Shield, Trash2, ChevronDown } from "lucide-react";
+import { Globe, Plus, Shield, Trash2, AlertTriangle, Info } from "lucide-react";
 import { toast } from "sonner";
 import { Modal } from "@/components/modal";
 import { Button } from "@/components/button";
@@ -10,7 +10,6 @@ import type {
   CriteriaField,
   Destination,
   ValidationCondition,
-  ValidationGroup,
   ResponseValidation,
 } from "@/lib/types";
 import {
@@ -39,6 +38,7 @@ function emptyDestinationDraft(): Omit<Destination, "id"> {
       },
     ],
     is_primary: false,
+    non_webhook_delivery_action: undefined,
   };
 }
 
@@ -119,18 +119,13 @@ export function ClientDeliveryModal({
     return JSON.stringify(rest) !== originalDraftRef.current;
   }, [draft]);
 
-  /* ── response validation (client-level entity) ───────────────────────── */
-  const [rvGroups, setRvGroups] = useState<ValidationGroup[]>([]);
+  /* ── response validation (contract-level OR rules) ───────────────────── */
+  const [rvRules, setRvRules] = useState<ValidationCondition[]>([]);
   const rvOriginalRef = useRef<string>("");
   const rvDirty = useMemo(() => {
-    return JSON.stringify({ groups: rvGroups }) !== rvOriginalRef.current;
-  }, [rvGroups]);
+    return JSON.stringify({ rules: rvRules }) !== rvOriginalRef.current;
+  }, [rvRules]);
   const [rvSaving, setRvSaving] = useState(false);
-
-  const rvConditionCount = useMemo(
-    () => rvGroups.reduce((sum, g) => sum + g.conditions.length, 0),
-    [rvGroups],
-  );
 
   /* ── fetch destinations ──────────────────────────────────────────────── */
   const fetchDestinations = useCallback(async () => {
@@ -155,12 +150,30 @@ export function ClientDeliveryModal({
     try {
       const res = await getResponseValidation(campaignId, clientId);
       const rv: ResponseValidation | null = (res as any)?.data ?? null;
-      if (rv && rv.groups?.length > 0) {
-        setRvGroups(rv.groups);
-      } else {
-        setRvGroups([]);
-      }
-      const snap = JSON.stringify(rv ?? { groups: [] });
+      // Backward-compatible read: flatten legacy group payloads into OR-only rules.
+      const normalizedRules: ValidationCondition[] = rv
+        ? Array.isArray((rv as { rules?: ValidationCondition[] }).rules)
+          ? ((rv as { rules: ValidationCondition[] }).rules ?? [])
+          : Array.isArray(
+                (
+                  rv as {
+                    groups?: Array<{ conditions?: ValidationCondition[] }>;
+                  }
+                ).groups,
+              )
+            ? ((
+                (
+                  rv as {
+                    groups?: Array<{ conditions?: ValidationCondition[] }>;
+                  }
+                ).groups ?? []
+              ).flatMap(
+                (group) => group.conditions ?? [],
+              ) as ValidationCondition[])
+            : []
+        : [];
+      setRvRules(normalizedRules);
+      const snap = JSON.stringify({ rules: normalizedRules });
       rvOriginalRef.current = snap;
     } catch {
       /* silently use defaults */
@@ -172,8 +185,8 @@ export function ClientDeliveryModal({
     setSaveAttempted(false);
     setActiveView("destination");
     setIsNew(false);
-    setRvGroups([]);
-    rvOriginalRef.current = JSON.stringify({ groups: [] });
+    setRvRules([]);
+    rvOriginalRef.current = JSON.stringify({ rules: [] });
     fetchDestinations().then((items) => {
       if (items && items.length > 0) {
         setSelectedId(items[0].id);
@@ -208,6 +221,7 @@ export function ClientDeliveryModal({
               },
             ],
       is_primary: d.is_primary,
+      non_webhook_delivery_action: d.non_webhook_delivery_action,
       state_mapping_override: d.state_mapping_override,
       claim_trusted_form: d.claim_trusted_form,
       require_successful_claim: d.require_successful_claim,
@@ -224,9 +238,52 @@ export function ClientDeliveryModal({
     [destinations, selectedId],
   );
 
+  const primaryDestination = useMemo(
+    () => destinations.find((d) => d.is_primary) ?? destinations[0] ?? null,
+    [destinations],
+  );
+  const primaryDestinationId = primaryDestination?.id ?? null;
+  const primaryIsWebhook = primaryDestination?.type === "webhook";
+
+  const primaryValidationConditionCount = useMemo(() => {
+    if (!primaryDestinationId) return 0;
+    return rvRules.filter(
+      (condition) => condition.destination_id === primaryDestinationId,
+    ).length;
+  }, [rvRules, primaryDestinationId]);
+
+  const primaryHasPassCondition = useMemo(() => {
+    if (!primaryDestinationId) return false;
+    return rvRules.some(
+      (condition) =>
+        condition.destination_id === primaryDestinationId &&
+        condition.action === "passed" &&
+        condition.match_value.trim().length > 0,
+    );
+  }, [rvRules, primaryDestinationId]);
+
+  const hasAnyPassCondition = useMemo(
+    () =>
+      rvRules.some(
+        (condition) =>
+          condition.action === "passed" &&
+          condition.match_value.trim().length > 0,
+      ),
+    [rvRules],
+  );
+
+  const showPrimaryValidationWarning =
+    !!primaryDestination &&
+    primaryDestination.type === "webhook" &&
+    !primaryHasPassCondition;
+
   /* ── validation ──────────────────────────────────────────────────────── */
   const hasName = draft.name.trim().length > 0;
   const hasUrl = draft.url.trim().length > 0;
+  const hasNonWebhookOutcome =
+    draft.type === "webhook" ||
+    draft.non_webhook_delivery_action === "passed" ||
+    draft.non_webhook_delivery_action === "failed";
   const hasMappings =
     draft.payload_mapping.length > 0 &&
     draft.payload_mapping.every(
@@ -241,9 +298,11 @@ export function ClientDeliveryModal({
     ? "Destination name is required."
     : !hasUrl
       ? "Destination URL is required."
-      : !hasMappings
-        ? "Complete all payload mapping rows."
-        : "";
+      : !hasNonWebhookOutcome
+        ? "Choose Sold or Rejected behavior for this non-webhook destination."
+        : !hasMappings
+          ? "Complete all payload mapping rows."
+          : "";
 
   /* ── add new destination ─────────────────────────────────────────────── */
   const handleAddNew = () => {
@@ -284,6 +343,12 @@ export function ClientDeliveryModal({
       type: draft.type,
       url: trimmedUrl,
       method: draft.method,
+      is_primary: draft.is_primary,
+      ...(draft.type !== "webhook"
+        ? {
+            non_webhook_delivery_action: draft.non_webhook_delivery_action,
+          }
+        : {}),
       headers: draft.headers,
       payload_mapping: draft.payload_mapping.map((m) =>
         m.value_source === "field"
@@ -414,25 +479,47 @@ export function ClientDeliveryModal({
   /* ── response validation helpers ─────────────────────────────────────── */
   const handleSaveValidation = async () => {
     if (!campaignId || !clientId) return;
-    const trimmedGroups = rvGroups
-      .map((g) => ({
-        conditions: g.conditions
-          .filter((c) => c.match_value.trim().length > 0 && c.destination_id)
-          .map((c) => ({
-            destination_id: c.destination_id,
-            match_value: c.match_value.trim(),
-            action: c.action,
-          })),
-      }))
-      .filter((g) => g.conditions.length > 0);
+    if (!primaryDestinationId || !primaryIsWebhook) {
+      toast.warning(
+        "Response validation is only available when the primary destination is a webhook.",
+      );
+      return;
+    }
+
+    const trimmedRules = rvRules
+      .filter((condition) => condition.match_value.trim().length > 0)
+      .map((condition) => ({
+        destination_id: primaryDestinationId,
+        match_value: condition.match_value.trim(),
+        action: condition.action,
+      }));
+
+    const hasPass = trimmedRules.some(
+      (condition) => condition.action === "passed",
+    );
+    const hasFail = trimmedRules.some(
+      (condition) => condition.action === "failed",
+    );
+
+    if (trimmedRules.length > 0 && !hasPass) {
+      toast.warning(
+        "Add at least one PASS condition so leads can be marked sold.",
+      );
+      return;
+    }
+    if (hasFail && !hasPass) {
+      toast.warning("FAILED conditions require an existing PASS condition.");
+      return;
+    }
+
     setRvSaving(true);
     try {
       await saveResponseValidation(campaignId, clientId, {
-        groups: trimmedGroups,
+        rules: trimmedRules,
       });
       toast.success("Response validation saved.");
-      setRvGroups(trimmedGroups);
-      rvOriginalRef.current = JSON.stringify({ groups: trimmedGroups });
+      setRvRules(trimmedRules);
+      rvOriginalRef.current = JSON.stringify({ rules: trimmedRules });
       onDestinationsChanged?.();
     } catch (err: any) {
       toast.error(err?.message || "Failed to save validation.");
@@ -504,6 +591,11 @@ export function ClientDeliveryModal({
               >
                 <Globe size={12} className="shrink-0 opacity-60" />
                 <span className="min-w-0 flex-1 truncate">{d.name}</span>
+                {d.is_primary && (
+                  <span className="shrink-0 rounded-full border border-[--color-border] bg-[--color-panel] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                    Primary
+                  </span>
+                )}
               </button>
             ))}
 
@@ -535,9 +627,16 @@ export function ClientDeliveryModal({
               <span className="min-w-0 flex-1 truncate">
                 Response Validation
               </span>
-              {rvConditionCount > 0 && (
+              {showPrimaryValidationWarning && (
+                <AlertTriangle
+                  size={12}
+                  className="shrink-0 text-amber-500"
+                  title="Primary webhook has no PASS validation condition"
+                />
+              )}
+              {primaryValidationConditionCount > 0 && (
                 <span className="shrink-0 rounded-full bg-[--color-primary]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[--color-primary]">
-                  {rvConditionCount}
+                  {primaryValidationConditionCount}
                 </span>
               )}
             </button>
@@ -592,6 +691,20 @@ export function ClientDeliveryModal({
                   >
                     {activeView === "destination" ? (
                       <div className="space-y-3">
+                        <div className="rounded-lg border border-[--color-border] bg-[--color-bg-muted] px-3 py-2.5">
+                          <p className="text-xs font-semibold text-[--color-text-strong]">
+                            How routing works
+                          </p>
+                          <p className="mt-1 text-[11px] leading-relaxed text-[--color-text-muted]">
+                            Exactly one destination should be marked primary.
+                            The primary destination decides whether a lead is
+                            sold or rejected. For webhook primaries,
+                            sold/rejected is determined by Response Validation
+                            rules. For non-webhook primaries, use the
+                            Sold/Rejected behavior below.
+                          </p>
+                        </div>
+
                         {/* destination name */}
                         <label className="space-y-1">
                           <span className="text-xs font-medium text-[--color-text-muted]">
@@ -614,6 +727,55 @@ export function ClientDeliveryModal({
                             placeholder="e.g. Primary CRM Webhook"
                           />
                         </label>
+
+                        <div className="grid gap-3 md:grid-cols-[220px_1fr]">
+                          <label className="space-y-1">
+                            <span className="text-xs font-medium text-[--color-text-muted]">
+                              Destination Type
+                            </span>
+                            <select
+                              className={inputClass}
+                              value={draft.type}
+                              onChange={(e) => {
+                                const nextType = e.target
+                                  .value as Destination["type"];
+                                setDraft((prev) => ({
+                                  ...prev,
+                                  type: nextType,
+                                  non_webhook_delivery_action:
+                                    nextType === "webhook"
+                                      ? undefined
+                                      : (prev.non_webhook_delivery_action ??
+                                        "failed"),
+                                }));
+                              }}
+                            >
+                              <option value="webhook">Webhook</option>
+                              <option value="email">Email</option>
+                              <option value="google_sheets">
+                                Google Sheets
+                              </option>
+                            </select>
+                          </label>
+
+                          <label className="flex items-end gap-2 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-3 py-2 text-xs text-[--color-text]">
+                            <input
+                              type="checkbox"
+                              checked={!!draft.is_primary}
+                              onChange={(e) =>
+                                setDraft((prev) => ({
+                                  ...prev,
+                                  is_primary: e.target.checked,
+                                }))
+                              }
+                              className="h-3.5 w-3.5 rounded border-[--color-border] text-[--color-primary] focus:ring-[--color-primary]/30"
+                            />
+                            <span>
+                              Mark as primary destination (controls sold or
+                              rejected outcome)
+                            </span>
+                          </label>
+                        </div>
 
                         {/* method + URL */}
                         <div className="grid gap-3 md:grid-cols-[140px_1fr]">
@@ -663,6 +825,59 @@ export function ClientDeliveryModal({
                             />
                           </label>
                         </div>
+
+                        {draft.type !== "webhook" && (
+                          <div
+                            className={`rounded-lg border p-3 ${
+                              saveAttempted && !hasNonWebhookOutcome
+                                ? "border-red-500/60"
+                                : "border-[--color-border]"
+                            }`}
+                          >
+                            <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                              Non-Webhook Outcome{" "}
+                              <span className="text-red-500">*</span>
+                            </p>
+                            <p className="mt-1 text-[11px] text-[--color-text-muted]">
+                              Without webhook response validation, choose how a
+                              successful delivery should be treated.
+                            </p>
+                            <div className="mt-2 grid gap-2 md:grid-cols-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setDraft((prev) => ({
+                                    ...prev,
+                                    non_webhook_delivery_action: "passed",
+                                  }))
+                                }
+                                className={`rounded-md border px-3 py-2 text-left text-xs transition-colors ${
+                                  draft.non_webhook_delivery_action === "passed"
+                                    ? "border-emerald-400 bg-emerald-500/10 text-emerald-700"
+                                    : "border-[--color-border] text-[--color-text] hover:border-emerald-300"
+                                }`}
+                              >
+                                Sold
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setDraft((prev) => ({
+                                    ...prev,
+                                    non_webhook_delivery_action: "failed",
+                                  }))
+                                }
+                                className={`rounded-md border px-3 py-2 text-left text-xs transition-colors ${
+                                  draft.non_webhook_delivery_action === "failed"
+                                    ? "border-rose-400 bg-rose-500/10 text-rose-700"
+                                    : "border-[--color-border] text-[--color-text] hover:border-rose-300"
+                                }`}
+                              >
+                                Rejected
+                              </button>
+                            </div>
+                          </div>
+                        )}
 
                         {/* payload mapping */}
                         <div
@@ -965,301 +1180,211 @@ export function ClientDeliveryModal({
                     ) : (
                       /* ── Response Validation view ────────────────────────── */
                       <div className="space-y-4">
-                        <p className="text-[11px] text-[--color-text-muted]">
-                          Groups are evaluated with <strong>OR</strong> logic —
-                          lead passes if <em>any</em> group matches. Conditions
-                          within a group use <strong>AND</strong> logic — all
-                          must match.
-                        </p>
+                        <div className="rounded-lg border border-[--color-border] bg-[--color-bg-muted] px-3 py-2.5">
+                          <div className="flex items-start gap-2">
+                            <Info
+                              size={13}
+                              className="mt-0.5 shrink-0 text-[--color-primary]"
+                            />
+                            <div className="text-[11px] text-[--color-text-muted]">
+                              <p>
+                                Rules are evaluated top-to-bottom with
+                                <strong> OR</strong> semantics. First match
+                                wins.
+                              </p>
+                              <p className="mt-1">
+                                Match examples: <strong>approved</strong>,{" "}
+                                <strong>result:ok</strong>,{" "}
+                                <strong>status:200</strong>,{" "}
+                                <strong>status:2xx</strong>,{" "}
+                                <strong>status:&gt;=400</strong>. XML response
+                                text and leaf nodes are also matched.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
 
-                        {/* groups */}
-                        <AnimatePresence initial={false}>
-                          {rvGroups.map((group, gi) => (
-                            <motion.div
-                              key={`grp-${gi}`}
-                              layout
-                              initial={{ opacity: 0, y: 8 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: -8 }}
-                              transition={{ duration: 0.18 }}
-                            >
-                              {gi > 0 && (
-                                <div className="flex items-center gap-3 py-2">
-                                  <div className="flex-1 border-t border-[--color-border]" />
-                                  <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-[--color-text-muted]">
-                                    OR
-                                  </span>
-                                  <div className="flex-1 border-t border-[--color-border]" />
-                                </div>
-                              )}
-                              <div className="rounded-xl border border-[--color-border] border-l-[3px] border-l-blue-400 pl-4 pr-3 py-3 space-y-2">
-                                <div className="flex items-center justify-between">
-                                  <p className="text-[10px] font-bold uppercase tracking-wider text-[--color-text-muted]">
-                                    Group {gi + 1}{" "}
-                                    <span className="font-normal normal-case">
-                                      (all conditions must match)
-                                    </span>
-                                  </p>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setRvGroups((prev) =>
-                                        prev.filter((_, i) => i !== gi),
-                                      )
-                                    }
-                                    className="text-[--color-text-muted] hover:text-red-500 transition-colors"
-                                    title="Remove group"
-                                  >
-                                    <Trash2 size={13} />
-                                  </button>
-                                </div>
+                        {!primaryDestination && (
+                          <p className="rounded-lg border border-[--color-border] bg-[--color-bg-muted] px-3 py-6 text-center text-xs text-[--color-text-muted]">
+                            Select or create a primary destination first.
+                          </p>
+                        )}
 
-                                <AnimatePresence initial={false}>
-                                  {group.conditions.map((cond, ci) => (
-                                    <motion.div
-                                      key={`grp-${gi}-c-${ci}`}
-                                      layout
-                                      initial={{ opacity: 0, y: 4 }}
-                                      animate={{ opacity: 1, y: 0 }}
-                                      exit={{ opacity: 0, y: -4 }}
-                                      transition={{ duration: 0.15 }}
-                                      className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_110px_auto]"
-                                    >
-                                      {/* destination dropdown */}
-                                      <div className="relative">
-                                        <select
-                                          className={`${inputClass} appearance-none pr-8`}
-                                          value={cond.destination_id}
-                                          onChange={(e) =>
-                                            setRvGroups((prev) =>
-                                              prev.map((g, gIdx) =>
-                                                gIdx !== gi
-                                                  ? g
-                                                  : {
-                                                      ...g,
-                                                      conditions:
-                                                        g.conditions.map(
-                                                          (c, cIdx) =>
-                                                            cIdx !== ci
-                                                              ? c
-                                                              : {
-                                                                  ...c,
-                                                                  destination_id:
-                                                                    e.target
-                                                                      .value,
-                                                                },
-                                                        ),
-                                                    },
-                                              ),
-                                            )
-                                          }
-                                        >
-                                          <option value="" disabled>
-                                            Destination…
-                                          </option>
-                                          {destinations.map((d) => (
-                                            <option key={d.id} value={d.id}>
-                                              {d.name}
-                                            </option>
-                                          ))}
-                                        </select>
-                                        <ChevronDown
-                                          size={14}
-                                          className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[--color-text-muted]"
-                                        />
+                        {primaryDestination && !primaryIsWebhook && (
+                          <p className="rounded-lg border border-[--color-border] bg-[--color-bg-muted] px-3 py-6 text-center text-xs text-[--color-text-muted]">
+                            Primary destination "{primaryDestination.name}" is
+                            not a webhook. Response validation is disabled; use
+                            non-webhook Sold/Rejected behavior on the primary.
+                          </p>
+                        )}
+
+                        {primaryDestination && primaryIsWebhook && (
+                          <>
+                            <div className="rounded-md border border-[--color-border] bg-[--color-panel] px-3 py-2 text-[11px] text-[--color-text-muted]">
+                              Validation is linked to primary destination:{" "}
+                              <span className="font-semibold text-[--color-text]">
+                                {primaryDestination.name}
+                              </span>
+                            </div>
+
+                            {/* rules */}
+                            <AnimatePresence initial={false}>
+                              {rvRules.map((rule, ri) => (
+                                <motion.div
+                                  key={`rule-${ri}`}
+                                  layout
+                                  initial={{ opacity: 0, y: 8 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, y: -8 }}
+                                  transition={{ duration: 0.18 }}
+                                >
+                                  {ri > 0 && (
+                                    <div className="flex items-center gap-3 py-2">
+                                      <div className="flex-1 border-t border-[--color-border]" />
+                                      <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-[--color-text-muted]">
+                                        OR
+                                      </span>
+                                      <div className="flex-1 border-t border-[--color-border]" />
+                                    </div>
+                                  )}
+                                  <div className="rounded-xl border border-[--color-border] border-l-[3px] border-l-blue-400 pl-4 pr-3 py-3">
+                                    <div className="grid gap-2 md:grid-cols-[180px_minmax(0,1fr)_110px_auto]">
+                                      <div className="flex items-center rounded-md border border-[--color-border] bg-[--color-bg-muted] px-2.5 text-[11px] text-[--color-text-muted]">
+                                        {primaryDestination.name}
                                       </div>
 
-                                      {/* match value */}
                                       <input
                                         className={inputClass}
-                                        placeholder="Response contains…"
-                                        value={cond.match_value}
+                                        placeholder="approved | result:ok | status:2xx"
+                                        value={rule.match_value}
                                         onChange={(e) =>
-                                          setRvGroups((prev) =>
-                                            prev.map((g, gIdx) =>
-                                              gIdx !== gi
-                                                ? g
-                                                : {
-                                                    ...g,
-                                                    conditions:
-                                                      g.conditions.map(
-                                                        (c, cIdx) =>
-                                                          cIdx !== ci
-                                                            ? c
-                                                            : {
-                                                                ...c,
-                                                                match_value:
-                                                                  e.target
-                                                                    .value,
-                                                              },
-                                                      ),
-                                                  },
+                                          setRvRules((prev) =>
+                                            prev.map((r, idx) =>
+                                              idx === ri
+                                                ? {
+                                                    ...r,
+                                                    destination_id:
+                                                      primaryDestinationId,
+                                                    match_value: e.target.value,
+                                                  }
+                                                : r,
                                             ),
                                           )
                                         }
                                       />
 
-                                      {/* pass / fail toggle */}
                                       <button
                                         type="button"
                                         onClick={() =>
-                                          setRvGroups((prev) =>
-                                            prev.map((g, gIdx) =>
-                                              gIdx !== gi
-                                                ? g
-                                                : {
-                                                    ...g,
-                                                    conditions:
-                                                      g.conditions.map(
-                                                        (c, cIdx) =>
-                                                          cIdx !== ci
-                                                            ? c
-                                                            : {
-                                                                ...c,
-                                                                action:
-                                                                  c.action ===
-                                                                  "passed"
-                                                                    ? "failed"
-                                                                    : "passed",
-                                                              },
-                                                      ),
-                                                  },
-                                            ),
-                                          )
+                                          setRvRules((prev) => {
+                                            const current = prev[ri];
+                                            if (!current) return prev;
+                                            const nextAction =
+                                              current.action === "passed"
+                                                ? "failed"
+                                                : "passed";
+
+                                            if (nextAction === "failed") {
+                                              const hasOtherPass = prev.some(
+                                                (r, idx) =>
+                                                  idx !== ri &&
+                                                  r.action === "passed" &&
+                                                  r.match_value.trim().length >
+                                                    0,
+                                              );
+                                              if (!hasOtherPass) {
+                                                toast.warning(
+                                                  "Keep at least one PASS condition before marking this as FAILED.",
+                                                );
+                                                return prev;
+                                              }
+                                            }
+
+                                            return prev.map((r, idx) =>
+                                              idx === ri
+                                                ? {
+                                                    ...r,
+                                                    destination_id:
+                                                      primaryDestinationId,
+                                                    action: nextAction,
+                                                  }
+                                                : r,
+                                            );
+                                          })
                                         }
                                         className={`flex w-[100px] items-center justify-between rounded-full border px-1 py-1 text-xs font-semibold transition-colors ${
-                                          cond.action === "passed"
+                                          rule.action === "passed"
                                             ? "border-green-500/40 bg-green-500/10"
                                             : "border-red-500/40 bg-red-500/10"
                                         }`}
                                       >
                                         <span
                                           className={`flex h-5 w-5 items-center justify-center rounded-full text-white transition-all ${
-                                            cond.action === "passed"
+                                            rule.action === "passed"
                                               ? "bg-green-500"
                                               : "bg-red-500"
                                           }`}
                                         >
-                                          {cond.action === "passed" ? "✓" : "✕"}
+                                          {rule.action === "passed" ? "✓" : "✕"}
                                         </span>
                                         <span
                                           className={`flex-1 text-center ${
-                                            cond.action === "passed"
+                                            rule.action === "passed"
                                               ? "text-green-600"
                                               : "text-red-500"
                                           }`}
                                         >
-                                          {cond.action === "passed"
+                                          {rule.action === "passed"
                                             ? "Pass"
                                             : "Fail"}
                                         </span>
                                       </button>
 
-                                      {/* delete condition */}
                                       <button
                                         type="button"
                                         className="flex items-center justify-center rounded p-1.5 text-[--color-text-muted] hover:text-red-500 transition-colors"
                                         onClick={() =>
-                                          setRvGroups((prev) =>
-                                            prev.map((g, gIdx) =>
-                                              gIdx !== gi
-                                                ? g
-                                                : {
-                                                    ...g,
-                                                    conditions:
-                                                      g.conditions.filter(
-                                                        (_, cIdx) =>
-                                                          cIdx !== ci,
-                                                      ),
-                                                  },
-                                            ),
+                                          setRvRules((prev) =>
+                                            prev.filter((_, idx) => idx !== ri),
                                           )
                                         }
-                                        title="Remove condition"
+                                        title="Remove rule"
                                       >
                                         <Trash2 size={14} />
                                       </button>
+                                    </div>
+                                  </div>
+                                </motion.div>
+                              ))}
+                            </AnimatePresence>
 
-                                      {/* AND badge */}
-                                      {ci < group.conditions.length - 1 && (
-                                        <span className="col-span-full flex justify-start">
-                                          <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold bg-red-500 text-white">
-                                            AND
-                                          </span>
-                                        </span>
-                                      )}
-                                    </motion.div>
-                                  ))}
-                                </AnimatePresence>
+                            {rvRules.length === 0 && (
+                              <p className="py-6 text-center text-xs text-[--color-text-muted]">
+                                No rules yet. Add one below.
+                              </p>
+                            )}
 
-                                {/* add condition to this group */}
-                                <button
-                                  type="button"
-                                  className="mt-1 flex items-center gap-1 text-xs text-[--color-primary] hover:underline"
-                                  onClick={() =>
-                                    setRvGroups((prev) =>
-                                      prev.map((g, gIdx) =>
-                                        gIdx !== gi
-                                          ? g
-                                          : {
-                                              ...g,
-                                              conditions: [
-                                                ...g.conditions,
-                                                {
-                                                  destination_id:
-                                                    destinations[0]?.id ?? "",
-                                                  match_value: "",
-                                                  action: "passed" as const,
-                                                },
-                                              ],
-                                            },
-                                      ),
-                                    )
-                                  }
-                                >
-                                  <Plus size={12} />
-                                  Add condition
-                                </button>
-                              </div>
-                            </motion.div>
-                          ))}
-                        </AnimatePresence>
-
-                        {rvGroups.length === 0 && destinations.length === 0 && (
-                          <p className="py-6 text-center text-xs text-[--color-text-muted]">
-                            Create a destination first, then configure response
-                            validation.
-                          </p>
-                        )}
-                        {rvGroups.length === 0 && destinations.length > 0 && (
-                          <p className="py-6 text-center text-xs text-[--color-text-muted]">
-                            No groups yet. Add one below.
-                          </p>
-                        )}
-
-                        {/* add group */}
-                        {destinations.length > 0 && (
-                          <button
-                            type="button"
-                            className="flex items-center gap-1 text-xs text-[--color-primary] hover:underline"
-                            onClick={() =>
-                              setRvGroups((prev) => [
-                                ...prev,
-                                {
-                                  conditions: [
-                                    {
-                                      destination_id: destinations[0]?.id ?? "",
-                                      match_value: "",
-                                      action: "passed" as const,
-                                    },
-                                  ],
-                                },
-                              ])
-                            }
-                          >
-                            <Plus size={12} />
-                            Add group
-                          </button>
+                            {/* add rule */}
+                            <button
+                              type="button"
+                              className="flex items-center gap-1 text-xs text-[--color-primary] hover:underline"
+                              onClick={() =>
+                                setRvRules((prev) => [
+                                  ...prev,
+                                  {
+                                    destination_id: primaryDestinationId,
+                                    match_value: "",
+                                    action: hasAnyPassCondition
+                                      ? ("failed" as const)
+                                      : ("passed" as const),
+                                  },
+                                ])
+                              }
+                            >
+                              <Plus size={12} />
+                              Add rule
+                            </button>
+                          </>
                         )}
                       </div>
                     )}
