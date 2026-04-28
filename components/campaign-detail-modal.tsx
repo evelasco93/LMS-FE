@@ -574,12 +574,18 @@ export function CampaignDetailModal({
   isOpen: boolean;
   onClose: () => void;
   onStatusChange: (id: string, status: Campaign["status"]) => Promise<boolean>;
-  onLinkClient: (campaignId: string, clientId: string) => Promise<void>;
+  onLinkClient: (
+    campaignId: string,
+    payload: { client_id: string; contract_name: string },
+  ) => Promise<void>;
   onLinkAffiliate: (campaignId: string, affiliateId: string) => Promise<void>;
   onUpdateClientStatus: (
     campaignId: string,
     clientId: string,
-    status: CampaignParticipantStatus,
+    payload: {
+      status?: CampaignParticipantStatus;
+      contract_name?: string;
+    },
   ) => Promise<void>;
   onUpdateAffiliateStatus: (
     campaignId: string,
@@ -1201,7 +1207,12 @@ export function CampaignDetailModal({
     mutate: refreshLogicRules,
     isLoading: logicRulesLoading,
   } = useSWR(
-    isOpen && campaign?.id && (tab === "settings" || tab === "overview" || tab === "clients" || tab === "affiliates")
+    isOpen &&
+      campaign?.id &&
+      (tab === "settings" ||
+        tab === "overview" ||
+        tab === "clients" ||
+        tab === "affiliates")
       ? `logic-rules-${campaign.id}`
       : null,
     () => listLogicRules(campaign!.id),
@@ -2736,7 +2747,12 @@ export function CampaignDetailModal({
 
   const clientLinks = localClientLinks;
   const affiliateLinks = localAffiliateLinks;
-  const clientLinkMap = new Map(clientLinks.map((cc) => [cc.client_id, cc]));
+  const clientLinkMap = new Map(
+    clientLinks.map((cc, index) => [
+      cc.contract_id || `${cc.client_id}::${index}`,
+      cc,
+    ]),
+  );
   const affiliateLinkMap = new Map(
     affiliateLinks.map((ca) => [ca.affiliate_id, ca]),
   );
@@ -2744,7 +2760,22 @@ export function CampaignDetailModal({
     affiliates.map((affiliate) => [affiliate.id, affiliate]),
   );
 
-  const linkedClients = clients.filter((c) => clientLinkMap.has(c.id));
+  const clientById = new Map(clients.map((client) => [client.id, client]));
+  const linkedClients = clientLinks.map((link, index) => {
+    const contractKey = link.contract_id || `${link.client_id}::${index}`;
+    const baseClient = clientById.get(link.client_id);
+    if (baseClient) {
+      return {
+        ...baseClient,
+        id: contractKey,
+      };
+    }
+    return {
+      id: contractKey,
+      name: `Unknown end user (${link.client_id})`,
+      status: "INACTIVE" as const,
+    };
+  });
   const linkedAffiliates = affiliateLinks.map(
     (link) =>
       affiliateById.get(link.affiliate_id) ?? {
@@ -2756,9 +2787,7 @@ export function CampaignDetailModal({
       },
   );
 
-  const availableClients = clients.filter(
-    (c) => c.status === "ACTIVE" && !clientLinkMap.has(c.id),
-  );
+  const availableClients = clients.filter((c) => c.status === "ACTIVE");
   const availableAffiliates = affiliates.filter(
     (a) => a.status === "ACTIVE" && !affiliateLinkMap.has(a.id),
   );
@@ -3382,9 +3411,17 @@ export function CampaignDetailModal({
         campaignId={campaign?.id ?? null}
         clientId={deliveryClientId}
         clientName={
-          clients.find((c) => c.id === deliveryClientId)?.name ??
-          deliveryClientId ??
-          ""
+          (deliveryClientId
+            ? (() => {
+                const selectedLink = clientLinkMap.get(deliveryClientId);
+                if (!selectedLink) return deliveryClientId;
+                return (
+                  clientNameById.get(selectedLink.client_id) ||
+                  selectedLink.contract_name ||
+                  selectedLink.client_id
+                );
+              })()
+            : "") || ""
         }
         criteriaFields={criteriaFields}
         onClose={() => setDeliveryClientId(null)}
@@ -3478,19 +3515,16 @@ export function CampaignDetailModal({
         isOpen={linkClientModalOpen}
         onClose={() => setLinkClientModalOpen(false)}
         clients={availableClients}
-        onSubmit={async (clientId) => {
-          await onLinkClient(campaign.id, clientId);
-          setLocalClientLinks((prev) =>
-            prev.some((l) => l.client_id === clientId)
-              ? prev
-              : [
-                  ...prev,
-                  {
-                    client_id: clientId,
-                    status: "TEST" as CampaignParticipantStatus,
-                  },
-                ],
-          );
+        onSubmit={async (payload) => {
+          await onLinkClient(campaign.id, payload);
+          setLocalClientLinks((prev) => [
+            ...prev,
+            {
+              client_id: payload.client_id,
+              contract_name: payload.contract_name,
+              status: "TEST" as CampaignParticipantStatus,
+            },
+          ]);
           setLinkClientModalOpen(false);
         }}
       />

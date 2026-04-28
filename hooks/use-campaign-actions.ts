@@ -38,12 +38,15 @@ export function useCampaignActions({
   setActive,
 }: UseCampaignActionsOptions) {
   const onLinkClientToCampaign = useCallback(
-    async (campaignId: string, clientId: string) => {
-      const promise = linkClientToCampaign(campaignId, clientId);
+    async (
+      campaignId: string,
+      payload: { client_id: string; contract_name?: string },
+    ) => {
+      const promise = linkClientToCampaign(campaignId, payload);
       toast.promise(promise, {
-        loading: "Linking client…",
-        success: "Client linked",
-        error: (err) => err?.message || "Unable to link client",
+        loading: "Creating contract…",
+        success: "Contract created",
+        error: (err) => err?.message || "Unable to create contract",
       });
       try {
         await promise;
@@ -79,13 +82,20 @@ export function useCampaignActions({
     async (
       campaignId: string,
       clientId: string,
-      status: CampaignParticipantStatus,
+      payload: {
+        status?: CampaignParticipantStatus;
+        contract_name?: string;
+      },
     ) => {
-      const promise = updateCampaignClientStatus(campaignId, clientId, status);
+      const isRenameOnly =
+        payload.contract_name !== undefined && payload.status === undefined;
+      const promise = updateCampaignClientStatus(campaignId, clientId, payload);
       toast.promise(promise, {
-        loading: "Updating client status…",
-        success: "Client status updated",
-        error: (err) => err?.message || "Unable to update client status",
+        loading: isRenameOnly
+          ? "Updating contract name…"
+          : "Updating contract…",
+        success: isRenameOnly ? "Contract name updated" : "Contract updated",
+        error: (err) => err?.message || "Unable to update contract",
       });
       try {
         await promise;

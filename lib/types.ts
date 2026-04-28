@@ -183,6 +183,7 @@ export interface CampaignAffiliate {
 
 export interface CampaignClient {
   contract_id?: string;
+  contract_name?: string;
   client_id: string;
   status?: CampaignParticipantStatus;
   added_at?: string;

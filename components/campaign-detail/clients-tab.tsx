@@ -139,6 +139,9 @@ export function ClientsTab({
         ) : (
           linkedClients.map((c) => {
             const link = clientLinkMap.get(c.id);
+            const configuredDeliveryCount =
+              (link?.destinations?.length ?? 0) +
+              (link?.delivery_config ? 1 : 0);
             const infoOpen = openInfoId === `client-${c.id}`;
             return (
               <div
@@ -151,12 +154,25 @@ export function ClientsTab({
                       <span className="font-semibold text-[--color-text-strong]">
                         {c.name}
                       </span>
+                      {link?.contract_name && (
+                        <span className="rounded-md border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-[10px] font-medium text-[--color-text-muted]">
+                          {link.contract_name}
+                        </span>
+                      )}
                       <span
                         className="text-xs text-[--color-text-muted] font-mono cursor-help"
-                        title="Client ID"
+                        title="End User ID"
                       >
-                        ({c.id})
+                        ({link?.client_id || "unknown-client"})
                       </span>
+                      {link?.contract_id && (
+                        <span
+                          className="text-[10px] text-[--color-text-muted] font-mono cursor-help"
+                          title="Contract ID"
+                        >
+                          {link.contract_id}
+                        </span>
+                      )}
                       <Badge
                         tone={
                           statusColorMap[link?.status || "TEST"] || "neutral"
@@ -246,7 +262,7 @@ export function ClientsTab({
                         className="shrink-0 opacity-60 group-hover:opacity-100"
                       />
                       <span className="group-hover:underline">
-                        Configure delivery
+                        Configure delivery ({configuredDeliveryCount})
                       </span>
                     </button>
                   </div>

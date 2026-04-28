@@ -628,11 +628,15 @@ export function ClientDeliveryModal({
                 Response Validation
               </span>
               {showPrimaryValidationWarning && (
-                <AlertTriangle
-                  size={12}
-                  className="shrink-0 text-amber-500"
+                <span
+                  className="shrink-0"
                   title="Primary webhook has no PASS validation condition"
-                />
+                >
+                  <AlertTriangle
+                    size={12}
+                    className="shrink-0 text-amber-500"
+                  />
+                </span>
               )}
               {primaryValidationConditionCount > 0 && (
                 <span className="shrink-0 rounded-full bg-[--color-primary]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[--color-primary]">

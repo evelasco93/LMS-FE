@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -166,7 +167,10 @@ interface ParticipantModalsProps {
   onUpdateClientStatus: (
     campaignId: string,
     clientId: string,
-    status: CampaignParticipantStatus,
+    payload: {
+      status?: CampaignParticipantStatus;
+      contract_name?: string;
+    },
   ) => Promise<void>;
   onUpdateAffiliateStatus: (
     campaignId: string,
@@ -320,8 +324,20 @@ export function ParticipantModals(props: ParticipantModalsProps) {
     ? clientLinkMap?.get(pid)
     : affiliateLinkMap?.get(pid);
   const participant = isClient
-    ? clients?.find((c: any) => c.id === pid)
+    ? (linkedClients?.find((c: any) => c.id === pid) ??
+      clients?.find(
+        (c: any) =>
+          c.id === (currentLink as CampaignClient | undefined)?.client_id,
+      ))
     : affiliates?.find((a: any) => a.id === pid);
+  const [contractNameDraft, setContractNameDraft] = useState("");
+
+  useEffect(() => {
+    if (isClient) {
+      const link = currentLink as CampaignClient | undefined;
+      setContractNameDraft(link?.contract_name ?? "");
+    }
+  }, [isClient, currentLink, participantAction?.id]);
 
   return (
     <>
@@ -388,14 +404,12 @@ export function ParticipantModals(props: ParticipantModalsProps) {
                       return;
                     }
                     if (isClient) {
-                      await onUpdateClientStatus(
-                        campaign.id,
-                        pid,
-                        participantAction.statusDraft,
-                      );
+                      await onUpdateClientStatus(campaign.id, pid, {
+                        status: participantAction.statusDraft,
+                      });
                       setLocalClientLinks((prev) =>
                         prev.map((l) =>
-                          l.client_id === pid
+                          (l.contract_id || l.client_id) === pid
                             ? {
                                 ...l,
                                 status: participantAction.statusDraft,
@@ -635,18 +649,71 @@ export function ParticipantModals(props: ParticipantModalsProps) {
             {isClient && (
               <div className="space-y-2 border-t border-[--color-border] pt-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                  Contract Name
+                </p>
+                <div className="flex items-center gap-2">
+                  <input
+                    className={inputClass}
+                    value={contractNameDraft}
+                    onChange={(e) => setContractNameDraft(e.target.value)}
+                    placeholder="Contract name"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!contractNameDraft.trim()}
+                    onClick={async () => {
+                      const trimmed = contractNameDraft.trim();
+                      if (!trimmed) return;
+                      await onUpdateClientStatus(campaign.id, pid, {
+                        contract_name: trimmed,
+                      });
+                      setLocalClientLinks((prev) =>
+                        prev.map((l) =>
+                          (l.contract_id || l.client_id) === pid
+                            ? {
+                                ...l,
+                                contract_name: trimmed,
+                              }
+                            : l,
+                        ),
+                      );
+                    }}
+                  >
+                    Save Name
+                  </Button>
+                </div>
+                <p className="text-xs text-[--color-text-muted]">
+                  Rename this contract without changing its linked end user.
+                </p>
+              </div>
+            )}
+
+            {isClient && (
+              <div className="space-y-2 border-t border-[--color-border] pt-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
                   Delivery Configuration
                 </p>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setDeliveryClientId(pid);
-                    setParticipantAction(null);
-                  }}
-                >
-                  Configure Delivery
-                </Button>
+                {(() => {
+                  const contractLink = currentLink as
+                    | CampaignClient
+                    | undefined;
+                  const configuredDeliveryCount =
+                    (contractLink?.destinations?.length ?? 0) +
+                    (contractLink?.delivery_config ? 1 : 0);
+                  return (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setDeliveryClientId(pid);
+                        setParticipantAction(null);
+                      }}
+                    >
+                      Configure Delivery ({configuredDeliveryCount})
+                    </Button>
+                  );
+                })()}
                 <p className="text-xs text-[--color-text-muted]">
                   Set the endpoint and payload mapping for delivering leads to
                   this client.
@@ -680,7 +747,9 @@ export function ParticipantModals(props: ParticipantModalsProps) {
                     if (isClient) {
                       await onRemoveClient(campaign.id, pid);
                       setLocalClientLinks((prev) =>
-                        prev.filter((l) => l.client_id !== pid),
+                        prev.filter(
+                          (l) => (l.contract_id || l.client_id) !== pid,
+                        ),
                       );
                     } else {
                       await onRemoveAffiliate(campaign.id, pid);
@@ -705,7 +774,16 @@ export function ParticipantModals(props: ParticipantModalsProps) {
           pixelLogicIntroAffiliateId
             ? `Source Rules — ${affiliates.find((a) => a.id === pixelLogicIntroAffiliateId)?.name || pixelLogicIntroAffiliateId}`
             : deliveryLogicIntroClientId
-              ? `Client Rules — ${clients.find((c) => c.id === deliveryLogicIntroClientId)?.name || deliveryLogicIntroClientId}`
+              ? `Client Rules — ${
+                  linkedClients.find((c) => c.id === deliveryLogicIntroClientId)
+                    ?.name ||
+                  clients.find(
+                    (c) =>
+                      c.id ===
+                      clientLinkMap.get(deliveryLogicIntroClientId)?.client_id,
+                  )?.name ||
+                  deliveryLogicIntroClientId
+                }`
               : "Rules"
         }
         isOpen={!!(pixelLogicIntroAffiliateId || deliveryLogicIntroClientId)}
@@ -767,7 +845,10 @@ export function ParticipantModals(props: ParticipantModalsProps) {
               </button>
               {(participantLogicSetId || participantLogicBaseSetId) && (
                 <span className="ml-1 font-medium">
-                  · Has {participantLogicSetId ? "catalog override" : "custom extensions"}
+                  · Has{" "}
+                  {participantLogicSetId
+                    ? "catalog override"
+                    : "custom extensions"}
                 </span>
               )}
             </div>

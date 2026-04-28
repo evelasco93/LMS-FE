@@ -268,23 +268,33 @@ export async function updateCampaignPlugins(
   });
 }
 
-export async function linkClientToCampaign(id: string, client_id: string) {
+export async function linkClientToCampaign(
+  id: string,
+  payload: {
+    client_id: string;
+    contract_name?: string;
+    contract_id?: string;
+  },
+) {
   const url = `${API_BASE_URL}/campaigns/${id}/contracts`;
   return request<ApiResponse<Campaign>>(url, {
     method: "POST",
-    body: JSON.stringify({ client_id }),
+    body: JSON.stringify(payload),
   });
 }
 
 export async function updateCampaignClientStatus(
   id: string,
   clientId: string,
-  status: CampaignParticipantStatus,
+  payload: {
+    status?: CampaignParticipantStatus;
+    contract_name?: string;
+  },
 ) {
   const url = `${API_BASE_URL}/campaigns/${id}/contracts/${clientId}`;
   return request<ApiResponse<Campaign>>(url, {
     method: "PUT",
-    body: JSON.stringify({ status }),
+    body: JSON.stringify(payload),
   });
 }
 

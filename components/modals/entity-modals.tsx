@@ -2,7 +2,14 @@
 
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
-import { History, Sparkles, ChevronDown, ArrowRight, Tag, Plus } from "lucide-react";
+import {
+  History,
+  Sparkles,
+  ChevronDown,
+  ArrowRight,
+  Tag,
+  Plus,
+} from "lucide-react";
 import useSWR from "swr";
 import { AnimatePresence, motion } from "framer-motion";
 import { Modal } from "@/components/modal";
@@ -15,7 +22,11 @@ import {
   formatDate,
   normalizeFieldLabel,
 } from "@/lib/utils";
-import { getEntityAudit, listTagDefinitions, createTagDefinition } from "@/lib/api";
+import {
+  getEntityAudit,
+  listTagDefinitions,
+  createTagDefinition,
+} from "@/lib/api";
 import type {
   Affiliate,
   Client,
@@ -265,7 +276,9 @@ export function ClientModal({
               value={form.notes || ""}
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
             />
-            <span className={`absolute bottom-1.5 right-2 text-[10px] ${(form.notes?.length ?? 0) >= 450 ? "text-red-500" : "text-[--color-text-muted]"}`}>
+            <span
+              className={`absolute bottom-1.5 right-2 text-[10px] ${(form.notes?.length ?? 0) >= 450 ? "text-red-500" : "text-[--color-text-muted]"}`}
+            >
               {form.notes?.length ?? 0}/500
             </span>
           </div>
@@ -370,7 +383,9 @@ export function EditClientModal({
               value={form.notes || ""}
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
             />
-            <span className={`absolute bottom-1.5 right-2 text-[10px] ${(form.notes?.length ?? 0) >= 450 ? "text-red-500" : "text-[--color-text-muted]"}`}>
+            <span
+              className={`absolute bottom-1.5 right-2 text-[10px] ${(form.notes?.length ?? 0) >= 450 ? "text-red-500" : "text-[--color-text-muted]"}`}
+            >
               {form.notes?.length ?? 0}/500
             </span>
           </div>
@@ -461,7 +476,9 @@ export function AffiliateModal({
               value={form.notes || ""}
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
             />
-            <span className={`absolute bottom-1.5 right-2 text-[10px] ${(form.notes?.length ?? 0) >= 450 ? "text-red-500" : "text-[--color-text-muted]"}`}>
+            <span
+              className={`absolute bottom-1.5 right-2 text-[10px] ${(form.notes?.length ?? 0) >= 450 ? "text-red-500" : "text-[--color-text-muted]"}`}
+            >
               {form.notes?.length ?? 0}/500
             </span>
           </div>
@@ -569,7 +586,9 @@ export function EditAffiliateModal({
               value={form.notes || ""}
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
             />
-            <span className={`absolute bottom-1.5 right-2 text-[10px] ${(form.notes?.length ?? 0) >= 450 ? "text-red-500" : "text-[--color-text-muted]"}`}>
+            <span
+              className={`absolute bottom-1.5 right-2 text-[10px] ${(form.notes?.length ?? 0) >= 450 ? "text-red-500" : "text-[--color-text-muted]"}`}
+            >
               {form.notes?.length ?? 0}/500
             </span>
           </div>
@@ -779,8 +798,16 @@ export function CampaignModal({
   const [creatingTag, setCreatingTag] = useState(false);
 
   const tagPalette = [
-    "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6",
-    "#ec4899", "#06b6d4", "#f97316", "#6366f1", "#14b8a6",
+    "#3b82f6",
+    "#10b981",
+    "#f59e0b",
+    "#ef4444",
+    "#8b5cf6",
+    "#ec4899",
+    "#06b6d4",
+    "#f97316",
+    "#6366f1",
+    "#14b8a6",
   ];
 
   useEffect(() => {
@@ -820,127 +847,143 @@ export function CampaignModal({
           />
         </Field>
         <div className="space-y-2">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
-              Tags{" "}
-              <span className="font-normal normal-case tracking-normal">
-                (recommended for preset filtering)
-              </span>
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {tagDefs.map((def) => {
-                const active = tagDraft.includes(def.label);
-                return (
-                  <button
-                    key={def.id}
-                    type="button"
-                    onClick={() =>
-                      setTagDraft((prev) =>
-                        active
-                          ? prev.filter((t) => t !== def.label)
-                          : [...prev, def.label],
-                      )
-                    }
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
-                      active
-                        ? def.color
-                          ? ""
-                          : "border-blue-500 bg-blue-500/10 text-blue-400"
-                        : "border-[--color-border] text-[--color-text-muted] hover:border-[--color-text-muted]"
-                    }`}
-                    style={
-                      active && def.color
-                        ? {
-                            borderColor: def.color,
-                            backgroundColor: def.color + "18",
-                            color: def.color,
-                          }
-                        : undefined
-                    }
-                  >
-                    <Tag size={12} />
-                    {def.label}
-                  </button>
-                );
-              })}
-              {!showNewTagForm && (
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
+            Tags{" "}
+            <span className="font-normal normal-case tracking-normal">
+              (recommended for preset filtering)
+            </span>
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {tagDefs.map((def) => {
+              const active = tagDraft.includes(def.label);
+              return (
                 <button
+                  key={def.id}
                   type="button"
-                  onClick={() => setShowNewTagForm(true)}
-                  className="inline-flex items-center gap-1 rounded-full border border-dashed border-[--color-border] px-3 py-1.5 text-xs text-[--color-text-muted] hover:border-[--color-text-muted] hover:text-[--color-text] transition-colors"
+                  onClick={() =>
+                    setTagDraft((prev) =>
+                      active
+                        ? prev.filter((t) => t !== def.label)
+                        : [...prev, def.label],
+                    )
+                  }
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    active
+                      ? def.color
+                        ? ""
+                        : "border-blue-500 bg-blue-500/10 text-blue-400"
+                      : "border-[--color-border] text-[--color-text-muted] hover:border-[--color-text-muted]"
+                  }`}
+                  style={
+                    active && def.color
+                      ? {
+                          borderColor: def.color,
+                          backgroundColor: def.color + "18",
+                          color: def.color,
+                        }
+                      : undefined
+                  }
                 >
-                  <Plus size={12} />
-                  New Tag
+                  <Tag size={12} />
+                  {def.label}
                 </button>
-              )}
-            </div>
-            {showNewTagForm && (
-              <div className="flex items-end gap-2 p-2 rounded-lg border border-[--color-border] bg-[--color-bg-muted]">
-                <div className="flex-1 space-y-1">
-                  <label className="text-[10px] font-medium text-[--color-text-muted]">Label</label>
-                  <input
-                    className={inputClass + " !py-1 !text-xs"}
-                    placeholder="e.g. Insurance"
-                    value={newTagLabel}
-                    onChange={(e) => setNewTagLabel(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-medium text-[--color-text-muted]">Color</label>
-                  <div className="flex gap-1">
-                    {tagPalette.map((c) => (
-                      <button
-                        key={c}
-                        type="button"
-                        onClick={() => setNewTagColor(c)}
-                        className="w-5 h-5 rounded-full border-2 transition-transform"
-                        style={{
-                          backgroundColor: c,
-                          borderColor: newTagColor === c ? "white" : "transparent",
-                          transform: newTagColor === c ? "scale(1.2)" : undefined,
-                        }}
-                      />
-                    ))}
-                  </div>
-                </div>
-                <Button
-                  size="sm"
-                  disabled={!newTagLabel.trim() || creatingTag}
-                  type="button"
-                  onClick={async () => {
-                    const label = newTagLabel.trim();
-                    if (!label) return;
-                    setCreatingTag(true);
-                    try {
-                      const res = await createTagDefinition({ label, color: newTagColor });
-                      if (res?.data) {
-                        setTagDefs((prev) => [...prev, res.data as TagDefinitionRecord]);
-                        setTagDraft((prev) => [...prev, label]);
-                      }
-                      setNewTagLabel("");
-                      setShowNewTagForm(false);
-                    } catch { /* ignore */ }
-                    setCreatingTag(false);
-                  }}
-                >
-                  {creatingTag ? "…" : "Add"}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  type="button"
-                  onClick={() => { setShowNewTagForm(false); setNewTagLabel(""); }}
-                >
-                  ✕
-                </Button>
-              </div>
-            )}
-            {tagDraft.length === 0 && (
-              <p className="text-[10px] text-amber-500">
-                Filling in tags helps filter presets and avoid
-                cross-contamination between campaign types.
-              </p>
+              );
+            })}
+            {!showNewTagForm && (
+              <button
+                type="button"
+                onClick={() => setShowNewTagForm(true)}
+                className="inline-flex items-center gap-1 rounded-full border border-dashed border-[--color-border] px-3 py-1.5 text-xs text-[--color-text-muted] hover:border-[--color-text-muted] hover:text-[--color-text] transition-colors"
+              >
+                <Plus size={12} />
+                New Tag
+              </button>
             )}
           </div>
+          {showNewTagForm && (
+            <div className="flex items-end gap-2 p-2 rounded-lg border border-[--color-border] bg-[--color-bg-muted]">
+              <div className="flex-1 space-y-1">
+                <label className="text-[10px] font-medium text-[--color-text-muted]">
+                  Label
+                </label>
+                <input
+                  className={inputClass + " !py-1 !text-xs"}
+                  placeholder="e.g. Insurance"
+                  value={newTagLabel}
+                  onChange={(e) => setNewTagLabel(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-medium text-[--color-text-muted]">
+                  Color
+                </label>
+                <div className="flex gap-1">
+                  {tagPalette.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setNewTagColor(c)}
+                      className="w-5 h-5 rounded-full border-2 transition-transform"
+                      style={{
+                        backgroundColor: c,
+                        borderColor:
+                          newTagColor === c ? "white" : "transparent",
+                        transform: newTagColor === c ? "scale(1.2)" : undefined,
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+              <Button
+                size="sm"
+                disabled={!newTagLabel.trim() || creatingTag}
+                type="button"
+                onClick={async () => {
+                  const label = newTagLabel.trim();
+                  if (!label) return;
+                  setCreatingTag(true);
+                  try {
+                    const res = await createTagDefinition({
+                      label,
+                      color: newTagColor,
+                    });
+                    if (res?.data) {
+                      setTagDefs((prev) => [
+                        ...prev,
+                        res.data as TagDefinitionRecord,
+                      ]);
+                      setTagDraft((prev) => [...prev, label]);
+                    }
+                    setNewTagLabel("");
+                    setShowNewTagForm(false);
+                  } catch {
+                    /* ignore */
+                  }
+                  setCreatingTag(false);
+                }}
+              >
+                {creatingTag ? "…" : "Add"}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                type="button"
+                onClick={() => {
+                  setShowNewTagForm(false);
+                  setNewTagLabel("");
+                }}
+              >
+                ✕
+              </Button>
+            </div>
+          )}
+          {tagDraft.length === 0 && (
+            <p className="text-[10px] text-amber-500">
+              Filling in tags helps filter presets and avoid cross-contamination
+              between campaign types.
+            </p>
+          )}
+        </div>
         <p className="text-xs text-[--color-text-muted]">
           Campaigns start as DRAFT. Link a client and affiliate to move to TEST.
         </p>
@@ -966,17 +1009,32 @@ export function LinkClientModal({
   isOpen: boolean;
   onClose: () => void;
   clients: Client[];
-  onSubmit: (clientId: string) => void | Promise<void>;
+  onSubmit: (payload: {
+    client_id: string;
+    contract_name: string;
+  }) => void | Promise<void>;
 }) {
   const [clientId, setClientId] = useState("");
+  const [contractName, setContractName] = useState("");
 
   useEffect(() => {
-    if (!isOpen) setClientId("");
+    if (!isOpen) {
+      setClientId("");
+      setContractName("");
+    }
   }, [isOpen]);
 
   return (
     <Modal title="Add Contract" isOpen={isOpen} onClose={onClose}>
       <div className="space-y-3">
+        <Field label="Contract Name" required>
+          <input
+            className={inputClass}
+            value={contractName}
+            onChange={(e) => setContractName(e.target.value)}
+            placeholder="e.g. Auto PI - CA TCPA"
+          />
+        </Field>
         <Field label="End User" required>
           <select
             className={inputClass}
@@ -1001,10 +1059,14 @@ export function LinkClientModal({
           </Button>
           <Button
             onClick={() => {
-              if (!clientId) return;
-              onSubmit(clientId);
+              const trimmedContractName = contractName.trim();
+              if (!clientId || !trimmedContractName) return;
+              onSubmit({
+                client_id: clientId,
+                contract_name: trimmedContractName,
+              });
             }}
-            disabled={!clientId}
+            disabled={!clientId || !contractName.trim()}
           >
             Add
           </Button>
@@ -1110,8 +1172,7 @@ export function ClientDetailModal({
   }, [isOpen, initialForm]);
 
   const dirtyFields = useMemo(() => {
-    const fields: Array<"name" | "notes" | "client_code" | "status"> =
-      [];
+    const fields: Array<"name" | "notes" | "client_code" | "status"> = [];
     if (form.name.trim() !== initialForm.name.trim()) fields.push("name");
     if ((form.notes ?? "").trim() !== (initialForm.notes ?? "").trim())
       fields.push("notes");
@@ -1252,7 +1313,9 @@ export function ClientDetailModal({
                             }))
                           }
                         />
-                        <span className={`absolute bottom-1.5 right-2 text-[10px] ${(form.notes?.length ?? 0) >= 450 ? "text-red-500" : "text-[--color-text-muted]"}`}>
+                        <span
+                          className={`absolute bottom-1.5 right-2 text-[10px] ${(form.notes?.length ?? 0) >= 450 ? "text-red-500" : "text-[--color-text-muted]"}`}
+                        >
                           {form.notes?.length ?? 0}/500
                         </span>
                       </div>
@@ -1401,9 +1464,7 @@ export function AffiliateDetailModal({
   }, [isOpen, initialForm]);
 
   const dirtyFields = useMemo(() => {
-    const fields: Array<
-      "name" | "notes" | "affiliate_code" | "status"
-    > = [];
+    const fields: Array<"name" | "notes" | "affiliate_code" | "status"> = [];
     if (form.name.trim() !== initialForm.name.trim()) fields.push("name");
     if ((form.notes ?? "").trim() !== (initialForm.notes ?? "").trim())
       fields.push("notes");
@@ -1544,7 +1605,9 @@ export function AffiliateDetailModal({
                             }))
                           }
                         />
-                        <span className={`absolute bottom-1.5 right-2 text-[10px] ${(form.notes?.length ?? 0) >= 450 ? "text-red-500" : "text-[--color-text-muted]"}`}>
+                        <span
+                          className={`absolute bottom-1.5 right-2 text-[10px] ${(form.notes?.length ?? 0) >= 450 ? "text-red-500" : "text-[--color-text-muted]"}`}
+                        >
                           {form.notes?.length ?? 0}/500
                         </span>
                       </div>

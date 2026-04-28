@@ -1072,11 +1072,13 @@ export function CriteriaFieldModals({
                         to: r.to.trim(),
                       }))
                       .filter((m) => m.from.length > 0 && m.to);
+                    const normalizedStateMapping =
+                      valueMappingsStateDraft ?? null;
                     await updateCriteriaValueMappings(
                       campaign.id,
                       valueMappingsField.id,
                       mappings,
-                      valueMappingsStateDraft,
+                      normalizedStateMapping,
                     );
                     await refreshCriteria();
                     toast.success("Mappings saved");

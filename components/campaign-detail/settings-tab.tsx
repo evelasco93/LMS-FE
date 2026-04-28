@@ -355,6 +355,16 @@ export default function SettingsTab({
     return link?.leads_delivered_count ?? 0;
   };
 
+  const getContractDisplayName = (row: {
+    client: Client;
+    link?: CampaignClient;
+  }) => {
+    const contractName = row.link?.contract_name?.trim();
+    return contractName
+      ? `${contractName} (${row.client.name})`
+      : row.client.name;
+  };
+
   return (
     <div className="space-y-4">
       {/* Settings sub-tabs */}
@@ -744,9 +754,18 @@ export default function SettingsTab({
                                   type="button"
                                   title="Edit value mappings"
                                   onClick={() => {
+                                    const inferredStateMapping =
+                                      field.state_mapping ??
+                                      (field.data_type === "List" &&
+                                      (field.field_name === "state" ||
+                                        field.field_label
+                                          .trim()
+                                          .toLowerCase() === "state")
+                                        ? ("abbr_to_name" as const)
+                                        : null);
                                     setValueMappingsField(field);
                                     setValueMappingsStateDraft(
-                                      field.state_mapping ?? null,
+                                      inferredStateMapping,
                                     );
                                     setValueMappingsDraft(
                                       (field.value_mappings ?? []).map((m) => ({
@@ -1040,7 +1059,7 @@ export default function SettingsTab({
                                               className="flex items-center justify-between rounded bg-[--color-bg-muted] px-2.5 py-1.5 text-xs"
                                             >
                                               <span className="font-medium text-[--color-text]">
-                                                {row.client.name}
+                                                {getContractDisplayName(row)}
                                               </span>
                                               <span className="text-[--color-text-muted]">
                                                 Sold:{" "}
@@ -1079,7 +1098,7 @@ export default function SettingsTab({
                                               className="grid grid-cols-[minmax(0,1fr)_82px] items-center gap-2 rounded bg-[--color-bg-muted] px-2.5 py-1.5 text-xs"
                                             >
                                               <span className="truncate font-medium text-[--color-text]">
-                                                {row.client.name}
+                                                {getContractDisplayName(row)}
                                               </span>
                                               <div className="flex items-center gap-1">
                                                 <input
