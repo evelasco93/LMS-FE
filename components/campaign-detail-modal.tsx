@@ -614,6 +614,14 @@ export function CampaignDetailModal({
         email?: { enabled?: boolean; criteria?: Record<string, unknown> };
         ip?: { enabled?: boolean; criteria?: Record<string, unknown> };
       };
+      validation_bypass?: {
+        trusted_form_claim?: boolean;
+        duplicate_check?: boolean;
+        ipqs_phone?: boolean;
+        ipqs_email?: boolean;
+        ipqs_ip?: boolean;
+        all?: boolean;
+      };
     },
   ) => Promise<void>;
   onUpdateName: (campaignId: string, name: string) => Promise<void>;
@@ -951,6 +959,7 @@ export function CampaignDetailModal({
     type: "client" | "affiliate";
     id: string;
     statusDraft: CampaignParticipantStatus;
+    openSkipChecks?: boolean;
   } | null>(null);
   const [confirmRotateKey, setConfirmRotateKey] = useState(false);
   const [pixelConfigTab, setPixelConfigTab] = useState<

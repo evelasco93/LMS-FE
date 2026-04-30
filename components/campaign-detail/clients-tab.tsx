@@ -75,6 +75,7 @@ export function ClientsTab({
       type: "client" | "affiliate";
       id: string;
       statusDraft: CampaignParticipantStatus;
+      openSkipChecks?: boolean;
     } | null,
   ) => void;
   onNavigateToSettings?: (subTab: "base-criteria" | "logic") => void;
@@ -217,7 +218,7 @@ export function ClientsTab({
                           type="button"
                           onClick={() => openClientLogicManager(c.id)}
                           className="mt-1 flex items-center gap-1.5 text-left text-xs text-[--color-text-muted] hover:text-[--color-primary] transition-colors group"
-                          title="Manage logic rules for this client"
+                          title="Manage logic rules for this end user"
                         >
                           <GitBranch
                             size={11}
@@ -310,7 +311,7 @@ export function ClientsTab({
                         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                           <div>
                             <p className="uppercase tracking-wide text-[--color-text-muted] mb-1">
-                              Client Code
+                              End User Code
                             </p>
                             <p className="font-medium font-mono text-[--color-text-strong]">
                               {c.client_code || "—"}
@@ -327,9 +328,9 @@ export function ClientsTab({
                             </p>
                           </div>
                           <div className="flex flex-col items-start gap-1">
-                            <HoverTooltip message="Whether this client is currently allowed to receive leads from this campaign (TEST = trial mode, LIVE = active, DISABLED = blocked)">
+                            <HoverTooltip message="Whether this end user is currently allowed to receive leads from this campaign (TEST = trial mode, LIVE = active, DISABLED = blocked)">
                               <p className="uppercase tracking-wide text-[--color-text-muted] inline-flex items-center gap-1">
-                                Client Campaign Status
+                                End User Campaign Status
                                 <Info size={10} />
                               </p>
                             </HoverTooltip>
@@ -344,7 +345,7 @@ export function ClientsTab({
                           </div>
                           <div>
                             <p className="uppercase tracking-wide text-[--color-text-muted] mb-1">
-                              Client Status
+                              End User Status
                             </p>
                             <Badge
                               tone={
@@ -447,7 +448,7 @@ export function ClientsTab({
                                           </>
                                         )}
                                         {entry.event === "key_rotated" && (
-                                          <>Client key rotated</>
+                                          <>End user key rotated</>
                                         )}
                                       </p>
                                       <p className="text-[--color-text-muted]">

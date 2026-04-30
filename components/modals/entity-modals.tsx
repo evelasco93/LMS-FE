@@ -9,6 +9,7 @@ import {
   ArrowRight,
   Tag,
   Plus,
+  Check,
 } from "lucide-react";
 import useSWR from "swr";
 import { AnimatePresence, motion } from "framer-motion";
@@ -923,14 +924,29 @@ export function CampaignModal({
                       key={c}
                       type="button"
                       onClick={() => setNewTagColor(c)}
-                      className="w-5 h-5 rounded-full border-2 transition-transform"
+                      className="relative flex h-5 w-5 items-center justify-center rounded-full border-2 transition-transform"
                       style={{
                         backgroundColor: c,
                         borderColor:
-                          newTagColor === c ? "white" : "transparent",
+                          newTagColor === c
+                            ? "var(--color-text-strong)"
+                            : "transparent",
                         transform: newTagColor === c ? "scale(1.2)" : undefined,
+                        boxShadow:
+                          newTagColor === c
+                            ? "0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-primary)"
+                            : undefined,
                       }}
-                    />
+                      title={`Select ${c}`}
+                    >
+                      {newTagColor === c && (
+                        <Check
+                          size={12}
+                          strokeWidth={3}
+                          className="text-white drop-shadow"
+                        />
+                      )}
+                    </button>
                   ))}
                 </div>
               </div>
@@ -985,7 +1001,7 @@ export function CampaignModal({
           )}
         </div>
         <p className="text-xs text-[--color-text-muted]">
-          Campaigns start as DRAFT. Link a client and affiliate to move to TEST.
+          Campaigns start as DRAFT. Link an end user and source to move to TEST.
         </p>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" type="button" onClick={onClose}>
@@ -1096,15 +1112,15 @@ export function LinkAffiliateModal({
   }, [isOpen]);
 
   return (
-    <Modal title="Add Affiliate to Campaign" isOpen={isOpen} onClose={onClose}>
+    <Modal title="Add Source to Campaign" isOpen={isOpen} onClose={onClose}>
       <div className="space-y-3">
-        <Field label="Affiliate" required>
+        <Field label="Source" required>
           <select
             className={inputClass}
             value={affiliateId}
             onChange={(e) => setAffiliateId(e.target.value)}
           >
-            <option value="">Select affiliate</option>
+            <option value="">Select source</option>
             {affiliates.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name} ({a.affiliate_code || "no code"})

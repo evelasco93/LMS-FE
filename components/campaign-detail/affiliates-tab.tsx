@@ -11,6 +11,7 @@ import {
   Gauge,
   GitBranch,
   Info,
+  Plug,
   UserPlus,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -91,6 +92,7 @@ export function AffiliatesTab({
       type: "client" | "affiliate";
       id: string;
       statusDraft: CampaignParticipantStatus;
+      openSkipChecks?: boolean;
     } | null,
   ) => void;
   setAffiliateCapModalId: (id: string | null) => void;
@@ -187,7 +189,7 @@ export function AffiliatesTab({
                       </span>
                       <span
                         className="text-xs text-[--color-text-muted] font-mono cursor-help"
-                        title="Affiliate ID"
+                        title="Source ID"
                       >
                         ({a.id})
                       </span>
@@ -353,6 +355,42 @@ export function AffiliatesTab({
                             </button>
                           );
                         })()}
+                        {(() => {
+                          const bypass = link?.validation_bypass;
+                          const enabledCount = Object.values({
+                            all: bypass?.all === true,
+                            duplicate_check: bypass?.duplicate_check === true,
+                            trusted_form_claim:
+                              bypass?.trusted_form_claim === true,
+                            ipqs_phone: bypass?.ipqs_phone === true,
+                            ipqs_email: bypass?.ipqs_email === true,
+                            ipqs_ip: bypass?.ipqs_ip === true,
+                          }).filter(Boolean).length;
+                          return (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setParticipantAction({
+                                  type: "affiliate",
+                                  id: a.id,
+                                  statusDraft: link?.status || "TEST",
+                                  openSkipChecks: true,
+                                })
+                              }
+                              className="flex items-center gap-1.5 text-left text-xs text-[--color-text-muted] hover:text-[--color-primary] transition-colors group w-fit"
+                              title="Configure integration overrides for this source"
+                            >
+                              <Plug
+                                size={11}
+                                className="shrink-0 opacity-60 group-hover:opacity-100"
+                              />
+                              <span className="group-hover:underline">
+                                Integration Overrides
+                                {enabledCount > 0 ? ` (${enabledCount})` : ""}
+                              </span>
+                            </button>
+                          );
+                        })()}
                         <div className="flex items-center gap-1.5 text-xs text-[--color-text-muted]">
                           <button
                             type="button"
@@ -492,9 +530,9 @@ export function AffiliatesTab({
                             </p>
                           </div>
                           <div className="flex flex-col items-start gap-1">
-                            <HoverTooltip message="Whether this affiliate is currently allowed to send leads to this campaign (TEST = trial mode, LIVE = active, DISABLED = blocked)">
+                            <HoverTooltip message="Whether this source is currently allowed to send leads to this campaign (TEST = trial mode, LIVE = active, DISABLED = blocked)">
                               <p className="uppercase tracking-wide text-[--color-text-muted] inline-flex items-center gap-1">
-                                Affiliate Campaign Status
+                                Source Campaign Status
                                 <Info size={10} />
                               </p>
                             </HoverTooltip>
@@ -509,7 +547,7 @@ export function AffiliatesTab({
                           </div>
                           <div>
                             <p className="uppercase tracking-wide text-[--color-text-muted] mb-1">
-                              Affiliate Status
+                              Source Status
                             </p>
                             <Badge
                               tone={

@@ -259,6 +259,14 @@ export async function updateCampaignPlugins(
       email?: { enabled?: boolean; criteria?: Record<string, unknown> };
       ip?: { enabled?: boolean; criteria?: Record<string, unknown> };
     };
+    validation_bypass?: {
+      trusted_form_claim?: boolean;
+      duplicate_check?: boolean;
+      ipqs_phone?: boolean;
+      ipqs_email?: boolean;
+      ipqs_ip?: boolean;
+      all?: boolean;
+    };
   },
 ) {
   const url = `${API_BASE_URL}/campaigns/${id}/plugins`;

@@ -201,6 +201,7 @@ export interface Campaign {
   name: string;
   status: CampaignStatus;
   distribution?: CampaignDistributionConfig;
+  validation_bypass?: CampaignValidationBypassConfig;
   plugins?: {
     duplicate_check?: {
       enabled?: boolean;

@@ -40,6 +40,7 @@ import type {
 } from "@/lib/types";
 import {
   getLogicCatalogSet,
+  setCampaignAffiliateValidationBypass,
   updateAffiliateCherryPickOverride,
 } from "@/lib/api";
 
@@ -60,6 +61,7 @@ interface ParticipantModalsProps {
     type: "client" | "affiliate";
     id: string;
     statusDraft: CampaignParticipantStatus;
+    openSkipChecks?: boolean;
   } | null;
   confirmRotateKey: boolean;
   participantStatusOptions: CampaignParticipantStatus[];
@@ -103,6 +105,7 @@ interface ParticipantModalsProps {
       type: "client" | "affiliate";
       id: string;
       statusDraft: CampaignParticipantStatus;
+      openSkipChecks?: boolean;
     } | null>
   >;
   setConfirmRotateKey: Dispatch<SetStateAction<boolean>>;
@@ -331,6 +334,23 @@ export function ParticipantModals(props: ParticipantModalsProps) {
       ))
     : affiliates?.find((a: any) => a.id === pid);
   const [contractNameDraft, setContractNameDraft] = useState("");
+  const [savingSourceOverrides, setSavingSourceOverrides] = useState(false);
+  const [sourceQaModalOpen, setSourceQaModalOpen] = useState(false);
+  const [sourceBypassDraft, setSourceBypassDraft] = useState<{
+    all: boolean;
+    duplicate_check: boolean;
+    trusted_form_claim: boolean;
+    ipqs_phone: boolean;
+    ipqs_email: boolean;
+    ipqs_ip: boolean;
+  }>({
+    all: false,
+    duplicate_check: false,
+    trusted_form_claim: false,
+    ipqs_phone: false,
+    ipqs_email: false,
+    ipqs_ip: false,
+  });
 
   useEffect(() => {
     if (isClient) {
@@ -339,11 +359,92 @@ export function ParticipantModals(props: ParticipantModalsProps) {
     }
   }, [isClient, currentLink, participantAction?.id]);
 
+  useEffect(() => {
+    if (isClient) return;
+    const link = currentLink as CampaignAffiliate | undefined;
+    const bypass = link?.validation_bypass;
+    setSourceBypassDraft({
+      all: bypass?.all === true,
+      duplicate_check: bypass?.duplicate_check === true,
+      trusted_form_claim: bypass?.trusted_form_claim === true,
+      ipqs_phone: bypass?.ipqs_phone === true,
+      ipqs_email: bypass?.ipqs_email === true,
+      ipqs_ip: bypass?.ipqs_ip === true,
+    });
+  }, [isClient, currentLink, participantAction?.id]);
+
+  useEffect(() => {
+    if (!participantAction || isClient) {
+      setSourceQaModalOpen(false);
+      return;
+    }
+    if (participantAction.openSkipChecks) {
+      setSourceQaModalOpen(true);
+    }
+  }, [participantAction, isClient]);
+
+  const saveSourceQaOverrides = async () => {
+    const payload: {
+      all?: boolean;
+      duplicate_check?: boolean;
+      trusted_form_claim?: boolean;
+      ipqs_phone?: boolean;
+      ipqs_email?: boolean;
+      ipqs_ip?: boolean;
+    } = {};
+
+    if (sourceBypassDraft.all) payload.all = true;
+    if (sourceBypassDraft.duplicate_check) payload.duplicate_check = true;
+    if (sourceBypassDraft.trusted_form_claim) payload.trusted_form_claim = true;
+    if (sourceBypassDraft.ipqs_phone) payload.ipqs_phone = true;
+    if (sourceBypassDraft.ipqs_email) payload.ipqs_email = true;
+    if (sourceBypassDraft.ipqs_ip) payload.ipqs_ip = true;
+
+    setSavingSourceOverrides(true);
+    try {
+      const res = await setCampaignAffiliateValidationBypass(
+        campaign.id,
+        pid,
+        payload,
+      );
+      if ((res as any)?.success === false) {
+        toast.error(
+          (res as any)?.error ||
+            (res as any)?.message ||
+            "Failed to save source integration overrides.",
+        );
+        return;
+      }
+      setLocalAffiliateLinks((prev) =>
+        prev.map((l) =>
+          l.affiliate_id === pid
+            ? {
+                ...l,
+                validation_bypass:
+                  Object.keys(payload).length > 0 ? payload : undefined,
+              }
+            : l,
+        ),
+      );
+      toast.success("Source integration overrides updated.");
+      setSourceQaModalOpen(false);
+      if (participantAction?.openSkipChecks) {
+        setParticipantAction(null);
+      }
+    } catch (err: any) {
+      toast.error(
+        err?.message || "Failed to save source integration overrides.",
+      );
+    } finally {
+      setSavingSourceOverrides(false);
+    }
+  };
+
   return (
     <>
-      {participantAction && (
+      {participantAction && !participantAction.openSkipChecks && (
         <Modal
-          title={`${isClient ? "End User" : "Affiliate"} Actions \u2014 ${participant?.name || pid}`}
+          title={`${isClient ? "End User" : "Source"} Actions \u2014 ${participant?.name || pid}`}
           isOpen
           onClose={() => {
             setParticipantAction(null);
@@ -399,7 +500,7 @@ export function ParticipantModals(props: ParticipantModalsProps) {
                       !(currentLink as CampaignClient)?.delivery_config?.url
                     ) {
                       toast.error(
-                        "Delivery config required — set up a delivery endpoint for this client before switching to LIVE.",
+                        "Delivery config required — set up a delivery endpoint for this end user before switching to LIVE.",
                       );
                       return;
                     }
@@ -456,7 +557,7 @@ export function ParticipantModals(props: ParticipantModalsProps) {
                   Generate New Campaign Key
                 </Button>
                 <p className="text-xs text-[--color-text-muted]">
-                  Issues a fresh key for this affiliate. Share the new key — the
+                  Issues a fresh key for this source. Share the new key — the
                   old one stops working immediately.
                 </p>
                 <Modal
@@ -471,7 +572,7 @@ export function ParticipantModals(props: ParticipantModalsProps) {
                     <strong className="text-[--color-text-strong]">
                       rejected
                     </strong>{" "}
-                    until the affiliate updates to the new key.
+                    until the source updates to the new key.
                   </p>
                   <div className="mt-5 flex justify-end gap-2">
                     <Button
@@ -520,6 +621,33 @@ export function ParticipantModals(props: ParticipantModalsProps) {
                 <p className="text-xs text-[--color-text-muted]">
                   Set a maximum number of leads this source can send per
                   campaign.
+                </p>
+              </div>
+            )}
+
+            {!isClient && (
+              <div className="space-y-2 border-t border-[--color-border] pt-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                  Integration Overrides
+                </p>
+                <p className="text-xs text-[--color-text-muted]">
+                  Configure source-level integration overrides. If none are
+                  enabled, this source inherits campaign defaults.
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setSourceQaModalOpen(true)}
+                >
+                  Open Integration Overrides
+                </Button>
+                <p className="text-xs text-[--color-text-muted]">
+                  {Object.values(sourceBypassDraft).filter(Boolean).length}{" "}
+                  active override
+                  {Object.values(sourceBypassDraft).filter(Boolean).length === 1
+                    ? ""
+                    : "s"}
+                  .
                 </p>
               </div>
             )}
@@ -716,7 +844,7 @@ export function ParticipantModals(props: ParticipantModalsProps) {
                 })()}
                 <p className="text-xs text-[--color-text-muted]">
                   Set the endpoint and payload mapping for delivering leads to
-                  this client.
+                  this end user.
                 </p>
                 <Button
                   size="sm"
@@ -726,7 +854,7 @@ export function ParticipantModals(props: ParticipantModalsProps) {
                   Manage Rules
                 </Button>
                 <p className="text-xs text-[--color-text-muted]">
-                  Override or extend the campaign rules for this client
+                  Override or extend the campaign rules for this end user
                   specifically.
                 </p>
               </div>
@@ -768,13 +896,261 @@ export function ParticipantModals(props: ParticipantModalsProps) {
         </Modal>
       )}
 
+      <Modal
+        title={`Integration Overrides - ${participant?.name || pid}`}
+        isOpen={!isClient && !!participantAction && sourceQaModalOpen}
+        onClose={() => {
+          setSourceQaModalOpen(false);
+          if (participantAction?.openSkipChecks) {
+            setParticipantAction(null);
+          }
+        }}
+        width={520}
+        bodyClassName="px-5 py-4"
+      >
+        <div className="space-y-4 text-sm">
+          <p className="text-xs text-[--color-text-muted]">
+            Enabled toggles are saved as source overrides. If all are off, this
+            source inherits campaign defaults.
+          </p>
+
+          <div className="rounded-xl border border-[--color-border] bg-[--color-bg-muted] p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-[--color-text-strong]">
+                  Global
+                </p>
+                <p className="text-xs text-[--color-text-muted]">
+                  Bypass the full QA chain for this source.
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={sourceBypassDraft.all}
+                onClick={() =>
+                  setSourceBypassDraft((prev) => ({
+                    ...prev,
+                    all: !prev.all,
+                  }))
+                }
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition ${
+                  sourceBypassDraft.all
+                    ? "bg-[--color-primary]"
+                    : "bg-[--color-border]"
+                }`}
+              >
+                <span
+                  className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
+                    sourceBypassDraft.all ? "translate-x-5" : "translate-x-1"
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-[--color-border] bg-[--color-bg-muted] p-3">
+            <p className="text-sm font-semibold text-[--color-text-strong]">
+              Core Checks
+            </p>
+            <div
+              className={`mt-3 space-y-2 border-t border-[--color-border] pt-3 ${
+                sourceBypassDraft.all ? "opacity-50 pointer-events-none" : ""
+              }`}
+            >
+              {[
+                {
+                  key: "duplicate_check",
+                  label: "Duplicate Check",
+                  hint: "Skip duplicate lead matching.",
+                },
+                {
+                  key: "trusted_form_claim",
+                  label: "TrustedForm Claim/Validation",
+                  hint: "Skip TrustedForm claim and verification steps.",
+                },
+              ].map((item) => {
+                const checked =
+                  sourceBypassDraft[item.key as keyof typeof sourceBypassDraft];
+                return (
+                  <div
+                    key={item.key}
+                    className="flex items-center justify-between gap-3"
+                  >
+                    <div>
+                      <p className="text-sm font-medium text-[--color-text]">
+                        {item.label}
+                      </p>
+                      <p className="text-xs text-[--color-text-muted]">
+                        {item.hint}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={checked}
+                      onClick={() =>
+                        setSourceBypassDraft((prev) => ({
+                          ...prev,
+                          [item.key]: !checked,
+                        }))
+                      }
+                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition ${
+                        checked ? "bg-[--color-primary]" : "bg-[--color-border]"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
+                          checked ? "translate-x-5" : "translate-x-1"
+                        }`}
+                      />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-[--color-border] bg-[--color-bg-muted] p-3">
+            <p className="text-sm font-semibold text-[--color-text-strong]">
+              IPQS Checks
+            </p>
+            <div
+              className={`mt-3 space-y-2 border-t border-[--color-border] pt-3 ${
+                sourceBypassDraft.all ? "opacity-50 pointer-events-none" : ""
+              }`}
+            >
+              {(() => {
+                const allIpqsEnabled =
+                  sourceBypassDraft.ipqs_phone &&
+                  sourceBypassDraft.ipqs_email &&
+                  sourceBypassDraft.ipqs_ip;
+                return (
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-[--color-text]">
+                        Skip all IPQS checks
+                      </p>
+                      <p className="text-xs text-[--color-text-muted]">
+                        Toggle phone, email, and IP IPQS checks together.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={allIpqsEnabled}
+                      onClick={() =>
+                        setSourceBypassDraft((prev) => {
+                          const next =
+                            prev.ipqs_phone && prev.ipqs_email && prev.ipqs_ip;
+                          return {
+                            ...prev,
+                            ipqs_phone: !next,
+                            ipqs_email: !next,
+                            ipqs_ip: !next,
+                          };
+                        })
+                      }
+                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition ${
+                        allIpqsEnabled
+                          ? "bg-[--color-primary]"
+                          : "bg-[--color-border]"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
+                          allIpqsEnabled ? "translate-x-5" : "translate-x-1"
+                        }`}
+                      />
+                    </button>
+                  </div>
+                );
+              })()}
+
+              {[
+                {
+                  key: "ipqs_phone",
+                  label: "IPQS Phone",
+                  hint: "Skip phone validation from IPQS.",
+                },
+                {
+                  key: "ipqs_email",
+                  label: "IPQS Email",
+                  hint: "Skip email validation from IPQS.",
+                },
+                {
+                  key: "ipqs_ip",
+                  label: "IPQS IP",
+                  hint: "Skip IP reputation and fraud checks.",
+                },
+              ].map((item) => {
+                const checked =
+                  sourceBypassDraft[item.key as keyof typeof sourceBypassDraft];
+                return (
+                  <div
+                    key={item.key}
+                    className="flex items-center justify-between gap-3"
+                  >
+                    <div>
+                      <p className="text-sm font-medium text-[--color-text]">
+                        {item.label}
+                      </p>
+                      <p className="text-xs text-[--color-text-muted]">
+                        {item.hint}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={checked}
+                      onClick={() =>
+                        setSourceBypassDraft((prev) => ({
+                          ...prev,
+                          [item.key]: !checked,
+                        }))
+                      }
+                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition ${
+                        checked ? "bg-[--color-primary]" : "bg-[--color-border]"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
+                          checked ? "translate-x-5" : "translate-x-1"
+                        }`}
+                      />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-1">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setSourceQaModalOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={savingSourceOverrides}
+              onClick={saveSourceQaOverrides}
+            >
+              {savingSourceOverrides ? "Saving…" : "Save Integration Overrides"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       {/* ── Participant Logic Rules Modal ────────────────────────────────── */}
       <Modal
         title={
           pixelLogicIntroAffiliateId
             ? `Source Rules — ${affiliates.find((a) => a.id === pixelLogicIntroAffiliateId)?.name || pixelLogicIntroAffiliateId}`
             : deliveryLogicIntroClientId
-              ? `Client Rules — ${
+              ? `End User Rules — ${
                   linkedClients.find((c) => c.id === deliveryLogicIntroClientId)
                     ?.name ||
                   clients.find(
