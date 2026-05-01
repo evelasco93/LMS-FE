@@ -145,6 +145,7 @@ import { CriteriaFieldModals } from "@/components/campaign-detail/criteria-field
 import { ParticipantModals } from "@/components/campaign-detail/participant-modals";
 import { ClientDeliveryModal } from "@/components/campaign-detail/client-delivery-modal";
 import { AffiliateConfigModals } from "@/components/campaign-detail/affiliate-config-modals";
+import { CampaignTitleEditModal } from "@/components/campaign-detail/campaign-title-edit-modal";
 import {
   useRoutingState,
   usePixelSoldCriteriaState,
@@ -152,388 +153,20 @@ import {
   useCriteriaCatalogState,
   useLogicCatalogState,
 } from "@/components/campaign-detail/hooks";
-
-const CONFIG_AUDIT_ACTIONS = new Set([
-  "criteria_field_added",
-  "criteria_field_updated",
-  "criteria_field_deleted",
-  "logic_rule_added",
-  "logic_rule_updated",
-  "logic_rule_deleted",
-  "plugins_updated",
-  "mappings_updated",
-]);
-
-function auditActionLabel(action: string): string {
-  const labels: Record<string, string> = {
-    created: "Created",
-    updated: "Updated",
-    deleted: "Deleted",
-    soft_deleted: "Deactivated",
-    restored: "Restored",
-    status_changed: "Status Changed",
-    delivery_config_updated: "Delivery Config Updated",
-    distribution_updated: "Distribution Updated",
-    lead_delivered: "Lead Delivered",
-    delivery_skipped: "Delivery Skipped",
-    weight_updated: "End User Weight Updated",
-    mappings_updated: "Mappings Updated",
-    plugins_updated: "Plugins Updated",
-  };
-  return (
-    labels[action] ??
-    action
-      .split("_")
-      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-      .join(" ")
-  );
-}
-
-function auditActionTone(
-  action: string,
-): "success" | "danger" | "warning" | "info" | "neutral" {
-  if (
-    action === "created" ||
-    action === "restored" ||
-    action === "lead_delivered"
-  )
-    return "success";
-  if (action === "deleted" || action === "soft_deleted") return "danger";
-  if (action === "status_changed" || action === "delivery_skipped")
-    return "warning";
-  if (
-    action === "updated" ||
-    action === "delivery_config_updated" ||
-    action === "distribution_updated" ||
-    action === "weight_updated" ||
-    action.endsWith("_added") ||
-    action.endsWith("_updated") ||
-    action === "mappings_updated" ||
-    action === "plugins_updated"
-  )
-    return "info";
-  return "neutral";
-}
-
-function isComplexValue(val: unknown): boolean {
-  if (val === null || val === undefined) return false;
-  if (typeof val === "object") return true;
-  if (typeof val === "string" && (val === "[previous]" || val === "[updated]"))
-    return true;
-  return false;
-}
-
-function formatAuditVal(val: unknown): string {
-  if (val === null || val === undefined) return "—";
-  if (typeof val === "boolean") return val ? "true" : "false";
-  return String(val);
-}
-
-function stableAuditValue(value: unknown): string {
-  if (value === null || value === undefined) return String(value);
-  if (typeof value === "object") {
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return "[object]";
-    }
-  }
-  return String(value);
-}
-
-function getMeaningfulAuditChanges(item: AuditLogItem) {
-  return item.changes.filter(
-    (change) => stableAuditValue(change.from) !== stableAuditValue(change.to),
-  );
-}
-
-function formatDistributionValue(value: unknown): string {
-  if (!value || typeof value !== "object") return formatAuditVal(value);
-  const distribution = value as Record<string, unknown>;
-  const mode =
-    distribution.mode === "round_robin"
-      ? "Round Robin"
-      : distribution.mode === "weighted"
-        ? "Weighted"
-        : "Unknown";
-  const enabled =
-    typeof distribution.enabled === "boolean"
-      ? distribution.enabled
-        ? "Enabled"
-        : "Disabled"
-      : undefined;
-  return enabled ? `${mode} · ${enabled}` : mode;
-}
-
-function formatAuditFieldLabel(
-  field: string,
-  clientNameById: Map<string, string>,
-  affiliateNameById: Map<string, string>,
-): string {
-  if (field === "distribution") return "Distribution";
-
-  const clientMatch = field.match(/^clients\.([^.]+)\.(.+)$/);
-  if (clientMatch) {
-    const [, clientId, suffix] = clientMatch;
-    const clientName = clientNameById.get(clientId) ?? clientId;
-    const baseLabel =
-      suffix === "client_id"
-        ? "Linked End User"
-        : suffix === "status"
-          ? "End User Status"
-          : suffix === "delivery_config"
-            ? "End User Delivery Config"
-            : suffix === "weight"
-              ? "End User Weight"
-              : `End User ${normalizeFieldLabel(suffix)}`;
-    return `${baseLabel} · ${clientName}`;
-  }
-
-  const affiliateMatch = field.match(/^affiliates\.([^.]+)\.(.+)$/);
-  if (affiliateMatch) {
-    const [, affiliateId, suffix] = affiliateMatch;
-    const affiliateName = affiliateNameById.get(affiliateId) ?? affiliateId;
-    const baseLabel =
-      suffix === "affiliate_id"
-        ? "Linked Source"
-        : suffix === "status"
-          ? "Source Status"
-          : suffix === "campaign_key"
-            ? "Source Campaign Key"
-            : suffix === "sold_pixel_config"
-              ? "Source Sold Webhook Config"
-              : suffix === "lead_cap"
-                ? "Source Lead Cap"
-                : `Source ${normalizeFieldLabel(suffix)}`;
-    return `${baseLabel} · ${affiliateName}`;
-  }
-
-  return normalizeFieldLabel(field.replace(/^payload\./, ""));
-}
-
-function formatAuditChangeValue(
-  value: unknown,
-  field: string,
-  clientNameById: Map<string, string>,
-  affiliateNameById: Map<string, string>,
-): string {
-  if (field === "distribution") return formatDistributionValue(value);
-
-  if (field.endsWith(".client_id") && typeof value === "string") {
-    return clientNameById.get(value) ?? value;
-  }
-
-  if (field.endsWith(".affiliate_id") && typeof value === "string") {
-    return affiliateNameById.get(value) ?? value;
-  }
-
-  if (isComplexValue(value)) {
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return "[complex value]";
-    }
-  }
-
-  return formatAuditVal(value);
-}
-
-function formatLogDate(value: string): string {
-  const date = new Date(value);
-  const d = new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(date);
-  const t = new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true,
-  }).format(date);
-  return `${d} \u00b7 ${t}`;
-}
-
-// ── CampaignAuditRow ──────────────────────────────────────────────────────────
-
-function CampaignAuditRow({
-  item,
-  clientNameById,
-  affiliateNameById,
-}: {
-  item: AuditLogItem;
-  clientNameById: Map<string, string>;
-  affiliateNameById: Map<string, string>;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const actor = item.actor
-    ? item.actor.full_name ||
-      item.actor.email ||
-      item.actor.username ||
-      "Unknown"
-    : "System";
-  const changes = getMeaningfulAuditChanges(item);
-  const hasChanges = changes.length > 0;
-
-  return (
-    <div>
-      <button
-        type="button"
-        onClick={() => hasChanges && setExpanded((v) => !v)}
-        className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors ${
-          hasChanges
-            ? "cursor-pointer hover:bg-[--color-bg-muted]"
-            : "cursor-default"
-        } ${expanded ? "bg-[--color-bg-muted]" : ""}`}
-      >
-        <span className="w-48 shrink-0 text-[11px] text-[--color-text-muted]">
-          {item.changed_at ? formatLogDate(item.changed_at) : "\u2014"}
-        </span>
-        <span className="w-32 shrink-0 truncate text-sm font-medium text-[--color-text]">
-          {actor}
-        </span>
-        <span className="flex flex-1 items-center gap-1.5 truncate text-sm text-[--color-text-muted]">
-          {auditActionLabel(item.action)}
-        </span>
-        {hasChanges && (
-          <ChevronDown
-            size={14}
-            className={`shrink-0 text-[--color-text-muted] transition-transform duration-150 ${
-              expanded ? "rotate-180" : ""
-            }`}
-          />
-        )}
-      </button>
-      {expanded && hasChanges && (
-        <div className="border-t border-[--color-border] bg-[--color-bg-muted] px-4 py-3">
-          <div className="space-y-2 pl-2">
-            {changes.map((ch, i) => {
-              const isAddedValue = ch.from == null && ch.to != null;
-              return (
-                <div
-                  key={i}
-                  className="grid grid-cols-[10rem_1fr] items-start gap-2 text-[11px]"
-                >
-                  <span className="truncate font-medium text-[--color-text]">
-                    {formatAuditFieldLabel(
-                      ch.field,
-                      clientNameById,
-                      affiliateNameById,
-                    )}
-                  </span>
-                  {isAddedValue ? (
-                    <span className="font-medium text-[--color-text]">
-                      {formatAuditChangeValue(
-                        ch.to,
-                        ch.field,
-                        clientNameById,
-                        affiliateNameById,
-                      )}
-                    </span>
-                  ) : (
-                    <span className="flex min-w-0 items-center gap-1.5 text-[--color-text-muted]">
-                      <span className="max-w-[140px] truncate line-through">
-                        {formatAuditChangeValue(
-                          ch.from,
-                          ch.field,
-                          clientNameById,
-                          affiliateNameById,
-                        )}
-                      </span>
-                      <ArrowRight size={9} className="shrink-0" />
-                      <span className="max-w-[140px] truncate font-medium text-[--color-text]">
-                        {formatAuditChangeValue(
-                          ch.to,
-                          ch.field,
-                          clientNameById,
-                          affiliateNameById,
-                        )}
-                      </span>
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function leadModeFromAffiliateStatus(
-  status?: CampaignParticipantStatus,
-): "all" | "test" | "live" {
-  if (status === "LIVE") return "live";
-  if (status === "TEST") return "test";
-  return "all";
-}
-
-function defaultDeliveryConfig(): ClientDeliveryConfig {
-  return {
-    url: "",
-    method: "POST",
-    payload_mapping: [],
-    acceptance_rules: [],
-  };
-}
-
-function defaultAffiliatePixelConfig(): AffiliateSoldPixelConfig {
-  return {
-    enabled: false,
-    url: "",
-    method: "POST",
-    payload_mapping: [],
-  };
-}
-
-function normalizeDeliveryMappingRows(
-  rows: ClientDeliveryConfig["payload_mapping"] | undefined,
-): ClientDeliveryConfig["payload_mapping"] {
-  if (!rows?.length) return [];
-  return rows.map((row) => ({
-    ...row,
-    parameter_target: row.parameter_target ?? "body",
-  }));
-}
-
-function normalizePixelMappingRows(
-  rows: AffiliateSoldPixelConfig["payload_mapping"] | undefined,
-  fallbackMode: "query" | "body" = "query",
-): AffiliateSoldPixelConfig["payload_mapping"] {
-  if (!rows?.length) return [];
-  return rows.map((row) => ({
-    ...row,
-    parameter_target: row.parameter_target ?? fallbackMode,
-  }));
-}
-
-function formatLogicOperatorLabel(operator: string): string {
-  return operator
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function formatLogicConditionValue(value?: string | string[]): string {
-  if (Array.isArray(value)) {
-    return value.length > 0 ? value.join(", ") : "(empty)";
-  }
-  if (value === undefined || value === null || value === "") return "(empty)";
-  return String(value);
-}
-
-function toLogicCatalogRulesPayload(rules: LogicRule[]) {
-  return rules.map((rule) => ({
-    name: rule.name,
-    enabled: rule.enabled,
-    conditions: (rule.conditions ?? []).map((condition) => ({
-      field_name: condition.field_name,
-      operator: condition.operator,
-      ...(condition.value !== undefined ? { value: condition.value } : {}),
-    })),
-  }));
-}
+import { useNestedModalSync } from "@/components/campaign-detail/use-nested-modal-sync";
+import {
+  CampaignAuditRow,
+  CONFIG_AUDIT_ACTIONS,
+  defaultAffiliatePixelConfig,
+  defaultDeliveryConfig,
+  formatLogicConditionValue,
+  formatLogicOperatorLabel,
+  getMeaningfulAuditChanges,
+  leadModeFromAffiliateStatus,
+  normalizeDeliveryMappingRows,
+  normalizePixelMappingRows,
+  toLogicCatalogRulesPayload,
+} from "@/components/campaign-detail/campaign-detail-helpers";
 
 export function CampaignDetailModal({
   campaign,
@@ -1328,41 +961,9 @@ export function CampaignDetailModal({
     return changed_by.email || changed_by.username || "";
   }
 
-  // ── Sync nested modal state → URL ────────────────────────────────────────
-  useEffect(() => {
-    if (!onNestedModalChange || !isOpen) return;
-
-    let nestedWindow: string | undefined;
-    let window_id: string | undefined;
-    let window_tab: string | undefined;
-
-    if (pixelAffiliateId) {
-      nestedWindow = "fire-pixel";
-      window_id = pixelAffiliateId;
-      window_tab = pixelConfigTab;
-    } else if (deliveryClientId) {
-      nestedWindow = "delivery";
-      window_id = deliveryClientId;
-    } else if (affiliateCapModalId) {
-      nestedWindow = "lead-cap";
-      window_id = affiliateCapModalId;
-    } else if (linkClientModalOpen) {
-      nestedWindow = "link-client";
-    } else if (linkAffiliateModalOpen) {
-      nestedWindow = "link-affiliate";
-    } else if (catalogOpen) {
-      nestedWindow = "criteria-catalog";
-    } else if (logicCatalogOpen) {
-      nestedWindow = "logic-catalog";
-    } else if (logicBuilderOpen) {
-      nestedWindow = "logic-builder";
-    } else if (addFieldOpen) {
-      nestedWindow = "add-field";
-    }
-
-    onNestedModalChange({ window: nestedWindow, window_id, window_tab });
-  }, [
+  useNestedModalSync({
     isOpen,
+    onNestedModalChange,
     pixelAffiliateId,
     pixelConfigTab,
     deliveryClientId,
@@ -1373,56 +974,19 @@ export function CampaignDetailModal({
     logicCatalogOpen,
     logicBuilderOpen,
     addFieldOpen,
-    onNestedModalChange,
-  ]);
-
-  // ── Restore nested window from URL on mount ───────────────────────────────
-  const initialModalAppliedRef = useRef(false);
-  useEffect(() => {
-    if (
-      !initialModal?.window ||
-      !isOpen ||
-      !campaign ||
-      initialModalAppliedRef.current
-    )
-      return;
-    initialModalAppliedRef.current = true;
-
-    const { window: m, window_id: id, window_tab: mt } = initialModal;
-    switch (m) {
-      case "fire-pixel":
-        if (id) {
-          setPixelAffiliateId(id);
-          if (mt === "pixel_criteria" || mt === "sold_criteria")
-            setPixelConfigTab(mt);
-        }
-        break;
-      case "delivery":
-        if (id) setDeliveryClientId(id);
-        break;
-      case "lead-cap":
-        if (id) setAffiliateCapModalId(id);
-        break;
-      case "link-client":
-        setLinkClientModalOpen(true);
-        break;
-      case "link-affiliate":
-        setLinkAffiliateModalOpen(true);
-        break;
-      case "criteria-catalog":
-        setCatalogOpen(true);
-        break;
-      case "logic-catalog":
-        setLogicCatalogOpen(true);
-        break;
-      case "logic-builder":
-        setLogicBuilderOpen(true);
-        break;
-      case "add-field":
-        setAddFieldOpen(true);
-        break;
-    }
-  }, [initialModal, isOpen, campaign]); // eslint-disable-line react-hooks/exhaustive-deps
+    initialModal,
+    hasCampaign: !!campaign,
+    setPixelAffiliateId,
+    setPixelConfigTab,
+    setDeliveryClientId,
+    setAffiliateCapModalId,
+    setLinkClientModalOpen,
+    setLinkAffiliateModalOpen,
+    setCatalogOpen,
+    setLogicCatalogOpen,
+    setLogicBuilderOpen,
+    setAddFieldOpen,
+  });
 
   const handleSaveLogicRule = async (draft: LogicRuleDraft) => {
     if (!campaign?.id) return;
@@ -2754,6 +2318,12 @@ export function CampaignDetailModal({
     }
   };
 
+  const closeTitleEdit = () => {
+    setNameDraft(campaign.name);
+    setStatusDraft(campaign.status);
+    setTitleEditing(false);
+  };
+
   const clientLinks = localClientLinks;
   const affiliateLinks = localAffiliateLinks;
   const clientLinkMap = new Map(
@@ -3560,115 +3130,17 @@ export function CampaignDetailModal({
         }}
       />
 
-      {/* ── Title edit mini-modal ────────────────────────────────────────── */}
-      <AnimatePresence>
-        {titleEditing && (
-          <motion.div
-            className="fixed inset-0 z-[60] flex items-start justify-center pt-20 px-4"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            onClick={() => {
-              setNameDraft(campaign.name);
-              setStatusDraft(campaign.status);
-              setTitleEditing(false);
-            }}
-          >
-            <motion.div
-              className="panel w-full max-w-sm shadow-2xl ring-1 ring-black/10"
-              initial={{ opacity: 0, scale: 0.95, y: -20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: -20 }}
-              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between border-b border-[--color-border] px-4 py-3">
-                <p className="text-sm font-semibold text-[--color-text-strong]">
-                  Edit Campaign
-                </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setNameDraft(campaign.name);
-                    setStatusDraft(campaign.status);
-                    setTitleEditing(false);
-                  }}
-                  className="rounded p-1 text-[--color-text-muted] hover:text-[--color-danger] transition-colors"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-              <div className="px-4 py-4 space-y-3 text-sm">
-                <div className="space-y-1">
-                  <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
-                    Campaign Name
-                  </p>
-                  <input
-                    className={inputClass}
-                    value={nameDraft}
-                    onChange={(e) => setNameDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Escape") {
-                        setNameDraft(campaign.name);
-                        setStatusDraft(campaign.status);
-                        setTitleEditing(false);
-                      }
-                      if (e.key === "Enter") saveTitleEdit();
-                    }}
-                    autoFocus
-                  />
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
-                    Status
-                  </p>
-                  <select
-                    className={inputClass}
-                    value={statusDraft}
-                    onChange={(e) =>
-                      setStatusDraft(e.target.value as Campaign["status"])
-                    }
-                  >
-                    {(
-                      [
-                        "DRAFT",
-                        "TEST",
-                        "ACTIVE",
-                        "INACTIVE",
-                      ] as Campaign["status"][]
-                    ).map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex justify-end gap-2 pt-1">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setNameDraft(campaign.name);
-                      setStatusDraft(campaign.status);
-                      setTitleEditing(false);
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    size="sm"
-                    disabled={savingTitle}
-                    onClick={saveTitleEdit}
-                  >
-                    {savingTitle ? "Saving…" : "Save"}
-                  </Button>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <CampaignTitleEditModal
+        isOpen={titleEditing}
+        nameDraft={nameDraft}
+        statusDraft={statusDraft}
+        savingTitle={savingTitle}
+        inputClass={inputClass}
+        onNameChange={setNameDraft}
+        onStatusChange={setStatusDraft}
+        onClose={closeTitleEdit}
+        onSave={saveTitleEdit}
+      />
     </>
   );
 }

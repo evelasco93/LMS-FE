@@ -29,8 +29,16 @@ import type {
 
 interface UseCampaignActionsOptions {
   refreshCampaignsAndSelect: (campaignId?: string) => Promise<void>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  setActive: (view: any) => void;
+  setActive: (
+    view:
+      | "home"
+      | "leads"
+      | "clients"
+      | "affiliates"
+      | "campaigns"
+      | "tools"
+      | "admin",
+  ) => void;
 }
 
 export function useCampaignActions({

@@ -494,15 +494,19 @@ export function ParticipantModals(props: ParticipantModalsProps) {
                 <Button
                   size="sm"
                   onClick={async () => {
-                    if (
-                      isClient &&
-                      participantAction.statusDraft === "LIVE" &&
-                      !(currentLink as CampaignClient)?.delivery_config?.url
-                    ) {
-                      toast.error(
-                        "Delivery config required — set up a delivery endpoint for this end user before switching to LIVE.",
-                      );
-                      return;
+                    if (isClient && participantAction.statusDraft === "LIVE") {
+                      const clientLink = currentLink as CampaignClient;
+                      const hasLegacyDelivery =
+                        !!clientLink?.delivery_config?.url;
+                      const hasDestinations =
+                        Array.isArray(clientLink?.destinations) &&
+                        clientLink.destinations.length > 0;
+                      if (!hasLegacyDelivery && !hasDestinations) {
+                        toast.error(
+                          "Delivery config required — set up a delivery endpoint for this end user before switching to LIVE.",
+                        );
+                        return;
+                      }
                     }
                     if (isClient) {
                       await onUpdateClientStatus(campaign.id, pid, {

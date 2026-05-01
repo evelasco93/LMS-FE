@@ -77,6 +77,8 @@ const UPPER_ABBREVS = new Set([
   "url",
   "utm",
   "ip",
+  "ipqs",
+  "qa",
   "api",
   "ssl",
   "ssn",
