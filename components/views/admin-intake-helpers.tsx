@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ChevronDown, ScrollText, X } from "lucide-react";
 import { Badge } from "@/components/badge";
 import type { IntakeLogItem } from "@/lib/types";
+import { formatRejectionDisplayText } from "@/lib/utils";
 
 /** Returns the browser's local timezone identifier (e.g. "America/Chicago"). */
 function getBrowserTimezone(): string {
@@ -83,8 +84,10 @@ function buildSynthesizedResponse(
     return {
       result: "failed",
       lead_id: item.id,
-      msg: item.rejection_reason || "Lead rejected",
-      errors: item.rejection_errors || [],
+      msg: formatRejectionDisplayText(item.rejection_reason || "Lead rejected"),
+      errors: (item.rejection_errors || []).map((err) =>
+        formatRejectionDisplayText(err),
+      ),
     };
   }
   if (item.status === "test") {
@@ -299,13 +302,15 @@ export function IntakeLogDetailModal({
                             className="flex items-start gap-2 text-sm text-[--color-text-strong]"
                           >
                             <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[--color-danger]" />
-                            {err}
+                            {formatRejectionDisplayText(err)}
                           </li>
                         ))}
                       </ul>
                     ) : (
                       <p className="text-sm text-[--color-text-strong]">
-                        {item.rejection_reason || "Unknown rejection reason"}
+                        {formatRejectionDisplayText(
+                          item.rejection_reason || "Unknown rejection reason",
+                        )}
                       </p>
                     )}
                   </div>

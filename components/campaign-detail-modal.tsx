@@ -710,7 +710,9 @@ export function CampaignDetailModal({
         (m.parameter_target === "query" || m.parameter_target === "body") &&
         (m.value_source === "field"
           ? (m.field_name ?? "").trim().length > 0
-          : String(m.static_value ?? "").trim().length > 0),
+          : m.value_source === "lead_id"
+            ? true
+            : String(m.static_value ?? "").trim().length > 0),
     );
   const pixelInvalidUrl = pixelSaveAttempted && !pixelHasUrl;
   const pixelInvalidMappings = pixelSaveAttempted && !pixelHasMappings;

@@ -44,6 +44,15 @@ function emptyDestinationDraft(): Omit<Destination, "id"> {
 
 function sampleValueFor(field: CriteriaField | undefined): string {
   if (!field) return "";
+  if (field.options && field.options.length > 0) {
+    const yesLikeOption = field.options.find((opt) =>
+      ["yes", "no", "true", "false"].includes(
+        String(opt.value).trim().toLowerCase(),
+      ),
+    );
+    if (yesLikeOption) return yesLikeOption.value;
+    return field.options[0].value;
+  }
   const lbl = field.field_label.toLowerCase();
   if (lbl.includes("email")) return "john@example.com";
   if (lbl.includes("phone")) return "+1 (555) 867-5309";
@@ -60,7 +69,7 @@ function sampleValueFor(field: CriteriaField | undefined): string {
     case "Number":
       return "30";
     case "Boolean":
-      return "true";
+      return "yes";
     case "Date":
       return "2026-01-15";
     case "List":
@@ -291,7 +300,9 @@ export function ClientDeliveryModal({
         m.key.trim().length > 0 &&
         (m.value_source === "field"
           ? (m.field_name ?? "").trim().length > 0
-          : String(m.static_value ?? "").trim().length > 0),
+          : m.value_source === "lead_id"
+            ? true
+            : String(m.static_value ?? "").trim().length > 0),
     );
 
   const saveDisabledReason = !hasName
@@ -350,21 +361,29 @@ export function ClientDeliveryModal({
           }
         : {}),
       headers: draft.headers,
-      payload_mapping: draft.payload_mapping.map((m) =>
-        m.value_source === "field"
-          ? {
-              key: m.key.trim(),
-              value_source: "field" as const,
-              field_name: (m.field_name ?? "").trim(),
-              parameter_target: m.parameter_target ?? "body",
-            }
-          : {
-              key: m.key.trim(),
-              value_source: "static" as const,
-              static_value: m.static_value,
-              parameter_target: m.parameter_target ?? "body",
-            },
-      ),
+      payload_mapping: draft.payload_mapping.map((m) => {
+        if (m.value_source === "field") {
+          return {
+            key: m.key.trim(),
+            value_source: "field" as const,
+            field_name: (m.field_name ?? "").trim(),
+            parameter_target: m.parameter_target ?? "body",
+          };
+        }
+        if (m.value_source === "lead_id") {
+          return {
+            key: m.key.trim(),
+            value_source: "lead_id" as const,
+            parameter_target: m.parameter_target ?? "body",
+          };
+        }
+        return {
+          key: m.key.trim(),
+          value_source: "static" as const,
+          static_value: m.static_value,
+          parameter_target: m.parameter_target ?? "body",
+        };
+      }),
     };
 
     setSaving(true);
@@ -423,6 +442,13 @@ export function ClientDeliveryModal({
     const previewEntries = draft.payload_mapping
       .filter((m) => m.key.trim())
       .map((m) => {
+        if (m.value_source === "lead_id") {
+          return {
+            key: m.key.trim(),
+            value: "{{lead_id}}",
+            target: (m.parameter_target ?? "body") as "query" | "body",
+          };
+        }
         if (m.value_source === "static") {
           return {
             key: m.key.trim(),
@@ -986,7 +1012,25 @@ export function ClientDeliveryModal({
                                         payload_mapping:
                                           prev.payload_mapping.map((m, i) =>
                                             i === idx
-                                              ? { ...m, key: e.target.value }
+                                              ? (() => {
+                                                  const nextKey =
+                                                    e.target.value;
+                                                  const shouldInferLeadId =
+                                                    nextKey
+                                                      .trim()
+                                                      .toLowerCase() ===
+                                                    "lead_id";
+                                                  return shouldInferLeadId
+                                                    ? {
+                                                        ...m,
+                                                        key: nextKey,
+                                                        value_source:
+                                                          "lead_id" as const,
+                                                        field_name: undefined,
+                                                        static_value: undefined,
+                                                      }
+                                                    : { ...m, key: nextKey };
+                                                })()
                                               : m,
                                           ),
                                       }))
@@ -998,7 +1042,8 @@ export function ClientDeliveryModal({
                                     onChange={(e) => {
                                       const vs = e.target.value as
                                         | "field"
-                                        | "static";
+                                        | "static"
+                                        | "lead_id";
                                       setDraft((prev) => ({
                                         ...prev,
                                         payload_mapping:
@@ -1023,6 +1068,7 @@ export function ClientDeliveryModal({
                                   >
                                     <option value="field">Lead Field</option>
                                     <option value="static">Static Value</option>
+                                    <option value="lead_id">Lead ID</option>
                                   </select>
                                   {row.value_source === "field" ? (
                                     <select
@@ -1057,6 +1103,12 @@ export function ClientDeliveryModal({
                                         </option>
                                       ))}
                                     </select>
+                                  ) : row.value_source === "lead_id" ? (
+                                    <input
+                                      className={`${inputClass} text-[--color-text-muted]`}
+                                      value="Lead ID (auto)"
+                                      readOnly
+                                    />
                                   ) : (
                                     <input
                                       className={inputClass}

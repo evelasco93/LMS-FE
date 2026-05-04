@@ -368,19 +368,38 @@ export async function setCampaignTags(campaignId: string, tags: string[]) {
 export async function setCampaignAffiliateValidationBypass(
   campaignId: string,
   affiliateId: string,
-  validationBypass: {
-    trusted_form_claim?: boolean;
-    duplicate_check?: boolean;
-    ipqs_phone?: boolean;
-    ipqs_email?: boolean;
-    ipqs_ip?: boolean;
-    all?: boolean;
-  },
+  payload:
+    | {
+        validation_bypass?: {
+          trusted_form_claim?: boolean;
+          duplicate_check?: boolean;
+          ipqs_phone?: boolean;
+          ipqs_email?: boolean;
+          ipqs_ip?: boolean;
+          all?: boolean;
+        };
+        outbound_response?: {
+          success_message?: string;
+          failure_message?: string;
+        };
+      }
+    | {
+        trusted_form_claim?: boolean;
+        duplicate_check?: boolean;
+        ipqs_phone?: boolean;
+        ipqs_email?: boolean;
+        ipqs_ip?: boolean;
+        all?: boolean;
+      },
 ) {
   const url = `${API_BASE_URL}/campaigns/${campaignId}/affiliates/${affiliateId}/validation-bypass`;
+  const normalizedPayload =
+    "validation_bypass" in payload || "outbound_response" in payload
+      ? payload
+      : { validation_bypass: payload };
   return request<ApiResponse<Campaign>>(url, {
     method: "PUT",
-    body: JSON.stringify({ validation_bypass: validationBypass }),
+    body: JSON.stringify(normalizedPayload),
   });
 }
 

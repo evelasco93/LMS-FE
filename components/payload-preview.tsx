@@ -23,6 +23,7 @@ import { HoverTooltip } from "@/components/ui/hover-tooltip";
 import { InfoItem } from "@/components/ui/info-item";
 import { updateLead, getEntityAudit } from "@/lib/api";
 import {
+  formatRejectionDisplayText,
   resolveDisplayName,
   inputClass,
   normalizeFieldLabel,
@@ -1197,7 +1198,9 @@ export function PayloadPreview({
                       <div className="md:col-span-2">
                         <InfoItem
                           label="Rejection Reason"
-                          value={currentLead.rejection_reason}
+                          value={formatRejectionDisplayText(
+                            currentLead.rejection_reason,
+                          )}
                         />
                       </div>
                     )}
@@ -1360,7 +1363,9 @@ export function PayloadPreview({
                                       currentLead.rejected &&
                                       currentLead.rejection_reason
                                         ? parseRejectedFields(
-                                            currentLead.rejection_reason,
+                                            formatRejectionDisplayText(
+                                              currentLead.rejection_reason,
+                                            ),
                                           )
                                         : {};
                                     return entries.map(([key]) => {

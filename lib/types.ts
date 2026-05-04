@@ -16,7 +16,7 @@ export type PixelParameterMode = "query" | "body";
 
 export interface WebhookFieldMapping {
   key: string;
-  value_source: "field" | "static";
+  value_source: "field" | "static" | "lead_id";
   parameter_target?: PixelParameterMode;
   field_name?: string;
   static_value?: unknown;
@@ -67,6 +67,11 @@ export interface CampaignValidationBypassConfig {
   all?: boolean;
 }
 
+export interface AffiliateOutboundResponseOverride {
+  success_message?: string;
+  failure_message?: string;
+}
+
 export type ParticipantLogicMode = "pinned" | "inherit_campaign";
 
 export interface CampaignClientOverride {
@@ -88,6 +93,7 @@ export interface CampaignAffiliateOverride {
   logic_rules?: LogicRule[];
   logic_mode?: ParticipantLogicMode;
   validation_bypass?: CampaignValidationBypassConfig;
+  outbound_response?: AffiliateOutboundResponseOverride;
   metadata?: Record<string, unknown>;
 }
 

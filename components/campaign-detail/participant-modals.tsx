@@ -26,6 +26,7 @@ import {
 import { inputClass, statusColorMap } from "@/lib/utils";
 import type {
   Affiliate,
+  AffiliateOutboundResponseOverride,
   AffiliateSoldPixelConfig,
   Campaign,
   CampaignAffiliate,
@@ -351,6 +352,51 @@ export function ParticipantModals(props: ParticipantModalsProps) {
     ipqs_email: false,
     ipqs_ip: false,
   });
+  const [sourceResponseDraft, setSourceResponseDraft] =
+    useState<AffiliateOutboundResponseOverride>({
+      success_message: "",
+      failure_message: "",
+    });
+  const [sourceResponseOverrideDraft, setSourceResponseOverrideDraft] =
+    useState<{
+      success: boolean;
+      failure: boolean;
+    }>({
+      success: false,
+      failure: false,
+    });
+  const [sourceSectionsCollapsed, setSourceSectionsCollapsed] = useState<{
+    core: boolean;
+    ipqs: boolean;
+    outbound: boolean;
+  }>({
+    core: true,
+    ipqs: true,
+    outbound: true,
+  });
+  const [sourcePreviewCollapsed, setSourcePreviewCollapsed] = useState<{
+    success: boolean;
+    failure: boolean;
+  }>({
+    success: true,
+    failure: true,
+  });
+
+  const activeIntegrationOverrideCount =
+    Object.values(sourceBypassDraft).filter(Boolean).length +
+    (sourceResponseOverrideDraft.success ? 1 : 0) +
+    (sourceResponseOverrideDraft.failure ? 1 : 0);
+
+  const hasExistingOutboundOverride = Boolean(
+    campaign.affiliate_overrides?.[pid]?.outbound_response,
+  );
+
+  const toggleSourceSection = (section: "core" | "ipqs" | "outbound") => {
+    setSourceSectionsCollapsed((prev) => ({
+      ...prev,
+      [section]: !prev[section],
+    }));
+  };
 
   useEffect(() => {
     if (isClient) {
@@ -363,6 +409,7 @@ export function ParticipantModals(props: ParticipantModalsProps) {
     if (isClient) return;
     const link = currentLink as CampaignAffiliate | undefined;
     const bypass = link?.validation_bypass;
+    const outbound = campaign.affiliate_overrides?.[pid]?.outbound_response;
     setSourceBypassDraft({
       all: bypass?.all === true,
       duplicate_check: bypass?.duplicate_check === true,
@@ -371,7 +418,34 @@ export function ParticipantModals(props: ParticipantModalsProps) {
       ipqs_email: bypass?.ipqs_email === true,
       ipqs_ip: bypass?.ipqs_ip === true,
     });
-  }, [isClient, currentLink, participantAction?.id]);
+    setSourceResponseDraft({
+      success_message: outbound?.success_message ?? "",
+      failure_message: outbound?.failure_message ?? "",
+    });
+    setSourceResponseOverrideDraft({
+      success: Boolean(outbound?.success_message?.trim()),
+      failure: Boolean(outbound?.failure_message?.trim()),
+    });
+  }, [
+    isClient,
+    currentLink,
+    participantAction?.id,
+    campaign.affiliate_overrides,
+    pid,
+  ]);
+
+  useEffect(() => {
+    if (!sourceQaModalOpen) return;
+    setSourceSectionsCollapsed({
+      core: true,
+      ipqs: true,
+      outbound: true,
+    });
+    setSourcePreviewCollapsed({
+      success: true,
+      failure: true,
+    });
+  }, [sourceQaModalOpen, pid]);
 
   useEffect(() => {
     if (!participantAction || isClient) {
@@ -400,13 +474,40 @@ export function ParticipantModals(props: ParticipantModalsProps) {
     if (sourceBypassDraft.ipqs_email) payload.ipqs_email = true;
     if (sourceBypassDraft.ipqs_ip) payload.ipqs_ip = true;
 
+    const outboundResponsePayload: AffiliateOutboundResponseOverride = {};
+    if (sourceResponseOverrideDraft.success) {
+      const successMessage = sourceResponseDraft.success_message?.trim() ?? "";
+      if (!successMessage) {
+        toast.error("Enter a success message or turn off Success Override.");
+        return;
+      }
+      outboundResponsePayload.success_message = successMessage;
+    }
+
+    if (sourceResponseOverrideDraft.failure) {
+      const failureMessage = sourceResponseDraft.failure_message ?? "";
+
+      if (!failureMessage.trim()) {
+        toast.error("Set a rejection message, or turn off Rejection Override.");
+        return;
+      }
+
+      outboundResponsePayload.failure_message = failureMessage;
+    }
+
+    const shouldSendOutboundResponse =
+      sourceResponseOverrideDraft.success ||
+      sourceResponseOverrideDraft.failure ||
+      hasExistingOutboundOverride;
+
     setSavingSourceOverrides(true);
     try {
-      const res = await setCampaignAffiliateValidationBypass(
-        campaign.id,
-        pid,
-        payload,
-      );
+      const res = await setCampaignAffiliateValidationBypass(campaign.id, pid, {
+        validation_bypass: payload,
+        ...(shouldSendOutboundResponse
+          ? { outbound_response: outboundResponsePayload }
+          : {}),
+      });
       if ((res as any)?.success === false) {
         toast.error(
           (res as any)?.error ||
@@ -646,12 +747,8 @@ export function ParticipantModals(props: ParticipantModalsProps) {
                   Open Integration Overrides
                 </Button>
                 <p className="text-xs text-[--color-text-muted]">
-                  {Object.values(sourceBypassDraft).filter(Boolean).length}{" "}
-                  active override
-                  {Object.values(sourceBypassDraft).filter(Boolean).length === 1
-                    ? ""
-                    : "s"}
-                  .
+                  {activeIntegrationOverrideCount} active override
+                  {activeIntegrationOverrideCount === 1 ? "" : "s"}.
                 </p>
               </div>
             )}
@@ -909,8 +1006,8 @@ export function ParticipantModals(props: ParticipantModalsProps) {
             setParticipantAction(null);
           }
         }}
-        width={520}
-        bodyClassName="px-5 py-4"
+        width={460}
+        bodyClassName="px-4 py-3 max-h-[68vh] overflow-y-auto"
       >
         <div className="space-y-4 text-sm">
           <p className="text-xs text-[--color-text-muted]">
@@ -954,179 +1051,455 @@ export function ParticipantModals(props: ParticipantModalsProps) {
           </div>
 
           <div className="rounded-xl border border-[--color-border] bg-[--color-bg-muted] p-3">
-            <p className="text-sm font-semibold text-[--color-text-strong]">
-              Core Checks
-            </p>
-            <div
-              className={`mt-3 space-y-2 border-t border-[--color-border] pt-3 ${
-                sourceBypassDraft.all ? "opacity-50 pointer-events-none" : ""
-              }`}
+            <button
+              type="button"
+              className="w-full flex items-center justify-between text-left"
+              onClick={() => toggleSourceSection("core")}
             >
-              {[
-                {
-                  key: "duplicate_check",
-                  label: "Duplicate Check",
-                  hint: "Skip duplicate lead matching.",
-                },
-                {
-                  key: "trusted_form_claim",
-                  label: "TrustedForm Claim/Validation",
-                  hint: "Skip TrustedForm claim and verification steps.",
-                },
-              ].map((item) => {
-                const checked =
-                  sourceBypassDraft[item.key as keyof typeof sourceBypassDraft];
-                return (
-                  <div
-                    key={item.key}
-                    className="flex items-center justify-between gap-3"
-                  >
-                    <div>
-                      <p className="text-sm font-medium text-[--color-text]">
-                        {item.label}
-                      </p>
-                      <p className="text-xs text-[--color-text-muted]">
-                        {item.hint}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={checked}
-                      onClick={() =>
-                        setSourceBypassDraft((prev) => ({
-                          ...prev,
-                          [item.key]: !checked,
-                        }))
-                      }
-                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition ${
-                        checked ? "bg-[--color-primary]" : "bg-[--color-border]"
-                      }`}
+              <p className="text-sm font-semibold text-[--color-text-strong]">
+                Core Checks
+              </p>
+              {sourceSectionsCollapsed.core ? (
+                <ChevronRight size={16} className="text-[--color-text-muted]" />
+              ) : (
+                <ChevronDown size={16} className="text-[--color-text-muted]" />
+              )}
+            </button>
+            {!sourceSectionsCollapsed.core && (
+              <div
+                className={`mt-3 space-y-2 border-t border-[--color-border] pt-3 ${
+                  sourceBypassDraft.all ? "opacity-50 pointer-events-none" : ""
+                }`}
+              >
+                {[
+                  {
+                    key: "duplicate_check",
+                    label: "Duplicate Check",
+                    hint: "Skip duplicate lead matching.",
+                  },
+                  {
+                    key: "trusted_form_claim",
+                    label: "TrustedForm Claim/Validation",
+                    hint: "Skip TrustedForm claim and verification steps.",
+                  },
+                ].map((item) => {
+                  const checked =
+                    sourceBypassDraft[
+                      item.key as keyof typeof sourceBypassDraft
+                    ];
+                  return (
+                    <div
+                      key={item.key}
+                      className="flex items-center justify-between gap-3"
                     >
-                      <span
-                        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
-                          checked ? "translate-x-5" : "translate-x-1"
+                      <div>
+                        <p className="text-sm font-medium text-[--color-text]">
+                          {item.label}
+                        </p>
+                        <p className="text-xs text-[--color-text-muted]">
+                          {item.hint}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={checked}
+                        onClick={() =>
+                          setSourceBypassDraft((prev) => ({
+                            ...prev,
+                            [item.key]: !checked,
+                          }))
+                        }
+                        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition ${
+                          checked
+                            ? "bg-[--color-primary]"
+                            : "bg-[--color-border]"
                         }`}
-                      />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
+                      >
+                        <span
+                          className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
+                            checked ? "translate-x-5" : "translate-x-1"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <div className="rounded-xl border border-[--color-border] bg-[--color-bg-muted] p-3">
-            <p className="text-sm font-semibold text-[--color-text-strong]">
-              IPQS Checks
-            </p>
-            <div
-              className={`mt-3 space-y-2 border-t border-[--color-border] pt-3 ${
-                sourceBypassDraft.all ? "opacity-50 pointer-events-none" : ""
-              }`}
+            <button
+              type="button"
+              className="w-full flex items-center justify-between text-left"
+              onClick={() => toggleSourceSection("ipqs")}
             >
-              {(() => {
-                const allIpqsEnabled =
-                  sourceBypassDraft.ipqs_phone &&
-                  sourceBypassDraft.ipqs_email &&
-                  sourceBypassDraft.ipqs_ip;
-                return (
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-[--color-text]">
-                        Skip all IPQS checks
-                      </p>
-                      <p className="text-xs text-[--color-text-muted]">
-                        Toggle phone, email, and IP IPQS checks together.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={allIpqsEnabled}
-                      onClick={() =>
-                        setSourceBypassDraft((prev) => {
-                          const next =
-                            prev.ipqs_phone && prev.ipqs_email && prev.ipqs_ip;
-                          return {
-                            ...prev,
-                            ipqs_phone: !next,
-                            ipqs_email: !next,
-                            ipqs_ip: !next,
-                          };
-                        })
-                      }
-                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition ${
-                        allIpqsEnabled
-                          ? "bg-[--color-primary]"
-                          : "bg-[--color-border]"
-                      }`}
-                    >
-                      <span
-                        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
-                          allIpqsEnabled ? "translate-x-5" : "translate-x-1"
+              <p className="text-sm font-semibold text-[--color-text-strong]">
+                IPQS Checks
+              </p>
+              {sourceSectionsCollapsed.ipqs ? (
+                <ChevronRight size={16} className="text-[--color-text-muted]" />
+              ) : (
+                <ChevronDown size={16} className="text-[--color-text-muted]" />
+              )}
+            </button>
+            {!sourceSectionsCollapsed.ipqs && (
+              <div
+                className={`mt-3 space-y-2 border-t border-[--color-border] pt-3 ${
+                  sourceBypassDraft.all ? "opacity-50 pointer-events-none" : ""
+                }`}
+              >
+                {(() => {
+                  const allIpqsEnabled =
+                    sourceBypassDraft.ipqs_phone &&
+                    sourceBypassDraft.ipqs_email &&
+                    sourceBypassDraft.ipqs_ip;
+                  return (
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-[--color-text]">
+                          Skip all IPQS checks
+                        </p>
+                        <p className="text-xs text-[--color-text-muted]">
+                          Toggle phone, email, and IP IPQS checks together.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={allIpqsEnabled}
+                        onClick={() =>
+                          setSourceBypassDraft((prev) => {
+                            const next =
+                              prev.ipqs_phone &&
+                              prev.ipqs_email &&
+                              prev.ipqs_ip;
+                            return {
+                              ...prev,
+                              ipqs_phone: !next,
+                              ipqs_email: !next,
+                              ipqs_ip: !next,
+                            };
+                          })
+                        }
+                        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition ${
+                          allIpqsEnabled
+                            ? "bg-[--color-primary]"
+                            : "bg-[--color-border]"
                         }`}
-                      />
-                    </button>
-                  </div>
-                );
-              })()}
+                      >
+                        <span
+                          className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
+                            allIpqsEnabled ? "translate-x-5" : "translate-x-1"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  );
+                })()}
 
-              {[
-                {
-                  key: "ipqs_phone",
-                  label: "IPQS Phone",
-                  hint: "Skip phone validation from IPQS.",
-                },
-                {
-                  key: "ipqs_email",
-                  label: "IPQS Email",
-                  hint: "Skip email validation from IPQS.",
-                },
-                {
-                  key: "ipqs_ip",
-                  label: "IPQS IP",
-                  hint: "Skip IP reputation and fraud checks.",
-                },
-              ].map((item) => {
-                const checked =
-                  sourceBypassDraft[item.key as keyof typeof sourceBypassDraft];
-                return (
-                  <div
-                    key={item.key}
-                    className="flex items-center justify-between gap-3"
-                  >
-                    <div>
-                      <p className="text-sm font-medium text-[--color-text]">
-                        {item.label}
-                      </p>
-                      <p className="text-xs text-[--color-text-muted]">
-                        {item.hint}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={checked}
-                      onClick={() =>
-                        setSourceBypassDraft((prev) => ({
-                          ...prev,
-                          [item.key]: !checked,
-                        }))
-                      }
-                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition ${
-                        checked ? "bg-[--color-primary]" : "bg-[--color-border]"
-                      }`}
+                {[
+                  {
+                    key: "ipqs_phone",
+                    label: "IPQS Phone",
+                    hint: "Skip phone validation from IPQS.",
+                  },
+                  {
+                    key: "ipqs_email",
+                    label: "IPQS Email",
+                    hint: "Skip email validation from IPQS.",
+                  },
+                  {
+                    key: "ipqs_ip",
+                    label: "IPQS IP",
+                    hint: "Skip IP reputation and fraud checks.",
+                  },
+                ].map((item) => {
+                  const checked =
+                    sourceBypassDraft[
+                      item.key as keyof typeof sourceBypassDraft
+                    ];
+                  return (
+                    <div
+                      key={item.key}
+                      className="flex items-center justify-between gap-3"
                     >
-                      <span
-                        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
-                          checked ? "translate-x-5" : "translate-x-1"
+                      <div>
+                        <p className="text-sm font-medium text-[--color-text]">
+                          {item.label}
+                        </p>
+                        <p className="text-xs text-[--color-text-muted]">
+                          {item.hint}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={checked}
+                        onClick={() =>
+                          setSourceBypassDraft((prev) => ({
+                            ...prev,
+                            [item.key]: !checked,
+                          }))
+                        }
+                        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition ${
+                          checked
+                            ? "bg-[--color-primary]"
+                            : "bg-[--color-border]"
                         }`}
-                      />
-                    </button>
+                      >
+                        <span
+                          className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
+                            checked ? "translate-x-5" : "translate-x-1"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-[--color-border] bg-[--color-bg-muted] p-3 space-y-3">
+            <button
+              type="button"
+              className="w-full flex items-center justify-between text-left"
+              onClick={() => toggleSourceSection("outbound")}
+            >
+              <div>
+                <p className="text-sm font-semibold text-[--color-text-strong]">
+                  Outbound Response Templates
+                </p>
+                <p className="text-xs text-[--color-text-muted] mt-0.5">
+                  Optional source-facing overrides. Leave off to use detailed
+                  default responses.
+                </p>
+              </div>
+              {sourceSectionsCollapsed.outbound ? (
+                <ChevronRight size={16} className="text-[--color-text-muted]" />
+              ) : (
+                <ChevronDown size={16} className="text-[--color-text-muted]" />
+              )}
+            </button>
+
+            {!sourceSectionsCollapsed.outbound && (
+              <div className="space-y-3 border-t border-[--color-border] pt-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-[--color-text]">
+                      Override Success Response
+                    </p>
+                    <p className="text-xs text-[--color-text-muted]">
+                      Sends a custom message when lead intake passes.
+                    </p>
                   </div>
-                );
-              })}
-            </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={sourceResponseOverrideDraft.success}
+                    onClick={() =>
+                      setSourceResponseOverrideDraft((prev) => ({
+                        ...prev,
+                        success: !prev.success,
+                      }))
+                    }
+                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition ${
+                      sourceResponseOverrideDraft.success
+                        ? "bg-[--color-primary]"
+                        : "bg-[--color-border]"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
+                        sourceResponseOverrideDraft.success
+                          ? "translate-x-5"
+                          : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {sourceResponseOverrideDraft.success && (
+                  <div className="space-y-2">
+                    <label className="space-y-1.5 block">
+                      <span className="text-xs text-[--color-text-muted]">
+                        Success Message
+                      </span>
+                      <input
+                        className={inputClass}
+                        value={sourceResponseDraft.success_message ?? ""}
+                        onChange={(e) =>
+                          setSourceResponseDraft((prev) => ({
+                            ...prev,
+                            success_message: e.target.value,
+                          }))
+                        }
+                        placeholder="Custom success message"
+                      />
+                    </label>
+
+                    <div className="rounded-lg border border-[--color-border] bg-[--color-panel]">
+                      <button
+                        type="button"
+                        className="w-full flex items-center justify-between px-3 py-2 text-left"
+                        onClick={() =>
+                          setSourcePreviewCollapsed((prev) => ({
+                            ...prev,
+                            success: !prev.success,
+                          }))
+                        }
+                      >
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                            Success Payload Preview
+                          </p>
+                          <p className="text-[11px] text-[--color-text-muted] mt-0.5">
+                            Top-level message override with lead id in data.
+                          </p>
+                        </div>
+                        {sourcePreviewCollapsed.success ? (
+                          <ChevronRight
+                            size={14}
+                            className="text-[--color-text-muted]"
+                          />
+                        ) : (
+                          <ChevronDown
+                            size={14}
+                            className="text-[--color-text-muted]"
+                          />
+                        )}
+                      </button>
+                      {!sourcePreviewCollapsed.success && (
+                        <div className="border-t border-[--color-border] px-3 py-2">
+                          <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-[--color-text]">
+                            {JSON.stringify(
+                              {
+                                result: "passed",
+                                message:
+                                  sourceResponseDraft.success_message ||
+                                  "Lead accepted",
+                                data: {
+                                  lead_id: "LDCCQ4IYLR",
+                                },
+                              },
+                              null,
+                              2,
+                            )}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between gap-3 pt-1">
+                  <div>
+                    <p className="text-sm font-medium text-[--color-text]">
+                      Override Rejection Response
+                    </p>
+                    <p className="text-xs text-[--color-text-muted]">
+                      Optionally replace rejection message for this source.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={sourceResponseOverrideDraft.failure}
+                    onClick={() =>
+                      setSourceResponseOverrideDraft((prev) => ({
+                        ...prev,
+                        failure: !prev.failure,
+                      }))
+                    }
+                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition ${
+                      sourceResponseOverrideDraft.failure
+                        ? "bg-[--color-primary]"
+                        : "bg-[--color-border]"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
+                        sourceResponseOverrideDraft.failure
+                          ? "translate-x-5"
+                          : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {sourceResponseOverrideDraft.failure && (
+                  <>
+                    <label className="space-y-1.5 block">
+                      <span className="text-xs text-[--color-text-muted]">
+                        Failure Message (Generic)
+                      </span>
+                      <textarea
+                        className={`${inputClass} min-h-[92px]`}
+                        value={sourceResponseDraft.failure_message ?? ""}
+                        onChange={(e) =>
+                          setSourceResponseDraft((prev) => ({
+                            ...prev,
+                            failure_message: e.target.value,
+                          }))
+                        }
+                        placeholder="Lead has been rejected"
+                      />
+                    </label>
+
+                    <div className="rounded-lg border border-[--color-border] bg-[--color-panel]">
+                      <button
+                        type="button"
+                        className="w-full flex items-center justify-between px-3 py-2 text-left"
+                        onClick={() =>
+                          setSourcePreviewCollapsed((prev) => ({
+                            ...prev,
+                            failure: !prev.failure,
+                          }))
+                        }
+                      >
+                        <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                          Failure Payload Preview
+                        </p>
+                        {sourcePreviewCollapsed.failure ? (
+                          <ChevronRight
+                            size={14}
+                            className="text-[--color-text-muted]"
+                          />
+                        ) : (
+                          <ChevronDown
+                            size={14}
+                            className="text-[--color-text-muted]"
+                          />
+                        )}
+                      </button>
+                      {!sourcePreviewCollapsed.failure && (
+                        <div className="border-t border-[--color-border] px-3 py-2">
+                          <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-[--color-text]">
+                            {JSON.stringify(
+                              {
+                                result: "failed",
+                                lead_id: "LDBLX8PPSB",
+                                message:
+                                  sourceResponseDraft.failure_message ||
+                                  "Lead Rejected",
+                                errors:
+                                  sourceResponseDraft.failure_message?.trim()
+                                    ? [sourceResponseDraft.failure_message]
+                                    : ["Lead has been rejected"],
+                              },
+                              null,
+                              2,
+                            )}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="flex justify-end gap-2 pt-1">

@@ -27,7 +27,11 @@ import type { Column } from "@/components/table";
 import { PaginationControls } from "@/components/pagination-controls";
 import { Badge } from "@/components/badge";
 import { Modal } from "@/components/modal";
-import { inputClass, normalizeFieldLabel } from "@/lib/utils";
+import {
+  formatRejectionDisplayText,
+  inputClass,
+  normalizeFieldLabel,
+} from "@/lib/utils";
 import {
   deleteUserTablePreference,
   getUserTablePreference,
@@ -1302,7 +1306,9 @@ export function LeadsView({
       }
       switch (key) {
         case "__rejection_reason":
-          return lead.rejected ? (lead.rejection_reason ?? "") : "";
+          return lead.rejected
+            ? formatRejectionDisplayText(lead.rejection_reason ?? "")
+            : "";
         case "__sold_to_client_id": {
           if (!(lead.sold === true || lead.sold_status === "sold")) return "";
           return (

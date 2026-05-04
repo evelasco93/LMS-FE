@@ -1148,10 +1148,10 @@ export function AdminView({
           >[]) {
             if (r.data_type === "FieldSet") continue;
             const opts = normalizePresetOptions(
-              ((r.options ?? []) as {
+              (r.options ?? []) as {
                 value: string;
                 label: string;
-              }[]) ?? [],
+              }[],
             );
             merged.push({
               id: r.id as string,
@@ -1653,10 +1653,10 @@ export function AdminView({
           >[]) {
             if (r.data_type === "FieldSet") continue;
             const opts = normalizePresetOptions(
-              ((r.options ?? []) as {
+              (r.options ?? []) as {
                 value: string;
                 label: string;
-              }[]) ?? [],
+              }[],
             );
             merged.push({
               id: r.id as string,
@@ -1674,10 +1674,10 @@ export function AdminView({
           >[]) {
             if (r.data_type === "FieldSet") continue;
             const opts = normalizePresetOptions(
-              ((r.options ?? []) as {
+              (r.options ?? []) as {
                 value: string;
                 label: string;
-              }[]) ?? [],
+              }[],
             );
             merged.push({
               id: r.id as string,

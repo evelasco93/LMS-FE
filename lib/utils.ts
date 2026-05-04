@@ -115,6 +115,35 @@ export function normalizeFieldLabel(key: string): string {
     .join(" ");
 }
 
+export function formatRejectionDisplayText(text?: string | null): string {
+  if (!text) return "";
+
+  return text
+    .split(/([;:\n])/)
+    .map((chunk) => {
+      if (chunk === ";" || chunk === ":" || chunk === "\n") return chunk;
+      return chunk
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((word) => {
+          const cleaned = word.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, "");
+          if (!cleaned) return word;
+          const lower = cleaned.toLowerCase();
+          if (UPPER_ABBREVS.has(lower)) {
+            return word.replace(cleaned, lower.toUpperCase());
+          }
+          return word.replace(
+            cleaned,
+            lower.charAt(0).toUpperCase() + lower.slice(1),
+          );
+        })
+        .join(" ");
+    })
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /**
  * The API occasionally returns user objects {sub, full_name, first_name,
  * last_name, email, …} instead of plain strings for created_by / updated_by

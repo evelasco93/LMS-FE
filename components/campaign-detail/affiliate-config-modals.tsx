@@ -503,6 +503,7 @@ export function AffiliateConfigModals({
                               >
                                 <option value="field">Lead Field</option>
                                 <option value="static">Static Value</option>
+                                <option value="lead_id">Lead ID</option>
                               </select>
                               {row.value_source === "field" ? (
                                 <select
@@ -534,6 +535,12 @@ export function AffiliateConfigModals({
                                     </option>
                                   ))}
                                 </select>
+                              ) : row.value_source === "lead_id" ? (
+                                <input
+                                  className={`${inputClass} text-[--color-text-muted]`}
+                                  value="Lead ID"
+                                  readOnly
+                                />
                               ) : (
                                 <input
                                   className={inputClass}
@@ -671,6 +678,13 @@ export function AffiliateConfigModals({
                       const previewEntries = pixelDraft.payload_mapping
                         .filter((m) => m.key.trim())
                         .map((m) => {
+                          if (m.value_source === "lead_id") {
+                            return {
+                              key: m.key.trim(),
+                              value: "{{lead_id}}",
+                              target: m.parameter_target,
+                            };
+                          }
                           if (m.value_source === "static") {
                             return {
                               key: m.key.trim(),
@@ -818,8 +832,10 @@ export function AffiliateConfigModals({
                                 m.parameter_target !== "body") ||
                               (m.value_source === "field"
                                 ? !(m.field_name ?? "").trim()
-                                : String(m.static_value ?? "").trim().length ===
-                                  0),
+                                : m.value_source === "lead_id"
+                                  ? false
+                                  : String(m.static_value ?? "").trim()
+                                      .length === 0),
                           );
                           if (hasBadMapping) {
                             toast.warning("Complete all payload mapping rows.");
@@ -839,20 +855,29 @@ export function AffiliateConfigModals({
                               ...pixelDraft,
                               url: trimmedUrl,
                               payload_mapping: pixelDraft.payload_mapping.map(
-                                (m) =>
-                                  m.value_source === "field"
-                                    ? {
-                                        key: m.key.trim(),
-                                        value_source: "field",
-                                        field_name: (m.field_name ?? "").trim(),
-                                        parameter_target: m.parameter_target,
-                                      }
-                                    : {
-                                        key: m.key.trim(),
-                                        value_source: "static",
-                                        static_value: m.static_value,
-                                        parameter_target: m.parameter_target,
-                                      },
+                                (m) => {
+                                  if (m.value_source === "field") {
+                                    return {
+                                      key: m.key.trim(),
+                                      value_source: "field",
+                                      field_name: (m.field_name ?? "").trim(),
+                                      parameter_target: m.parameter_target,
+                                    };
+                                  }
+                                  if (m.value_source === "lead_id") {
+                                    return {
+                                      key: m.key.trim(),
+                                      value_source: "lead_id",
+                                      parameter_target: m.parameter_target,
+                                    };
+                                  }
+                                  return {
+                                    key: m.key.trim(),
+                                    value_source: "static",
+                                    static_value: m.static_value,
+                                    parameter_target: m.parameter_target,
+                                  };
+                                },
                               ),
                             };
 
