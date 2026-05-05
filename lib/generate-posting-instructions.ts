@@ -132,9 +132,11 @@ export async function generatePostingInstructions({
     (a, b) => (a.order ?? 0) - (b.order ?? 0),
   );
 
+  const rawSubmitUrl = (campaign as any).submit_url;
   const submitUrl =
-    (campaign as any).submit_url ??
-    "https://iq8bhm0nf6.execute-api.us-east-1.amazonaws.com/dev/v2/leads";
+    typeof rawSubmitUrl === "string" && rawSubmitUrl.trim().length > 0
+      ? rawSubmitUrl
+      : "https://8s5ozujbyb.execute-api.us-east-1.amazonaws.com/dev/v2/leads";
 
   const exampleJson = JSON.stringify(
     buildExamplePayload(campaign.id, link.campaign_key, sortedFields),
