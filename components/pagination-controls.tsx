@@ -25,7 +25,6 @@ export function PaginationControls({
   onPageChange,
   pageSize,
   onPageSizeChange,
-  totalItems,
   showingFrom,
   showingTo,
   itemLabel,
@@ -38,9 +37,7 @@ export function PaginationControls({
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[--color-border] bg-[--color-panel] px-3 py-2">
       <p className="text-xs text-[--color-text-muted]">
-        {allowNextPage
-          ? `Showing ${showingFrom} to ${showingTo} of at least ${totalItems} ${itemLabel}`
-          : `Showing ${showingFrom} to ${showingTo} of ${totalItems} ${itemLabel}`}
+        {`Showing ${showingFrom} to ${showingTo} ${itemLabel}`}
       </p>
 
       <div className="flex flex-wrap items-center gap-2">

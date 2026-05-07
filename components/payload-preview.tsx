@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   ArrowRight,
@@ -462,6 +462,105 @@ function parseRejectedFields(reason: string): Record<string, string> {
     map[m[1]] = m[0].trim().replace(/\.$/, "");
   }
   return map;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function normalizeMatchKey(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^payload\./, "")
+    .replace(/[^a-z0-9_]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function extractRejectedFieldMap(
+  lead: Lead,
+  payloadKeys: string[],
+): Record<string, string> {
+  if (!lead.rejected) return {};
+
+  const normalizedToKey = new Map<string, string>();
+  payloadKeys.forEach((key) => {
+    normalizedToKey.set(normalizeMatchKey(key), key);
+  });
+
+  const rejected: Record<string, string> = {};
+  const assignMatch = (candidate: string, message: string) => {
+    const resolved = normalizedToKey.get(normalizeMatchKey(candidate));
+    if (resolved && !rejected[resolved]) {
+      rejected[resolved] = message;
+    }
+  };
+
+  const assignFromText = (text: string, fallbackMessage: string) => {
+    const parsed = parseRejectedFields(text);
+    Object.entries(parsed).forEach(([field, message]) => {
+      assignMatch(field, message);
+    });
+
+    payloadKeys.forEach((key) => {
+      const tokenPattern = new RegExp(
+        `(^|[^a-z0-9_])(${escapeRegExp(key)}|payload\\.${escapeRegExp(key)})([^a-z0-9_]|$)`,
+        "i",
+      );
+      const readableLabel = normalizeFieldLabel(key).toLowerCase();
+      if (
+        tokenPattern.test(text) ||
+        text.toLowerCase().includes(readableLabel)
+      ) {
+        assignMatch(key, fallbackMessage);
+      }
+    });
+  };
+
+  const leadRecord = lead as unknown as Record<string, unknown>;
+
+  const structuredFieldMaps = [
+    asRecord(leadRecord.rejection_field_errors),
+    asRecord(leadRecord.field_errors),
+    asRecord(leadRecord.validation_errors),
+  ];
+  structuredFieldMaps.forEach((map) => {
+    if (!map) return;
+    Object.entries(map).forEach(([field, value]) => {
+      assignMatch(field, typeof value === "string" ? value : String(value));
+    });
+  });
+
+  const structuredFieldArrays = [
+    leadRecord.rejected_fields,
+    leadRecord.rejection_fields,
+    leadRecord.rejected_payload_fields,
+  ];
+  structuredFieldArrays.forEach((value) => {
+    if (!Array.isArray(value)) return;
+    value.forEach((field) => {
+      if (typeof field === "string") assignMatch(field, "Rejected field");
+    });
+  });
+
+  const rejectionErrors = leadRecord.rejection_errors;
+  if (Array.isArray(rejectionErrors)) {
+    rejectionErrors.forEach((entry) => {
+      if (typeof entry !== "string" || !entry) return;
+      assignFromText(entry, entry);
+    });
+  }
+
+  const decisionReason = lead.decision_trace?.final_decision?.reason;
+  if (typeof decisionReason === "string" && decisionReason) {
+    assignFromText(decisionReason, decisionReason);
+  }
+
+  if (lead.rejection_reason) {
+    assignFromText(lead.rejection_reason, lead.rejection_reason);
+  }
+
+  return rejected;
 }
 
 // ─── TrustedForm result card ───────────────────────────────────────────────────
@@ -1026,6 +1125,15 @@ export function PayloadPreview({
     (k) => localPayload[k] !== (originalPayloadRef.current[k] ?? ""),
   );
 
+  const rejectedFieldMap = useMemo(
+    () =>
+      extractRejectedFieldMap(
+        currentLead,
+        entries.map(([key]) => key),
+      ),
+    [currentLead, entries],
+  );
+
   const mappedFieldNames = new Set(
     (selectedLead.mapped_fields ?? []).map((mf) => mf.field),
   );
@@ -1195,12 +1303,16 @@ export function PayloadPreview({
                       }
                     />
                     {currentLead.rejection_reason && (
-                      <div className="md:col-span-2">
+                      <div className="min-w-0 md:col-span-2">
                         <InfoItem
                           label="Rejection Reason"
-                          value={formatRejectionDisplayText(
-                            currentLead.rejection_reason,
-                          )}
+                          value={
+                            <span className="block min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                              {formatRejectionDisplayText(
+                                currentLead.rejection_reason,
+                              )}
+                            </span>
+                          }
                         />
                       </div>
                     )}
@@ -1359,15 +1471,6 @@ export function PayloadPreview({
                               <>
                                 <div className="space-y-2">
                                   {(() => {
-                                    const rejectedFieldMap =
-                                      currentLead.rejected &&
-                                      currentLead.rejection_reason
-                                        ? parseRejectedFields(
-                                            formatRejectionDisplayText(
-                                              currentLead.rejection_reason,
-                                            ),
-                                          )
-                                        : {};
                                     return entries.map(([key]) => {
                                       const original =
                                         originalPayloadRef.current[key] ?? "";
@@ -1433,8 +1536,7 @@ export function PayloadPreview({
                                       // A rejected field gets a red ring (highest priority)
                                       const rejectionMsg =
                                         rejectedFieldMap[key];
-                                      const isRejected =
-                                        !isDirty && !!rejectionMsg;
+                                      const isRejected = !!rejectionMsg;
 
                                       const inputRing = isDirty
                                         ? "border-[--color-warning] shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-warning)_20%,transparent)]"
@@ -1449,8 +1551,21 @@ export function PayloadPreview({
                                         isDirty || isEdited || isMappedField;
 
                                       return (
-                                        <div key={key} className="space-y-1">
-                                          <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
+                                        <div
+                                          key={key}
+                                          className={`space-y-1 rounded-md p-1.5 ${
+                                            isRejected
+                                              ? "border border-red-300/60 bg-red-50/60 dark:border-red-800/70 dark:bg-red-950/25"
+                                              : ""
+                                          }`}
+                                        >
+                                          <p
+                                            className={`text-xs uppercase tracking-wide ${
+                                              isRejected
+                                                ? "text-red-700 dark:text-red-300"
+                                                : "text-[--color-text-muted]"
+                                            }`}
+                                          >
                                             {normalizeFieldLabel(key)}{" "}
                                             <span className="normal-case tracking-normal opacity-60">
                                               ({key})
