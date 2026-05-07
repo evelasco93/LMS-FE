@@ -16,6 +16,7 @@ interface PaginationControlsProps {
   itemLabel: string;
   pageSizeOptions?: number[];
   leftActions?: React.ReactNode;
+  allowNextPage?: boolean;
 }
 
 export function PaginationControls({
@@ -30,13 +31,16 @@ export function PaginationControls({
   itemLabel,
   pageSizeOptions = [10, 25, 50, 100],
   leftActions,
+  allowNextPage = false,
 }: PaginationControlsProps) {
   const [jumpValue, setJumpValue] = useState("");
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[--color-border] bg-[--color-panel] px-3 py-2">
       <p className="text-xs text-[--color-text-muted]">
-        Showing {showingFrom} to {showingTo} of {totalItems} {itemLabel}
+        {allowNextPage
+          ? `Showing ${showingFrom} to ${showingTo} of at least ${totalItems} ${itemLabel}`
+          : `Showing ${showingFrom} to ${showingTo} of ${totalItems} ${itemLabel}`}
       </p>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -59,10 +63,19 @@ export function PaginationControls({
 
         {/* react-paginate handles prev / numbered pages / ellipsis / next */}
         <ReactPaginate
-          pageCount={totalPages}
+          pageCount={Math.max(totalPages, allowNextPage ? page + 1 : page)}
           // react-paginate is 0-indexed; our state is 1-indexed
           forcePage={page - 1}
-          onPageChange={({ selected }) => onPageChange(selected + 1)}
+          onPageChange={({ selected }) => {
+            const nextPage = selected + 1;
+            const maxSelectable = Math.max(
+              totalPages,
+              allowNextPage ? page + 1 : page,
+            );
+            if (nextPage > maxSelectable) return;
+            if (!allowNextPage && nextPage > totalPages) return;
+            onPageChange(nextPage);
+          }}
           pageRangeDisplayed={3}
           marginPagesDisplayed={2}
           previousLabel={
@@ -109,7 +122,11 @@ export function PaginationControls({
             onClick={() => {
               const next = Number(jumpValue);
               if (!next || Number.isNaN(next)) return;
-              onPageChange(Math.max(1, Math.min(totalPages, next)));
+              const maxJump = Math.max(
+                totalPages,
+                allowNextPage ? page + 1 : page,
+              );
+              onPageChange(Math.max(1, Math.min(maxJump, next)));
               setJumpValue("");
             }}
             className="rounded-md border border-[--color-border] px-2 py-1 text-xs font-medium text-[--color-text-muted] transition hover:text-[--color-text]"

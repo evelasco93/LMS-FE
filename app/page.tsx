@@ -306,7 +306,7 @@ function DashboardContent({
   const {
     data: leads = [],
     isLoading: leadsLoading,
-    mutate: refreshLeads,
+    mutate: refreshLeadsSnapshot,
   } = useSWR<Lead[]>(
     "leads",
     async () => {
@@ -461,13 +461,202 @@ function DashboardContent({
     }
   });
 
-  const sortedLeads = useMemo(() => {
-    return [...leads].sort((a, b) => {
+  const [leadListPage, setLeadListPage] = useState(1);
+  const [leadListPageSize, setLeadListPageSize] = useState(25);
+  const [leadListRows, setLeadListRows] = useState<Lead[]>([]);
+  const [leadListHasNextPage, setLeadListHasNextPage] = useState(false);
+  const [leadListTotalItems, setLeadListTotalItems] = useState(0);
+  const [leadListLoading, setLeadListLoading] = useState(false);
+  const [leadListError, setLeadListError] = useState<string | null>(null);
+
+  const leadListPageCacheRef = useRef<Record<number, Lead[]>>({});
+  const leadListStartTokenRef = useRef<Record<number, string | undefined>>({
+    1: undefined,
+  });
+  const leadListNextTokenRef = useRef<
+    Record<number, string | null | undefined>
+  >({});
+  const leadListRequestIdRef = useRef(0);
+
+  const fetchLeadListPage = useCallback(
+    async (
+      pageNumber: number,
+      startToken: string | undefined,
+      force = false,
+    ) => {
+      if (
+        !force &&
+        leadListPageCacheRef.current[pageNumber] &&
+        leadListNextTokenRef.current[pageNumber] !== undefined
+      ) {
+        return {
+          items: leadListPageCacheRef.current[pageNumber],
+          nextToken: leadListNextTokenRef.current[pageNumber] ?? null,
+        };
+      }
+
+      const res = await listLeads({
+        limit: leadListPageSize,
+        lastEvaluatedKey: startToken,
+      });
+
+      const items =
+        (res as any)?.data?.items ||
+        (res as any)?.items ||
+        (res as any)?.data ||
+        [];
+      const rawNextToken = (res as any)?.data?.lastEvaluatedKey;
+      const nextToken =
+        typeof rawNextToken === "string" && rawNextToken.length > 0
+          ? rawNextToken
+          : null;
+
+      leadListPageCacheRef.current[pageNumber] = items;
+      leadListNextTokenRef.current[pageNumber] = nextToken;
+      if (nextToken) {
+        leadListStartTokenRef.current[pageNumber + 1] = nextToken;
+      }
+
+      return { items, nextToken };
+    },
+    [leadListPageSize],
+  );
+
+  const ensureLeadListPageLoaded = useCallback(
+    async (targetPage: number, force = false) => {
+      if (targetPage < 1) return false;
+
+      for (let pageNumber = 1; pageNumber < targetPage; pageNumber += 1) {
+        if (leadListStartTokenRef.current[pageNumber + 1] !== undefined) {
+          continue;
+        }
+
+        const cachedNextToken = leadListNextTokenRef.current[pageNumber];
+        if (cachedNextToken !== undefined) {
+          if (!cachedNextToken) return false;
+          leadListStartTokenRef.current[pageNumber + 1] = cachedNextToken;
+          continue;
+        }
+
+        const startToken = leadListStartTokenRef.current[pageNumber];
+        const { nextToken } = await fetchLeadListPage(
+          pageNumber,
+          startToken,
+          force,
+        );
+        if (!nextToken) return false;
+      }
+
+      const pageStartToken = leadListStartTokenRef.current[targetPage];
+      if (targetPage > 1 && pageStartToken === undefined) return false;
+
+      await fetchLeadListPage(targetPage, pageStartToken, force);
+      return true;
+    },
+    [fetchLeadListPage],
+  );
+
+  const loadLeadListPage = useCallback(
+    async (options?: { force?: boolean; silent?: boolean }) => {
+      const force = options?.force === true;
+      const silent = options?.silent === true;
+      const requestId = ++leadListRequestIdRef.current;
+
+      if (!silent) {
+        setLeadListLoading(true);
+        setLeadListRows([]);
+      }
+      setLeadListError(null);
+
+      try {
+        const loaded = await ensureLeadListPageLoaded(leadListPage, force);
+        if (!loaded) {
+          if (requestId === leadListRequestIdRef.current) {
+            setLeadListRows([]);
+            setLeadListHasNextPage(false);
+            setLeadListTotalItems((leadListPage - 1) * leadListPageSize);
+          }
+          return;
+        }
+
+        const rows = leadListPageCacheRef.current[leadListPage] || [];
+        const nextToken = leadListNextTokenRef.current[leadListPage] ?? null;
+
+        let knownCount = 0;
+        for (let pageNumber = 1; pageNumber <= leadListPage; pageNumber += 1) {
+          knownCount += leadListPageCacheRef.current[pageNumber]?.length || 0;
+        }
+
+        const minimumTotal = knownCount;
+
+        if (requestId === leadListRequestIdRef.current) {
+          setLeadListRows(rows);
+          setLeadListHasNextPage(!!nextToken);
+          setLeadListTotalItems(minimumTotal);
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unable to load leads.";
+        if (requestId === leadListRequestIdRef.current) {
+          setLeadListRows([]);
+          setLeadListHasNextPage(false);
+          setLeadListTotalItems(0);
+          setLeadListError(message);
+          if (!silent) {
+            toast.error(message);
+          }
+        }
+      } finally {
+        if (!silent && requestId === leadListRequestIdRef.current) {
+          setLeadListLoading(false);
+        }
+      }
+    },
+    [ensureLeadListPageLoaded, leadListPage, leadListPageSize],
+  );
+
+  const resetLeadListPagination = useCallback((nextPageSize: number) => {
+    leadListPageCacheRef.current = {};
+    leadListStartTokenRef.current = { 1: undefined };
+    leadListNextTokenRef.current = {};
+    setLeadListRows([]);
+    setLeadListHasNextPage(false);
+    setLeadListTotalItems(0);
+    setLeadListError(null);
+    setLeadListPage(1);
+    setLeadListPageSize(nextPageSize);
+  }, []);
+
+  useEffect(() => {
+    void loadLeadListPage();
+  }, [loadLeadListPage]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      void loadLeadListPage({ force: true, silent: true });
+    }, 15_000);
+    return () => clearInterval(timer);
+  }, [loadLeadListPage]);
+
+  const refreshLeads = useCallback(async () => {
+    await Promise.all([
+      loadLeadListPage({ force: true }),
+      refreshLeadsSnapshot(),
+    ]);
+  }, [loadLeadListPage, refreshLeadsSnapshot]);
+
+  const sortedLeadPageRows = useMemo(() => {
+    return [...leadListRows].sort((a, b) => {
       const left = a.created_at ? new Date(a.created_at).getTime() : 0;
       const right = b.created_at ? new Date(b.created_at).getTime() : 0;
       return right - left;
     });
-  }, [leads]);
+  }, [leadListRows]);
+
+  const leadListTotalPages = Math.max(
+    1,
+    leadListPage + (leadListHasNextPage ? 1 : 0),
+  );
 
   const campaignKeyMap = useMemo(() => {
     const map = new Map<string, { campaign: Campaign; affiliateId?: string }>();
@@ -798,6 +987,31 @@ function DashboardContent({
     });
   };
 
+  const onLeadListPageChange = useCallback(
+    (nextPage: number) => {
+      if (nextPage < 1 || nextPage === leadListPage) return;
+      if (
+        nextPage > leadListPage &&
+        !leadListHasNextPage &&
+        !leadListPageCacheRef.current[nextPage]
+      ) {
+        return;
+      }
+      setLeadListPage(nextPage);
+    },
+    [leadListHasNextPage, leadListPage],
+  );
+
+  const onLeadListPageSizeChange = useCallback(
+    (size: number) => {
+      if (!Number.isFinite(size) || size <= 0 || size === leadListPageSize) {
+        return;
+      }
+      resetLeadListPagination(size);
+    },
+    [leadListPageSize, resetLeadListPagination],
+  );
+
   const openLeadsForCampaign = (
     campaignId: string,
     options?: { affiliateId?: string; mode?: "all" | "test" | "live" },
@@ -959,10 +1173,18 @@ function DashboardContent({
                 transition={{ duration: 0.14, ease: "easeOut" }}
               >
                 <LeadsView
-                  leads={sortedLeads}
+                  leads={sortedLeadPageRows}
                   campaigns={campaigns}
                   affiliates={affiliates}
-                  isLoading={leadsLoading}
+                  isLoading={leadListLoading}
+                  errorMessage={leadListError}
+                  page={leadListPage}
+                  pageSize={leadListPageSize}
+                  totalPages={leadListTotalPages}
+                  totalItems={leadListTotalItems}
+                  hasNextPage={leadListHasNextPage}
+                  onPageChange={onLeadListPageChange}
+                  onPageSizeChange={onLeadListPageSizeChange}
                   onOpenCampaign={openCampaign}
                   initialFilters={leadFiltersFromQuery}
                   onFiltersChange={onLeadFiltersChange}

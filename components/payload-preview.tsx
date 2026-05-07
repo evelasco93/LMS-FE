@@ -2109,11 +2109,32 @@ export function PayloadPreview({
                         <InfoItem
                           label="Webhook URL"
                           value={
-                            <span className="break-all font-mono text-xs">
+                            <span
+                              className="block whitespace-normal font-mono text-xs"
+                              style={{ overflowWrap: "anywhere" }}
+                            >
                               {currentLead.delivery_result.webhook_url}
                             </span>
                           }
                         />
+                        {currentLead.delivery_result.final_webhook_url &&
+                          currentLead.delivery_result.final_webhook_url !==
+                            currentLead.delivery_result.webhook_url && (
+                            <InfoItem
+                              label="Final Webhook URL"
+                              value={
+                                <span
+                                  className="block whitespace-normal font-mono text-xs"
+                                  style={{ overflowWrap: "anywhere" }}
+                                >
+                                  {
+                                    currentLead.delivery_result
+                                      .final_webhook_url
+                                  }
+                                </span>
+                              }
+                            />
+                          )}
                         {currentLead.delivery_result.webhook_response_status !=
                           null && (
                           <InfoItem

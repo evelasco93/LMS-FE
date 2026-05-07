@@ -238,6 +238,14 @@ interface LeadsViewProps {
   campaigns: Campaign[];
   affiliates: Affiliate[];
   isLoading: boolean;
+  errorMessage?: string | null;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  totalItems: number;
+  hasNextPage: boolean;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (size: number) => void;
   onOpenCampaign: (
     campaignId: string,
     section?: CampaignDetailTab,
@@ -342,6 +350,14 @@ export function LeadsView({
   campaigns,
   affiliates,
   isLoading,
+  errorMessage,
+  page,
+  pageSize,
+  totalPages,
+  totalItems,
+  hasNextPage,
+  onPageChange,
+  onPageSizeChange,
   onOpenCampaign,
   renderPayloadPreview,
   onCherryPick,
@@ -384,9 +400,6 @@ export function LeadsView({
   const [columnsModalOpen, setColumnsModalOpen] = useState(false);
   const [csvExportOpen, setCsvExportOpen] = useState(false);
   const [csvExportKeys, setCsvExportKeys] = useState<Set<string>>(new Set());
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
-
   const [visibleColumnKeys, setVisibleColumnKeys] = useState<Set<string>>(
     () => new Set(DEFAULT_VISIBLE_COLUMN_KEYS),
   );
@@ -670,8 +683,7 @@ export function LeadsView({
     [pathname, router, searchParams],
   );
 
-  const totalFilteredLeads = filteredAndSortedLeads.length;
-  const totalLeadPages = Math.max(1, Math.ceil(totalFilteredLeads / pageSize));
+  const totalLeadPages = Math.max(1, totalPages);
 
   const activeFilterCount =
     (search.trim() ? 1 : 0) +
@@ -687,48 +699,26 @@ export function LeadsView({
       ? 0
       : sortRules.length;
 
-  useEffect(() => {
-    setPage(1);
-  }, [
-    search,
-    campaignFilter,
-    affiliateFilter,
-    modeFilter,
-    statusFilter,
-    sortRules,
-    pageSize,
-  ]);
+  const paginatedLeads = filteredAndSortedLeads;
 
-  useEffect(() => {
-    if (page > totalLeadPages) {
-      setPage(totalLeadPages);
-    }
-  }, [page, totalLeadPages]);
-
-  const paginatedLeads = useMemo(() => {
-    const start = (page - 1) * pageSize;
-    const end = start + pageSize;
-    return filteredAndSortedLeads.slice(start, end);
-  }, [filteredAndSortedLeads, page, pageSize]);
-
-  /** Scalar payload field keys extracted from the first 200 loaded leads. */
+  /** Payload field keys extracted from the first 200 loaded leads. */
   const payloadFieldKeys = useMemo(() => {
     const keys = new Set<string>();
     for (const lead of leads.slice(0, 200)) {
       if (lead.payload && typeof lead.payload === "object") {
         for (const key of Object.keys(lead.payload)) {
-          const val = lead.payload[key];
-          if (val !== null && typeof val !== "object") {
-            keys.add(key);
-          }
+          keys.add(key);
         }
       }
     }
     return [...keys].sort();
   }, [leads]);
 
-  const showingFrom = totalFilteredLeads === 0 ? 0 : (page - 1) * pageSize + 1;
-  const showingTo = Math.min(page * pageSize, totalFilteredLeads);
+  const showingFrom = totalItems === 0 ? 0 : (page - 1) * pageSize + 1;
+  const showingTo =
+    showingFrom === 0
+      ? 0
+      : Math.min(showingFrom + paginatedLeads.length - 1, totalItems);
 
   const allAvailableColumnKeys = useMemo(
     () => [
@@ -1154,7 +1144,8 @@ export function LeadsView({
           if (val == null || val === "")
             return <span className="text-[--color-text-muted]">—</span>;
 
-          const rawValue = String(val);
+          const rawValue =
+            typeof val === "object" ? JSON.stringify(val) : String(val);
           const fieldKind = inferPayloadFieldKind(key);
 
           if (fieldKind === "phone") {
@@ -1794,7 +1785,9 @@ export function LeadsView({
         columns={prefsLoaded ? activeColumns : []}
         data={prefsLoaded ? paginatedLeads : []}
         emptyLabel={
-          !prefsLoaded || isLoading ? "Loading leads…" : "No leads available."
+          !prefsLoaded || isLoading
+            ? "Loading leads…"
+            : errorMessage || "No leads available."
         }
       />
 
@@ -2129,13 +2122,14 @@ export function LeadsView({
       <PaginationControls
         page={page}
         totalPages={totalLeadPages}
-        onPageChange={setPage}
+        onPageChange={onPageChange}
         pageSize={pageSize}
-        onPageSizeChange={setPageSize}
-        totalItems={totalFilteredLeads}
+        onPageSizeChange={onPageSizeChange}
+        totalItems={totalItems}
         showingFrom={showingFrom}
         showingTo={showingTo}
         itemLabel="leads"
+        allowNextPage={hasNextPage}
       />
     </motion.section>
   );

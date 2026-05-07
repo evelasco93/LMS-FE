@@ -14,12 +14,12 @@ export function InfoItem({
     <Wrapper
       type={onClick ? "button" : undefined}
       onClick={onClick}
-      className={`w-full rounded-lg border border-[--color-border] bg-[--color-bg-muted] p-3 text-left ${onClick ? "transition hover:border-[--color-primary]" : ""}`}
+      className={`min-w-0 w-full rounded-lg border border-[--color-border] bg-[--color-bg-muted] p-3 text-left ${onClick ? "transition hover:border-[--color-primary]" : ""}`}
     >
       <p className="text-xs uppercase tracking-wide text-[--color-text-muted]">
         {label}
       </p>
-      <div className="text-sm font-medium text-[--color-text-strong]">
+      <div className="min-w-0 break-words text-sm font-medium text-[--color-text-strong]">
         {value ?? "—"}
       </div>
     </Wrapper>
