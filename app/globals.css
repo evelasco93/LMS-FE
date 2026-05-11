@@ -2,87 +2,112 @@
 @tailwind components;
 @tailwind utilities;
 
-@import "react-phone-input-2/lib/style.css";
-
 :root {
   --font-sans:
     "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
 
-  /* ── Light mode ── Summit Edge Legal palette ── */
-  --color-bg: #f4f9fc;
-  --color-bg-muted: #e6f3fa;
+  /* Light mode token source */
+  --color-bg: #ffffff;
+  --color-bg-muted: #f7f9fc;
+  --color-bg-subtle: #eef2f8;
+  --color-bg-tertiary: #e3e9f3;
+  --color-surface-raised: #f8fafc;
   --color-panel: #ffffff;
-  --color-border: #d4e4ee;
-  --color-border-alt: #b8d2e0;
-  --color-text-strong: #0f2a3f;
-  --color-text: #2a3f52;
-  --color-text-muted: #6b8a9c;
-  --color-primary: #1e5f8a;
-  --color-primary-hover: #155078;
-  --color-secondary: #2da4e8;
-  --color-accent: rgba(30, 95, 138, 0.1);
+  --color-border: #c3cedc;
+  --color-border-alt: #95a5bb;
+  --color-border-strong: #2550a2;
+  --color-text-strong: #051e3f;
+  --color-text: #0b3261;
+  --color-text-muted: #384b65;
+  --color-primary: #1e73b1;
+  --color-primary-hover: #0b3261;
+  --color-secondary: #2550a2;
+  --color-accent-soft: #d6e9f6;
+  --color-accent: rgba(30, 115, 177, 0.16);
   --color-warning: #c9934d;
   --color-success: #2e7d32;
   --color-danger: #b4534d;
-  --color-info: #2da4e8;
-  --color-row-hover: #e6f3fa;
-  --color-row-selected: #d4e4ee;
-  --color-nav-bg: #e6f3fa;
-  --color-nav-border: #d4e4ee;
-  --color-nav-accent: #1e5f8a;
-  --color-nav-text: #0f2a3f;
-  --shadow-soft: 0 10px 40px rgba(15, 42, 63, 0.08);
+  --color-info: #2550a2;
+  --color-highlight: #d6e9f6;
+  --color-row-hover: #edf2f9;
+  --color-row-selected: #e1eaf6;
+  --color-nav-bg: #e0f2f9;
+  --color-nav-border: #9ebfcd;
+  --color-nav-accent: #2550a2;
+  --color-nav-active: #7890a8;
+  --color-nav-text: #0b3261;
+  --accent-gradient: linear-gradient(
+    135deg,
+    #051e3f 0%,
+    #0b3261 36%,
+    #2550a2 72%,
+    #81cff0 100%
+  );
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-pill: 999px;
+  --space-compact-y: 0.55rem;
+  --space-compact-x: 0.8rem;
+  --shadow-soft: 6px 6px 14px rgba(5, 30, 63, 0.1);
+  --shadow-elevated: 10px 10px 22px rgba(5, 30, 63, 0.16);
+  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 
 :root.dark {
-  /* ── Dark mode ── Summit Edge Legal palette ── */
-  --color-bg: #0b1c2b;
-  --color-bg-muted: #0f2a3f;
-  --color-panel: #123a5a;
-  --color-border: #1e3a4f;
-  --color-border-alt: #2a3f52;
-  --color-text-strong: #e6f3fa;
-  --color-text: #a8c3d6;
-  --color-text-muted: #6b8a9c;
-  --color-primary: #2da4e8;
-  --color-primary-hover: #4c6fff;
-  --color-secondary: #4c6fff;
-  --color-accent: rgba(45, 164, 232, 0.15);
-  --color-warning: #e6c878;
+  /* Dark mode derived from the same navy-indigo palette */
+  --color-bg: #061738;
+  --color-bg-muted: #082043;
+  --color-bg-subtle: #0b2750;
+  --color-bg-tertiary: #113160;
+  --color-surface-raised: #082043;
+  --color-panel: #0b244c;
+  --color-border: #2a4976;
+  --color-border-alt: #47628b;
+  --color-border-strong: #84cbee;
+  --color-text-strong: #eef7ff;
+  --color-text: #c9dbeb;
+  --color-text-muted: #9cb5ca;
+  --color-primary: #84cbee;
+  --color-primary-hover: #68ebfc;
+  --color-secondary: #728ba4;
+  --color-accent-soft: #173562;
+  --color-accent: rgba(132, 203, 238, 0.24);
+  --color-warning: #e8c980;
   --color-success: #4ade80;
   --color-danger: #f87171;
-  --color-info: #4c6fff;
-  --color-row-hover: #0f2a3f;
-  --color-row-selected: #1e3a4f;
-  --color-nav-bg: #0f2a3f;
-  --color-nav-border: #1e3a4f;
-  --color-nav-accent: #2da4e8;
-  --color-nav-text: #e6f3fa;
-  --shadow-soft: 0 12px 48px rgba(0, 0, 0, 0.45);
+  --color-info: #68ebfc;
+  --color-highlight: #0d4378;
+  --color-row-hover: #102d5a;
+  --color-row-selected: #14386a;
+  --color-nav-bg: #081e40;
+  --color-nav-border: #2a4976;
+  --color-nav-accent: #84cbee;
+  --color-nav-active: #84a0ba;
+  --color-nav-text: #eef7ff;
+  --accent-gradient: linear-gradient(
+    135deg,
+    #082850 0%,
+    #0d4378 55%,
+    #2450a1 82%,
+    #84cbee 100%
+  );
+  --shadow-soft: 6px 6px 16px rgba(6, 10, 24, 0.48);
+  --shadow-elevated: 10px 10px 26px rgba(6, 10, 24, 0.58);
+  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 * {
   box-sizing: border-box;
-  /* Theme crossfade: backgrounds, borders, and shadows fade smoothly.
-     `color` is intentionally excluded — transitioning it on every element
-     causes cascading multi-speed races between wrappers, buttons, and SVG
-     descendants (which use currentColor), producing icon flicker.
-     Text/icon colors change instantly; the fading backgrounds carry the
-     visual smoothness without any conflict. Framer Motion is unaffected
-     since it only animates transform and opacity. */
   transition-property: background-color, border-color, box-shadow;
   transition-duration: 0.25s;
   transition-timing-function: ease;
 }
-
-/* No transitions on SVG internals at all — icons follow the parent's
-   painted background visually and don't need their own transition. */
 svg,
 svg * {
   transition: none;
 }
-
 body {
   margin: 0;
   font-family: var(--font-sans);
@@ -100,8 +125,62 @@ a {
 .panel {
   background: var(--color-panel);
   border: 1px solid var(--color-border);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   box-shadow: var(--shadow-soft);
+}
+
+.panel-raised {
+  background: color-mix(in srgb, var(--color-panel) 96%, var(--color-bg-subtle));
+  border: 1px solid color-mix(in srgb, var(--color-border) 88%, transparent);
+  box-shadow: 0 10px 20px color-mix(in srgb, var(--color-primary) 10%, transparent);
+}
+
+.shell-card {
+  background: color-mix(in srgb, var(--color-panel) 95%, var(--color-bg-subtle));
+  border: 1px solid color-mix(in srgb, var(--color-border) 90%, transparent);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--color-primary) 8%, transparent);
+}
+
+.utility-card {
+  background: color-mix(in srgb, var(--color-panel) 97%, var(--color-bg-muted));
+  border: 1px solid color-mix(in srgb, var(--color-border) 88%, transparent);
+  border-radius: var(--radius-md);
+  box-shadow: 0 5px 12px color-mix(in srgb, var(--color-primary) 6%, transparent);
+}
+
+.utility-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  border: 1px solid color-mix(in srgb, var(--color-border) 88%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--color-panel) 90%, var(--color-bg-muted));
+  color: var(--color-text);
+  box-shadow: var(--shadow-inset);
+}
+
+.segmented-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border: 1px solid color-mix(in srgb, var(--color-border) 90%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-panel) 92%, var(--color-bg-subtle));
+  box-shadow: var(--shadow-inset);
+}
+
+.segmented-control__btn {
+  border-radius: calc(var(--radius-md) - 4px);
+  border: 1px solid transparent;
+}
+
+.segmented-control__btn--active {
+  color: var(--color-primary);
+  border-color: color-mix(in srgb, var(--color-primary) 36%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 12%, var(--color-panel));
+  box-shadow: 0 1px 0 color-mix(in srgb, white 26%, transparent);
 }
 
 .scrollbar-thin::-webkit-scrollbar {
@@ -171,26 +250,6 @@ a {
   background: color-mix(in srgb, currentColor 12%, transparent) !important;
 }
 
-/* Flag animation — raise group from base to top */
-@keyframes flagRaise {
-  from {
-    transform: translateY(58px);
-  }
-  to {
-    transform: translateY(0px);
-  }
-}
-/* Rope dot travels same distance (cy 72→20 = 52px) */
-@keyframes ropeRise {
-  from {
-    transform: translateY(52px);
-  }
-  to {
-    transform: translateY(0px);
-  }
-}
-
-/* Smooth fade-in for content replacing spinners */
 @keyframes fadeIn {
   from {
     opacity: 0;

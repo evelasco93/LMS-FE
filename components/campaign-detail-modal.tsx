@@ -2439,7 +2439,7 @@ export function CampaignDetailModal({
                   return (
                     <span
                       key={tag}
-                      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+                      className={`inline-flex items-center gap-1 rounded-[--radius-pill] border px-2.5 py-0.5 text-[10px] font-semibold tracking-[0.03em] shadow-[var(--shadow-inset)] ${
                         def?.color
                           ? ""
                           : "border-[--color-border] bg-[--color-accent] text-[--color-text-muted]"
@@ -2467,7 +2467,7 @@ export function CampaignDetailModal({
               <button
                 type="button"
                 onClick={openTagEditor}
-                className="inline-flex items-center gap-1 rounded-full border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-[10px] font-medium text-[--color-text-muted] transition-colors hover:bg-[--color-bg] hover:text-[--color-text]"
+                className="inline-flex items-center gap-1 rounded-[--radius-pill] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_90%,var(--color-bg-subtle))] px-2.5 py-0.5 text-[10px] font-semibold text-[--color-text-muted] shadow-[var(--shadow-inset)] transition-colors hover:border-[--color-border-alt] hover:bg-[--color-bg] hover:text-[--color-text]"
               >
                 <Pencil size={10} />
                 Edit tags
@@ -2482,11 +2482,11 @@ export function CampaignDetailModal({
           onClose();
         }}
         width={1080}
-        bodyClassName="px-5 py-4"
+        bodyClassName="bg-[color-mix(in_srgb,var(--color-panel)_92%,var(--color-bg-subtle))] px-5 py-4"
       >
         <div className="space-y-4">
-          <div className="flex gap-6 h-[65vh]">
-            <nav className="w-44 shrink-0 space-y-1">
+          <div className="flex h-[65vh] gap-4 rounded-[--radius-md] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_90%,var(--color-bg-subtle))] p-3 shadow-[var(--shadow-inset)]">
+            <nav className="w-48 shrink-0 space-y-1 rounded-[--radius-md] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_94%,var(--color-bg-subtle))] p-2 shadow-[var(--shadow-inset)]">
               {(
                 [
                   { key: "overview", label: "Overview", icon: LayoutGrid },
@@ -2505,7 +2505,11 @@ export function CampaignDetailModal({
                     type="button"
                     onClick={() => onTabChange(item.key)}
                     data-tour={`campaign-tab-${item.key}`}
-                    className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm transition ${active ? "bg-[--color-panel] text-[--color-text-strong]" : "text-[--color-text-muted] hover:text-[--color-text]"}`}
+                    className={`flex w-full items-center gap-2 rounded-[--radius-pill] border px-3 py-2 text-sm font-semibold transition ${
+                      active
+                        ? "border-[--color-primary]/40 bg-[color-mix(in_srgb,var(--color-primary)_16%,var(--color-panel))] text-[--color-primary] shadow-[var(--shadow-inset)]"
+                        : "border-transparent text-[--color-text-muted] hover:border-[--color-border] hover:bg-[--color-panel] hover:text-[--color-text]"
+                    }`}
                   >
                     <Icon size={16} />
                     {item.label}
@@ -2514,7 +2518,7 @@ export function CampaignDetailModal({
               })}
             </nav>
 
-            <div className="flex-1 min-w-0 overflow-y-auto">
+            <div className="min-w-0 flex-1 overflow-y-auto rounded-[--radius-md] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_96%,var(--color-bg-subtle))] p-3 shadow-[var(--shadow-inset)]">
               <AnimatePresence mode="wait">
                 <motion.div
                   key={tab}

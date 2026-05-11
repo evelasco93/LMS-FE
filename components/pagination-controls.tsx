@@ -35,7 +35,7 @@ export function PaginationControls({
   const [jumpValue, setJumpValue] = useState("");
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[--color-border] bg-[--color-panel] px-3 py-2">
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-[--radius-md] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_90%,var(--color-bg-subtle))] px-3 py-1.5 shadow-[5px_8px_16px_color-mix(in_srgb,var(--color-primary)_7%,transparent)]">
       <p className="text-xs text-[--color-text-muted]">
         {`Showing ${showingFrom} to ${showingTo} ${itemLabel}`}
       </p>
@@ -46,7 +46,7 @@ export function PaginationControls({
         <label className="flex items-center gap-1.5 text-xs text-[--color-text-muted]">
           Show
           <select
-            className="rounded-md border border-[--color-border] bg-[--color-panel] px-2 py-1 text-xs text-[--color-text]"
+            className="rounded-[--radius-sm] border border-[--color-border] bg-[--color-panel] px-2 py-0.5 text-xs text-[--color-text] outline-none transition focus:border-[--color-primary]"
             value={pageSize}
             onChange={(e) => onPageSizeChange(Number(e.target.value))}
           >
@@ -76,25 +76,25 @@ export function PaginationControls({
           pageRangeDisplayed={3}
           marginPagesDisplayed={2}
           previousLabel={
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[--color-border] text-[--color-text-muted] transition hover:text-[--color-text] disabled:opacity-40">
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-[--radius-sm] border border-[--color-border] bg-[--color-panel] text-[--color-text-muted] transition hover:border-[--color-border-alt] hover:text-[--color-text] disabled:opacity-40">
               <ChevronLeft size={14} />
             </span>
           }
           nextLabel={
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[--color-border] text-[--color-text-muted] transition hover:text-[--color-text] disabled:opacity-40">
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-[--radius-sm] border border-[--color-border] bg-[--color-panel] text-[--color-text-muted] transition hover:border-[--color-border-alt] hover:text-[--color-text] disabled:opacity-40">
               <ChevronRight size={14} />
             </span>
           }
           breakLabel={
-            <span className="inline-flex h-8 w-8 items-center justify-center text-xs text-[--color-text-muted]">
+            <span className="inline-flex h-7 w-7 items-center justify-center text-xs text-[--color-text-muted]">
               …
             </span>
           }
           containerClassName="flex items-center gap-1"
           pageClassName="inline-flex"
-          pageLinkClassName="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[--color-border] text-sm font-medium text-[--color-text-muted] transition hover:text-[--color-text]"
+          pageLinkClassName="inline-flex h-7 w-7 items-center justify-center rounded-[--radius-sm] border border-[--color-border] bg-[--color-panel] text-xs font-medium text-[--color-text-muted] transition hover:border-[--color-border-alt] hover:text-[--color-text]"
           activeClassName="!border-[--color-primary]"
-          activeLinkClassName="!bg-[--color-primary] !text-white !border-[--color-primary]"
+          activeLinkClassName="!bg-[color-mix(in_srgb,var(--color-primary)_18%,var(--color-panel))] !text-[--color-primary] !border-[--color-primary]"
           previousClassName="inline-flex"
           nextClassName="inline-flex"
           previousLinkClassName="flex"
@@ -112,7 +112,7 @@ export function PaginationControls({
               setJumpValue(e.target.value.replace(/[^0-9]/g, ""))
             }
             placeholder="Page"
-            className="w-16 rounded-md border border-[--color-border] bg-[--color-panel] px-2 py-1 text-xs text-[--color-text]"
+            className="w-16 rounded-[--radius-sm] border border-[--color-border] bg-[--color-panel] px-2 py-0.5 text-xs text-[--color-text] outline-none transition focus:border-[--color-primary]"
           />
           <button
             type="button"
@@ -126,7 +126,7 @@ export function PaginationControls({
               onPageChange(Math.max(1, Math.min(maxJump, next)));
               setJumpValue("");
             }}
-            className="rounded-md border border-[--color-border] px-2 py-1 text-xs font-medium text-[--color-text-muted] transition hover:text-[--color-text]"
+            className="rounded-[--radius-sm] border border-[--color-border] bg-[--color-panel] px-2 py-0.5 text-xs font-medium text-[--color-text-muted] transition hover:border-[--color-border-alt] hover:text-[--color-text]"
           >
             Go
           </button>

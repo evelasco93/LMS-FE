@@ -5,12 +5,22 @@ interface LogoProps {
   size?: number;
 }
 
-export function MountainMark({ size = 40 }: { size?: number }) {
+export function MountainMark({
+  size = 40,
+  variant = "default",
+  alt = "Summit Edge Legal",
+}: {
+  size?: number;
+  variant?: "default" | "mark";
+  alt?: string;
+}) {
+  const src = variant === "mark" ? "/logo_nbg.png" : "/logo.png";
+
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src="/logo.png"
-      alt="Summit Edge Legal"
+      src={src}
+      alt={alt}
       width={size}
       height={size}
       style={{ objectFit: "contain", display: "block" }}
@@ -37,7 +47,7 @@ export function Logo({ size = 32 }: LogoProps) {
           fontSize="10"
           fontWeight="700"
           letterSpacing="2"
-          fill="var(--color-nav-text)"
+          fill="var(--color-text-strong)"
         >
           SUMMIT EDGE
         </text>
@@ -49,7 +59,7 @@ export function Logo({ size = 32 }: LogoProps) {
           fontSize="10"
           fontWeight="700"
           letterSpacing="2"
-          fill="var(--color-nav-text)"
+          fill="var(--color-text-strong)"
         >
           LEGAL
         </text>

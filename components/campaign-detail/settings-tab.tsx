@@ -370,7 +370,7 @@ export default function SettingsTab({
       {/* Settings sub-tabs */}
       <div
         role="tablist"
-        className="flex items-center gap-1 border-b border-[--color-border]"
+        className="inline-flex items-center gap-1 rounded-[--radius-pill] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_92%,var(--color-bg-subtle))] p-1 shadow-[var(--shadow-inset)]"
       >
         {(["base-criteria", "logic", "routing"] as const).map((sub) => (
           <button
@@ -379,10 +379,10 @@ export default function SettingsTab({
             role="tab"
             aria-selected={settingsSubTab === sub}
             onClick={() => handleSubTabChange(sub)}
-            className={`border-b-2 px-3 py-2 text-sm font-medium transition ${
+            className={`rounded-[--radius-pill] border px-3 py-1.5 text-sm font-medium transition ${
               settingsSubTab === sub
-                ? "border-[--color-primary] text-[--color-text-strong]"
-                : "border-transparent text-[--color-text-muted] hover:text-[--color-text]"
+                ? "border-[--color-primary] bg-[color-mix(in_srgb,var(--color-primary)_16%,var(--color-panel))] text-[--color-primary]"
+                : "border-transparent text-[--color-text-muted] hover:border-[--color-border] hover:bg-[--color-panel] hover:text-[--color-text]"
             }`}
           >
             {sub === "base-criteria"
@@ -425,7 +425,7 @@ export default function SettingsTab({
                       });
                       setSaveCriteriaToSetOpen(true);
                     }}
-                    className="shrink-0 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-3 py-1.5 text-[11px] font-medium text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg] transition-colors"
+                    className="shrink-0 rounded-[--radius-sm] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_88%,var(--color-bg-subtle))] px-3 py-1.5 text-[11px] font-medium text-[--color-text-muted] transition-colors hover:border-[--color-border-alt] hover:text-[--color-text] hover:bg-[--color-bg]"
                   >
                     Save to Presets
                   </button>
@@ -433,7 +433,7 @@ export default function SettingsTab({
                 <button
                   type="button"
                   onClick={openCriteriaCatalogModal}
-                  className="shrink-0 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-3 py-1.5 text-[11px] font-medium text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg] transition-colors"
+                  className="shrink-0 rounded-[--radius-sm] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_88%,var(--color-bg-subtle))] px-3 py-1.5 text-[11px] font-medium text-[--color-text-muted] transition-colors hover:border-[--color-border-alt] hover:text-[--color-text] hover:bg-[--color-bg]"
                 >
                   Presets Library
                 </button>
@@ -443,7 +443,7 @@ export default function SettingsTab({
                     setCampaignBulkImportOpen((v) => !v);
                     setCampaignBulkImportText("");
                   }}
-                  className="shrink-0 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-3 py-1.5 text-[11px] font-medium text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg] transition-colors"
+                  className="shrink-0 rounded-[--radius-sm] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_88%,var(--color-bg-subtle))] px-3 py-1.5 text-[11px] font-medium text-[--color-text-muted] transition-colors hover:border-[--color-border-alt] hover:text-[--color-text] hover:bg-[--color-bg]"
                 >
                   Bulk import
                 </button>
@@ -912,7 +912,7 @@ export default function SettingsTab({
 
               return (
                 <>
-                  <div className="rounded-xl border border-[--color-border] bg-[--color-panel] p-4 space-y-4">
+                  <div className="rounded-xl border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_94%,var(--color-bg-subtle))] p-4 space-y-4 shadow-[var(--shadow-inset)]">
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-sm font-semibold text-[--color-text-strong]">
@@ -931,8 +931,8 @@ export default function SettingsTab({
                           !hasLiveClients
                             ? "cursor-not-allowed border-red-500/30 bg-red-500/10 text-red-500 opacity-80"
                             : routingEnabled
-                              ? "border-green-500/30 bg-green-500/10 text-green-600"
-                              : "border-red-500/30 bg-red-500/10 text-red-500"
+                              ? "border-[--color-primary]/35 bg-[color-mix(in_srgb,var(--color-primary)_18%,var(--color-panel))] text-[--color-primary]"
+                              : "border-[--color-border] bg-[--color-panel] text-[--color-text-muted]"
                         }`}
                         title={
                           hasLiveClients
@@ -990,8 +990,8 @@ export default function SettingsTab({
                               }}
                               className={`rounded-lg border transition-all cursor-pointer select-none ${
                                 isSelected
-                                  ? "border-[--color-primary] bg-[--color-accent]"
-                                  : "border-[--color-border] opacity-60 hover:opacity-80"
+                                  ? "border-[--color-primary] bg-[color-mix(in_srgb,var(--color-primary)_14%,var(--color-panel))]"
+                                  : "border-[--color-border] bg-[--color-panel] opacity-75 hover:opacity-100"
                               }`}
                             >
                               {/* Mode header row */}
@@ -1023,7 +1023,7 @@ export default function SettingsTab({
                                   </p>
                                 </div>
                                 {isSavedActive && (
-                                  <span className="ml-auto flex-shrink-0 rounded-full border border-green-500/30 bg-green-500/10 px-2 py-0.5 text-[11px] font-semibold text-green-600">
+                                  <span className="ml-auto flex-shrink-0 rounded-full border border-[--color-primary]/35 bg-[color-mix(in_srgb,var(--color-primary)_16%,var(--color-panel))] px-2 py-0.5 text-[11px] font-semibold text-[--color-primary]">
                                     Active
                                   </span>
                                 )}
@@ -1056,7 +1056,7 @@ export default function SettingsTab({
                                           {liveClientRows.map((row) => (
                                             <div
                                               key={`rr-${row.client.id}`}
-                                              className="flex items-center justify-between rounded bg-[--color-bg-muted] px-2.5 py-1.5 text-xs"
+                                              className="flex items-center justify-between rounded-[--radius-sm] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_88%,var(--color-bg-subtle))] px-2.5 py-1.5 text-xs"
                                             >
                                               <span className="font-medium text-[--color-text]">
                                                 {getContractDisplayName(row)}
@@ -1095,14 +1095,14 @@ export default function SettingsTab({
                                           {liveClientRows.map((row) => (
                                             <div
                                               key={`w-${row.client.id}`}
-                                              className="grid grid-cols-[minmax(0,1fr)_82px] items-center gap-2 rounded bg-[--color-bg-muted] px-2.5 py-1.5 text-xs"
+                                              className="grid grid-cols-[minmax(0,1fr)_82px] items-center gap-2 rounded-[--radius-sm] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_88%,var(--color-bg-subtle))] px-2.5 py-1.5 text-xs"
                                             >
                                               <span className="truncate font-medium text-[--color-text]">
                                                 {getContractDisplayName(row)}
                                               </span>
                                               <div className="flex items-center gap-1">
                                                 <input
-                                                  className="w-full rounded border border-[--color-border] bg-[--color-panel] px-2 py-1 text-right text-xs"
+                                                  className="w-full rounded-[--radius-sm] border border-[--color-border] bg-[--color-panel] px-2 py-1 text-right text-xs outline-none transition focus:border-[--color-primary]"
                                                   type="number"
                                                   min={0}
                                                   max={100}
@@ -1327,7 +1327,7 @@ export default function SettingsTab({
                       });
                       setSaveLogicToSetOpen(true);
                     }}
-                    className="shrink-0 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-3 py-1.5 text-[11px] font-medium text-[--color-text-muted] hover:bg-[--color-bg] hover:text-[--color-text] transition-colors"
+                    className="shrink-0 rounded-[--radius-sm] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_88%,var(--color-bg-subtle))] px-3 py-1.5 text-[11px] font-medium text-[--color-text-muted] transition-colors hover:border-[--color-border-alt] hover:bg-[--color-bg] hover:text-[--color-text]"
                   >
                     Save to Presets
                   </button>
@@ -1335,7 +1335,7 @@ export default function SettingsTab({
                 <button
                   type="button"
                   onClick={openLogicCatalogModal}
-                  className="shrink-0 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-3 py-1.5 text-[11px] font-medium text-[--color-text-muted] hover:bg-[--color-bg] hover:text-[--color-text] transition-colors"
+                  className="shrink-0 rounded-[--radius-sm] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_88%,var(--color-bg-subtle))] px-3 py-1.5 text-[11px] font-medium text-[--color-text-muted] transition-colors hover:border-[--color-border-alt] hover:bg-[--color-bg] hover:text-[--color-text]"
                 >
                   Rules Presets
                 </button>

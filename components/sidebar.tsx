@@ -1,7 +1,6 @@
 "use client";
 
-import type React from "react";
-import { useState } from "react";
+import React, { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Building2,
@@ -63,6 +62,12 @@ const textTransition = { duration: 0.14, ease: "easeInOut" as const };
 const NAV_PL_COLLAPSED = 15;
 const NAV_PL_EXPANDED = 12;
 
+const logoTransition = { duration: 0.3, ease: "easeOut" as const };
+const LOGO_SLOT_HEIGHT = 132;
+const EXPANDED_LOGO_SIZE = 220;
+const COLLAPSED_LOGO_SIZE = 960;
+const COLLAPSED_LOGO_SCALE = 1.6;
+
 /**
  * Text that slides in from the left when entering and back left when exiting.
  * Using AnimatePresence lets the exit animation finish before React removes the node,
@@ -98,6 +103,7 @@ export function Sidebar({
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(true);
   const isCollapsed = forceExpanded ? false : collapsed;
+
   const visibleItems = items.filter(
     (item) => item.key !== "admin" || role === "admin",
   );
@@ -110,7 +116,7 @@ export function Sidebar({
         type="button"
         aria-label={isCollapsed ? "Expand navigation" : "Collapse navigation"}
         onClick={() => setCollapsed((v) => !v)}
-        className="absolute z-20 flex w-4 items-center justify-center rounded-r-md border border-l-0 border-[--color-nav-border] bg-[--color-nav-bg] shadow-sm text-[--color-nav-text] hover:bg-[color-mix(in_srgb,var(--color-nav-accent)_20%,var(--color-nav-bg))] transition-colors"
+        className="absolute z-20 flex w-4 items-center justify-center rounded-r-md bg-[--color-nav-bg] text-[--color-nav-text] hover:bg-[color-mix(in_srgb,var(--color-nav-accent)_18%,var(--color-nav-bg))] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--color-nav-accent)_35%,transparent)]"
         style={{ right: -16, top: 14, height: 36 }}
       >
         <motion.span
@@ -126,36 +132,55 @@ export function Sidebar({
         initial={false}
         animate={{ width: isCollapsed ? COLLAPSED_W : EXPANDED_W }}
         transition={widthSpring}
-        className="flex h-full flex-col overflow-hidden border-r py-4 bg-[--color-nav-bg] text-[--color-nav-text] border-[--color-nav-border] shadow-xl"
+        className="flex h-full flex-col overflow-hidden border-r py-4 bg-[--color-nav-bg] text-[--color-nav-text] border-[--color-nav-border] shadow-[var(--shadow-soft)]"
         data-tour="sidebar"
       >
-        {/* Logo — mark always centered in a fixed 64px zone, text slides in */}
+        {/* Logo mark only to reduce shell clutter */}
         <button
           type="button"
           onClick={onLogoClick}
-          className="mb-6 flex h-10 w-full items-center cursor-pointer focus-visible:outline-none"
+          className="relative mb-6 flex w-full cursor-pointer items-center justify-center overflow-visible focus-visible:outline-none"
+          style={{ height: LOGO_SLOT_HEIGHT }}
           aria-label="Go to home"
         >
-          <span className="flex w-16 shrink-0 items-center justify-center">
-            <MountainMark size={48} />
-          </span>
-          <AnimatePresence initial={false}>
-            {!isCollapsed && (
-              <motion.div
-                key="logo-text"
-                initial={{ opacity: 0, x: -10, width: 0 }}
-                animate={{ opacity: 1, x: 0, width: "auto" }}
-                exit={{ opacity: 0, x: -10, width: 0 }}
-                transition={textTransition}
-                className="ml-2 overflow-hidden whitespace-nowrap"
+          <AnimatePresence initial={false} mode="wait">
+            {isCollapsed ? (
+              <motion.span
+                key="logo-collapsed"
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 6 }}
+                transition={logoTransition}
+                className="absolute inset-0 flex items-center justify-center"
               >
-                <span className="block text-[9px] font-bold leading-snug tracking-[0.18em] text-[--color-nav-text]">
-                  SUMMIT EDGE
-                </span>
-                <span className="block text-[9px] font-bold leading-snug tracking-[0.18em] text-[--color-nav-text]">
-                  LEGAL
-                </span>
-              </motion.div>
+                <motion.span
+                  initial={false}
+                  animate={{ scale: COLLAPSED_LOGO_SCALE }}
+                  transition={logoTransition}
+                  style={{ display: "inline-flex" }}
+                >
+                  <MountainMark
+                    size={COLLAPSED_LOGO_SIZE}
+                    variant="mark"
+                    alt="Summit Edge mark"
+                  />
+                </motion.span>
+              </motion.span>
+            ) : (
+              <motion.span
+                key="logo-expanded"
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 6 }}
+                transition={logoTransition}
+                className="absolute inset-0 flex items-center justify-center"
+              >
+                <MountainMark
+                  size={EXPANDED_LOGO_SIZE}
+                  variant="default"
+                  alt="Summit Edge Legal"
+                />
+              </motion.span>
             )}
           </AnimatePresence>
         </button>
@@ -172,12 +197,21 @@ export function Sidebar({
               }}
               transition={widthSpring}
               className={clsx(
-                "flex h-10 w-full items-center rounded-lg text-sm font-medium transition-colors",
+                "group flex h-10 w-full items-center rounded-[--radius-sm] text-sm font-medium transition-colors",
                 active === item.key
-                  ? "bg-[color-mix(in_srgb,var(--color-nav-accent)_35%,transparent)] text-[--color-nav-text]"
-                  : "text-[--color-nav-text] hover:bg-[color-mix(in_srgb,var(--color-nav-accent)_15%,transparent)]",
+                  ? "bg-[color-mix(in_srgb,var(--color-nav-active)_28%,var(--color-nav-bg))] text-[--color-nav-text] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-nav-active)_58%,transparent)]"
+                  : "text-[--color-nav-text] hover:bg-[color-mix(in_srgb,var(--color-nav-active)_18%,transparent)]",
               )}
             >
+              <span
+                className={clsx(
+                  "h-2 shrink-0 rounded-full transition-all",
+                  isCollapsed ? "mr-0 w-0 opacity-0" : "mr-2 w-2",
+                  active === item.key
+                    ? "opacity-100 bg-[--color-nav-active]"
+                    : "opacity-0 group-hover:opacity-60 bg-[--color-nav-active]",
+                )}
+              />
               <span className="flex shrink-0 items-center justify-center">
                 {item.icon}
               </span>

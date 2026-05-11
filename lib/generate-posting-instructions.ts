@@ -114,7 +114,7 @@ export async function generatePostingInstructions({
 
   let logoData: string | null = null;
   try {
-    logoData = await loadImageAsBase64("/logo_2.png");
+    logoData = await loadImageAsBase64("/logo.png");
   } catch {
     // logo unavailable — skip
   }

@@ -7,6 +7,7 @@ import {
   GitBranch,
   Info,
   AlertTriangle,
+  ExternalLink,
   Settings2,
   UserPlus,
 } from "lucide-react";
@@ -153,27 +154,8 @@ export function ClientsTab({
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold text-[--color-text-strong]">
-                        {c.name}
+                        {link?.contract_name?.trim() || c.name}
                       </span>
-                      {link?.contract_name && (
-                        <span className="rounded-md border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-[10px] font-medium text-[--color-text-muted]">
-                          {link.contract_name}
-                        </span>
-                      )}
-                      <span
-                        className="text-xs text-[--color-text-muted] font-mono cursor-help"
-                        title="End User ID"
-                      >
-                        ({link?.client_id || "unknown-client"})
-                      </span>
-                      {link?.contract_id && (
-                        <span
-                          className="text-[10px] text-[--color-text-muted] font-mono cursor-help"
-                          title="Contract ID"
-                        >
-                          {link.contract_id}
-                        </span>
-                      )}
                       <Badge
                         tone={
                           statusColorMap[link?.status || "TEST"] || "neutral"
@@ -182,6 +164,17 @@ export function ClientsTab({
                         {link?.status || "TEST"}
                       </Badge>
                     </div>
+                    <p className="mt-1 text-xs text-[--color-text-muted]">
+                      {c.name} ({link?.client_id || "unknown-client"})
+                    </p>
+                    {link?.contract_id && (
+                      <p
+                        className="mt-1 text-[10px] text-[--color-text-muted] font-mono"
+                        title="Contract ID"
+                      >
+                        {link.contract_id}
+                      </p>
+                    )}
                     <button
                       type="button"
                       onClick={() =>
@@ -189,9 +182,10 @@ export function ClientsTab({
                           mode: getClientLeadMode(link),
                         })
                       }
-                      className="mt-1 text-left text-xs text-[--color-text-muted] hover:text-[--color-primary] hover:underline"
+                      className="mt-1 inline-flex items-center gap-1.5 text-left text-xs text-[--color-text-muted] hover:text-[--color-primary] hover:underline"
                     >
-                      Leads sold: {getClientLeadCount(link)}
+                      <span>Leads sold: {getClientLeadCount(link)}</span>
+                      <ExternalLink size={11} aria-hidden="true" />
                     </button>
                     {(() => {
                       const clientOverride = campaign?.client_overrides?.[c.id];
@@ -226,7 +220,7 @@ export function ClientsTab({
                           />
                           <span className="group-hover:underline">
                             {ruleCount > 0
-                              ? `${ruleCount} rule${ruleCount !== 1 ? "s" : ""}`
+                              ? `Rules: ${ruleCount}`
                               : "Rules"}
                           </span>
                           {hasOverride && (
@@ -263,7 +257,7 @@ export function ClientsTab({
                         className="shrink-0 opacity-60 group-hover:opacity-100"
                       />
                       <span className="group-hover:underline">
-                        Configure delivery ({configuredDeliveryCount})
+                        Configure Delivery ({configuredDeliveryCount})
                       </span>
                     </button>
                   </div>

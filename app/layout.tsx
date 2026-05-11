@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
+import "react-phone-input-2/lib/style.css";
 import { ThemeProvider } from "./theme-provider";
 import { Toaster } from "sonner";
 

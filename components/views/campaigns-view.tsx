@@ -218,14 +218,14 @@ export function CampaignsView({
   return (
     <motion.section
       key="campaigns"
-      className="space-y-6"
+      className="space-y-4"
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}
       transition={{ duration: 0.18, ease: "easeOut" }}
     >
       {/* ── Toolbar ──────────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="panel panel-raised flex flex-wrap items-center gap-3 p-3">
         {/* Search */}
         <div className="relative flex-1 min-w-[200px]">
           <Search
@@ -244,7 +244,7 @@ export function CampaignsView({
         {/* Filter & Sort toggle */}
         <button
           onClick={() => setControlsOpen((o) => !o)}
-          className="flex items-center gap-1.5 rounded-md border border-[--color-border] bg-[--color-bg] px-3 py-2 text-sm text-[--color-text] hover:bg-[--color-bg-subtle] transition-colors"
+          className="inline-flex items-center gap-1.5 rounded-[--radius-pill] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_82%,var(--color-bg-subtle))] px-3 py-2 text-sm font-medium text-[--color-text] shadow-[0_5px_14px_color-mix(in_srgb,var(--color-text-strong)_10%,transparent)] transition hover:bg-[--color-bg-subtle]"
         >
           <SlidersHorizontal size={14} />
           Filter and sort
@@ -258,7 +258,7 @@ export function CampaignsView({
         {activeFilterCount > 0 && (
           <button
             onClick={clearFilters}
-            className="flex items-center gap-1 rounded-full bg-[--color-primary]/10 px-2.5 py-1 text-xs font-medium text-[--color-primary]"
+            className="inline-flex items-center gap-1 rounded-[--radius-pill] border border-[--color-primary]/25 bg-[--color-primary]/12 px-2.5 py-1 text-xs font-semibold text-[--color-primary] shadow-[var(--shadow-inset)]"
           >
             <Filter size={12} />
             {activeFilterCount} filter{activeFilterCount > 1 ? "s" : ""}
@@ -268,7 +268,7 @@ export function CampaignsView({
         {activeSortCount > 0 && (
           <button
             onClick={clearSorting}
-            className="flex items-center gap-1 rounded-full bg-[--color-primary]/10 px-2.5 py-1 text-xs font-medium text-[--color-primary]"
+            className="inline-flex items-center gap-1 rounded-[--radius-pill] border border-[--color-primary]/25 bg-[--color-primary]/12 px-2.5 py-1 text-xs font-semibold text-[--color-primary] shadow-[var(--shadow-inset)]"
           >
             <ArrowUpDown size={12} />
             {activeSortCount} sort{activeSortCount > 1 ? "s" : ""}
@@ -278,7 +278,7 @@ export function CampaignsView({
         {activeFilterCount + activeSortCount > 1 && (
           <button
             onClick={clearAll}
-            className="flex items-center gap-1 rounded-full border border-[--color-border] px-2.5 py-1 text-xs text-[--color-text-muted] hover:text-[--color-text]"
+            className="inline-flex items-center gap-1 rounded-[--radius-pill] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_80%,var(--color-bg-subtle))] px-2.5 py-1 text-xs font-medium text-[--color-text-muted] hover:text-[--color-text]"
           >
             <RotateCcw size={12} />
             Clear all
@@ -307,14 +307,14 @@ export function CampaignsView({
             transition={{ duration: 0.18, ease: "easeOut" }}
             className="overflow-hidden"
           >
-            <div className="rounded-lg border border-[--color-border] bg-[--color-bg-subtle] p-4 space-y-4">
+            <div className="rounded-[--radius-md] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-bg-subtle)_85%,var(--color-panel))] p-4 shadow-[var(--shadow-soft)] space-y-4">
               {/* Tab bar */}
               <div className="flex gap-2 border-b border-[--color-border] pb-2">
                 {(["filters", "sorting"] as const).map((tab) => (
                   <button
                     key={tab}
                     onClick={() => setControlsTab(tab)}
-                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                    className={`rounded-[--radius-pill] px-3 py-1.5 text-sm font-semibold transition-colors ${
                       controlsTab === tab
                         ? "bg-[--color-primary] text-white"
                         : "text-[--color-text-muted] hover:text-[--color-text]"
@@ -343,7 +343,7 @@ export function CampaignsView({
                       <div className="flex flex-wrap gap-2">
                         <button
                           onClick={() => setStatusFilter("all")}
-                          className={`rounded-full px-3 py-1 text-xs font-medium border transition-colors ${
+                          className={`rounded-[--radius-pill] border px-3 py-1 text-xs font-semibold transition-colors ${
                             statusFilter === "all"
                               ? "bg-[--color-primary] text-white border-[--color-primary]"
                               : "border-[--color-border] text-[--color-text-muted] hover:text-[--color-text]"
@@ -357,7 +357,7 @@ export function CampaignsView({
                             onClick={() =>
                               setStatusFilter(statusFilter === s ? "all" : s)
                             }
-                            className={`rounded-full px-3 py-1 text-xs font-medium border transition-colors ${
+                            className={`rounded-[--radius-pill] border px-3 py-1 text-xs font-semibold transition-colors ${
                               statusFilter === s
                                 ? "bg-[--color-primary] text-white border-[--color-primary]"
                                 : "border-[--color-border] text-[--color-text-muted] hover:text-[--color-text]"
@@ -378,7 +378,7 @@ export function CampaignsView({
                         <div className="flex flex-wrap gap-2">
                           <button
                             onClick={() => setTagFilter("all")}
-                            className={`rounded-full px-3 py-1 text-xs font-medium border transition-colors ${
+                            className={`rounded-[--radius-pill] border px-3 py-1 text-xs font-semibold transition-colors ${
                               tagFilter === "all"
                                 ? "bg-[--color-primary] text-white border-[--color-primary]"
                                 : "border-[--color-border] text-[--color-text-muted] hover:text-[--color-text]"
@@ -392,7 +392,7 @@ export function CampaignsView({
                               onClick={() =>
                                 setTagFilter(tagFilter === t ? "all" : t)
                               }
-                              className={`rounded-full px-3 py-1 text-xs font-medium border transition-colors ${
+                              className={`rounded-[--radius-pill] border px-3 py-1 text-xs font-semibold transition-colors ${
                                 tagFilter === t
                                   ? "bg-[--color-primary] text-white border-[--color-primary]"
                                   : "border-[--color-border] text-[--color-text-muted] hover:text-[--color-text]"
@@ -443,7 +443,7 @@ export function CampaignsView({
                             };
                             setSortRules(next);
                           }}
-                          className="flex items-center gap-1 rounded-md border border-[--color-border] px-2 py-1.5 text-xs text-[--color-text-muted] hover:text-[--color-text] transition-colors"
+                          className="inline-flex items-center gap-1 rounded-[--radius-pill] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_84%,var(--color-bg-subtle))] px-2.5 py-1.5 text-xs font-medium text-[--color-text-muted] transition hover:text-[--color-text]"
                         >
                           <ArrowDownAZ size={14} />
                           {rule.dir === "asc" ? "A → Z" : "Z → A"}

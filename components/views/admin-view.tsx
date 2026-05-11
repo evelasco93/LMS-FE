@@ -1899,7 +1899,7 @@ export function AdminView({
   return (
     <div className="space-y-5">
       {/* ── Secondary nav: Settings | Logs ──────────────────────────────────── */}
-      <div className="flex items-center gap-1 p-1 rounded-xl border border-[--color-border] bg-[--color-panel] w-fit">
+      <div className="segmented-control w-fit">
         {(
           [
             {
@@ -1922,9 +1922,9 @@ export function AdminView({
             key={tab.key}
             type="button"
             onClick={() => setAdminTab(tab.key)}
-            className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-medium transition-colors ${
+            className={`segmented-control__btn flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium transition-colors ${
               adminTab === tab.key
-                ? "bg-[--color-primary] text-white shadow-sm"
+                ? "segmented-control__btn--active"
                 : "text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg-muted]"
             }`}
           >
@@ -1937,7 +1937,7 @@ export function AdminView({
       {/* ── Two-column layout: left sidebar nav + right content ────────────── */}
       <div className="flex gap-6 items-start">
         {/* ── Left sidebar nav ──────────────────────────────────────────────── */}
-        <nav className="w-[188px] shrink-0 rounded-xl border border-[--color-border] bg-[--color-panel] p-2 space-y-0.5">
+        <nav className="shell-card w-[188px] shrink-0 p-2 space-y-0.5">
           <AnimatePresence mode="wait" initial={false}>
             {adminTab === "settings" && (
               <motion.div
@@ -2141,10 +2141,7 @@ export function AdminView({
                 ) : (
                   <div className="grid gap-3 md:grid-cols-2">
                     {schemas.map((s) => (
-                      <div
-                        key={s.id}
-                        className="rounded-xl border border-[--color-border] bg-[--color-panel] p-4 space-y-3"
-                      >
+                      <div key={s.id} className="utility-card p-4 space-y-3">
                         <div className="flex items-start justify-between gap-2">
                           <div>
                             <p className="font-semibold text-[--color-text-strong]">
@@ -2165,7 +2162,7 @@ export function AdminView({
                               {s.fields.map((f) => (
                                 <span
                                   key={f.name}
-                                  className="inline-flex items-center gap-1 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-xs text-[--color-text]"
+                                  className="utility-chip rounded-md px-2 py-0.5 text-xs"
                                 >
                                   <span className="font-mono">{f.name}</span>
                                   {f.required && (
@@ -2249,10 +2246,7 @@ export function AdminView({
                           )
                         : null;
                       return (
-                        <div
-                          key={plugin.provider}
-                          className="rounded-xl border border-[--color-border] bg-[--color-panel] p-4 space-y-3"
-                        >
+                        <div key={plugin.provider} className="utility-card p-4 space-y-3">
                           <div className="flex items-start justify-between gap-2">
                             <div>
                               <div className="flex items-center gap-1">
@@ -2372,13 +2366,13 @@ export function AdminView({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 p-1 rounded-xl border border-[--color-border] bg-[--color-panel] w-fit">
+                <div className="segmented-control w-fit">
                   <button
                     type="button"
                     onClick={() => setCatalogTab("criteria")}
-                    className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-medium transition-colors ${
+                    className={`segmented-control__btn flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium transition-colors ${
                       catalogTab === "criteria"
-                        ? "bg-[--color-primary] text-white shadow-sm"
+                        ? "segmented-control__btn--active"
                         : "text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg-muted]"
                     }`}
                   >
@@ -2388,9 +2382,9 @@ export function AdminView({
                   <button
                     type="button"
                     onClick={() => setCatalogTab("logic")}
-                    className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-medium transition-colors ${
+                    className={`segmented-control__btn flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium transition-colors ${
                       catalogTab === "logic"
-                        ? "bg-[--color-primary] text-white shadow-sm"
+                        ? "segmented-control__btn--active"
                         : "text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg-muted]"
                     }`}
                   >
@@ -2400,9 +2394,9 @@ export function AdminView({
                   <button
                     type="button"
                     onClick={() => setCatalogTab("lists")}
-                    className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-medium transition-colors ${
+                    className={`segmented-control__btn flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium transition-colors ${
                       catalogTab === "lists"
-                        ? "bg-[--color-primary] text-white shadow-sm"
+                        ? "segmented-control__btn--active"
                         : "text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg-muted]"
                     }`}
                   >
@@ -2438,7 +2432,7 @@ export function AdminView({
                               New
                             </Button>
                           </div>
-                          <div className="rounded-lg border border-[--color-border] divide-y divide-[--color-border]">
+                          <div className="utility-card rounded-lg divide-y divide-[--color-border]">
                             {listPresets
                               .filter((p) => p.scope === "platform")
                               .map((preset) => (
@@ -2502,7 +2496,7 @@ export function AdminView({
                                             {preset.options.map((o, i) => (
                                               <span
                                                 key={i}
-                                                className="inline-flex items-center gap-1 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-[11px]"
+                                                className="utility-chip rounded-md px-2 py-0.5 text-[11px]"
                                               >
                                                 <span className="font-mono text-[--color-text-muted]">
                                                   {o.value}
@@ -2546,7 +2540,7 @@ export function AdminView({
                               New
                             </Button>
                           </div>
-                          <div className="rounded-lg border border-[--color-border] divide-y divide-[--color-border]">
+                          <div className="utility-card rounded-lg divide-y divide-[--color-border]">
                             {listPresets
                               .filter((p) => p.scope === "tenant")
                               .map((preset) => (
@@ -2609,7 +2603,7 @@ export function AdminView({
                                             {preset.options.map((o, i) => (
                                               <span
                                                 key={i}
-                                                className="inline-flex items-center gap-1 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-2 py-0.5 text-[11px]"
+                                                className="utility-chip rounded-md px-2 py-0.5 text-[11px]"
                                               >
                                                 <span className="font-mono text-[--color-text-muted]">
                                                   {o.value}
@@ -2794,7 +2788,7 @@ export function AdminView({
                           />
                         </div>
 
-                        <div className="rounded-xl border border-[--color-border] bg-[--color-panel] p-4 space-y-3">
+                        <div className="utility-card p-4 space-y-3">
                           {criteriaCatalogDetailLoading &&
                           selectedCriteriaSetId ? (
                             <p className="text-sm text-[--color-text-muted]">
@@ -3078,7 +3072,7 @@ export function AdminView({
                       />
                     </div>
 
-                    <div className="rounded-xl border border-[--color-border] bg-[--color-panel] p-4 space-y-3">
+                    <div className="utility-card p-4 space-y-3">
                       {logicCatalogDetailLoading && selectedLogicSetId ? (
                         <p className="text-sm text-[--color-text-muted]">
                           Loading rules set details…
@@ -3320,7 +3314,7 @@ export function AdminView({
                         return (
                           <div
                             key={def.id}
-                            className={`group inline-flex items-center gap-2 rounded-full border pl-3 pr-1.5 py-1.5 ${
+                            className={`group utility-chip rounded-full pl-3 pr-1.5 py-1.5 ${
                               def.color
                                 ? ""
                                 : "border-[--color-border] bg-[--color-panel]"
@@ -3508,14 +3502,14 @@ export function AdminView({
                       type="button"
                       onClick={() => refreshLogs()}
                       title="Refresh logs"
-                      className="flex items-center justify-center rounded-lg border border-[--color-border] bg-[--color-panel] p-1.5 text-[--color-text-muted] transition hover:text-[--color-text]"
+                      className="utility-card flex items-center justify-center rounded-lg p-1.5 text-[--color-text-muted] transition hover:text-[--color-text]"
                     >
                       <RefreshCw size={13} />
                     </button>
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-[--color-border] bg-[--color-panel] p-3 space-y-3">
+                <div className="utility-card p-3 space-y-3">
                   <div className="relative">
                     <Search
                       size={15}
@@ -3533,7 +3527,7 @@ export function AdminView({
                     <button
                       type="button"
                       onClick={() => setLogsFiltersOpen((v) => !v)}
-                      className="inline-flex items-center gap-2 rounded-lg border border-[--color-border] bg-[--color-bg-muted] px-3 py-1.5 text-sm font-medium text-[--color-text] transition hover:bg-[--color-bg]"
+                      className="utility-card inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-[--color-text] transition hover:bg-[--color-bg]"
                     >
                       <SlidersHorizontal size={14} />
                       Filter and sort
@@ -3674,7 +3668,7 @@ export function AdminView({
                                   }}
                                   className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                                     isActive
-                                      ? "bg-[--color-primary] text-[--color-bg]"
+                                      ? "segmented-control__btn--active"
                                       : "border border-[--color-border] bg-[--color-panel] text-[--color-text-muted] hover:bg-[--color-bg-muted] hover:text-[--color-text]"
                                   }`}
                                 >
@@ -3695,7 +3689,7 @@ export function AdminView({
                 </div>
 
                 {/* Activity list */}
-                <div className="relative overflow-hidden rounded-xl border border-[--color-border] bg-[--color-panel]">
+                <div className="relative overflow-hidden utility-card">
                   <AnimatePresence mode="wait">
                     {showLogsLoading ? (
                       <motion.div

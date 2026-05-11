@@ -153,8 +153,7 @@ export default function Dashboard() {
       const { session, user } = await login(email, password);
       setCurrentUser(user);
       setExpiresAt(session.expiresAt);
-      // Wait for the flag-raise animation (1.2s) + colour transition buffer
-      // before switching screens so it always plays to completion
+      // Keep a short handoff so the loader has visible continuity before shell swap.
       await new Promise((resolve) => setTimeout(resolve, 1400));
       setAuthStatus("authenticated");
     } catch (error) {
@@ -1100,9 +1099,10 @@ function DashboardContent({
         forceExpanded={tourSidebarExpanded}
       />
 
-      <main className="flex-1 overflow-y-auto p-8">
-        <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
-          <div className="relative">
+      <main className="flex-1 overflow-y-auto p-5 sm:p-6 lg:p-7">
+        <header className="mb-5 flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5">
+          <div className="flex min-w-0 items-center">
+            <div className="relative min-w-0">
             <AnimatePresence mode="wait" initial={false}>
               <motion.div
                 key={active}
@@ -1111,20 +1111,21 @@ function DashboardContent({
                 exit={{ opacity: 0, y: -6 }}
                 transition={{ duration: 0.15, ease: "easeOut" }}
               >
-                <h1 className="mt-2 text-2xl font-semibold text-[--color-text-strong]">
+                <h1 className="mt-1 text-2xl font-semibold text-[--color-text-strong]">
                   {title}
                 </h1>
-                <p className="text-sm text-[--color-text-muted]">
+                <p className="truncate text-sm text-[--color-text-muted]">
                   {description}
                 </p>
               </motion.div>
             </AnimatePresence>
+            </div>
           </div>
           <div className="flex items-center gap-3" data-tour="header-actions">
             <ThemeToggle />
             {/* User avatar */}
             {currentUser && (
-              <div className="flex items-center gap-2 rounded-lg border border-[--color-border] bg-[--color-panel] px-3 py-1.5">
+              <div className="flex items-center gap-2 rounded-[--radius-sm] px-3 py-1.5">
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[--color-primary] text-xs font-bold text-white select-none">
                   {userInitials(currentUser)}
                 </div>
@@ -1139,7 +1140,7 @@ function DashboardContent({
                 <button
                   type="button"
                   title="Sign out"
-                  className="ml-1 shrink-0 text-[--color-text-muted] hover:text-[--color-danger] transition-colors"
+                  className="ml-1 shrink-0 rounded-[--radius-sm] border border-transparent p-1 text-[--color-text-muted] hover:border-[color-mix(in_srgb,var(--color-danger)_35%,transparent)] hover:text-[--color-danger] transition-colors"
                   onClick={onSignOut}
                 >
                   <LogOut size={15} />
@@ -1149,7 +1150,10 @@ function DashboardContent({
           </div>
         </header>
 
-        <div data-tour="view-content">
+        <div
+          data-tour="view-content"
+          className="rounded-[4px] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-bg-subtle)_64%,transparent)] p-3 sm:p-4"
+        >
           <AnimatePresence mode="wait" initial={false}>
             {active === "home" && (
               <motion.section

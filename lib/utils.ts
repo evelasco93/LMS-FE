@@ -65,7 +65,7 @@ export function generateCodeFromName(name: string, fallback: string) {
 }
 
 export const inputClass =
-  "w-full rounded-lg border border-[--color-border] bg-[--color-panel] px-3 py-2 text-sm text-[--color-text] outline-none transition-shadow focus:border-[--color-primary] focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-primary)_35%,transparent)]";
+  "w-full rounded-[--radius-sm] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_84%,var(--color-bg-subtle))] px-3 py-2.5 text-sm text-[--color-text] outline-none transition-shadow focus:border-[--color-primary] focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-primary)_30%,transparent)]";
 
 /**
  * Smart field label normalizer — handles snake_case, camelCase, PascalCase,

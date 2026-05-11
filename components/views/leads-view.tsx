@@ -1415,13 +1415,13 @@ export function LeadsView({
   return (
     <motion.section
       key="leads"
-      className="space-y-4"
+      className="space-y-5"
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}
       transition={{ duration: 0.18, ease: "easeOut" }}
     >
-      <div className="rounded-xl border border-[--color-border] bg-[--color-panel] p-3">
+      <div className="panel rounded-[--radius-lg] border-[color-mix(in_srgb,var(--color-border)_92%,transparent)] bg-[color-mix(in_srgb,var(--color-panel)_90%,var(--color-bg-subtle))] p-3.5 shadow-[var(--shadow-soft)]">
         <div className="flex flex-col gap-3">
           <div className="relative">
             <Search
@@ -1441,7 +1441,7 @@ export function LeadsView({
               <button
                 type="button"
                 onClick={() => setControlsOpen((v) => !v)}
-                className="inline-flex items-center gap-2 rounded-lg border border-[--color-border] bg-[--color-panel] px-3 py-1.5 text-sm font-medium text-[--color-text] transition hover:bg-[--color-bg-muted]"
+                className="inline-flex items-center gap-2 rounded-[--radius-pill] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_90%,var(--color-bg-subtle))] px-3 py-1.5 text-sm font-semibold text-[--color-text] shadow-[var(--shadow-inset)] transition hover:border-[--color-border-alt] hover:bg-[--color-bg-muted]"
               >
                 <SlidersHorizontal size={14} />
                 Filter and sort
@@ -1454,7 +1454,7 @@ export function LeadsView({
               <button
                 type="button"
                 onClick={() => setColumnsModalOpen(true)}
-                className="inline-flex items-center gap-2 rounded-lg border border-[--color-border] bg-[--color-panel] px-3 py-1.5 text-sm font-medium text-[--color-text] transition hover:bg-[--color-bg-muted]"
+                className="inline-flex items-center gap-2 rounded-[--radius-pill] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_90%,var(--color-bg-subtle))] px-3 py-1.5 text-sm font-semibold text-[--color-text] shadow-[var(--shadow-inset)] transition hover:border-[--color-border-alt] hover:bg-[--color-bg-muted]"
               >
                 <Columns2 size={14} />
                 Edit View
@@ -1464,45 +1464,45 @@ export function LeadsView({
                 type="button"
                 onClick={handleOpenCsvExport}
                 title="Export current page to CSV"
-                className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-emerald-700"
+                className="inline-flex items-center gap-1.5 rounded-[--radius-pill] border border-[--color-primary] bg-[--color-primary] px-3 py-1.5 text-sm font-semibold text-white shadow-[var(--shadow-inset)] transition hover:bg-[--color-primary-hover]"
               >
                 <FileDown size={14} />
                 Export CSV
               </button>
             </div>
 
-            <div className="rounded-xl border border-[--color-border] bg-[--color-panel] p-1">
+            <div className="rounded-[--radius-pill] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_90%,var(--color-bg-subtle))] p-1 shadow-[var(--shadow-inset)]">
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
                   onClick={clearFilters}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-[--color-border] px-2.5 py-1.5 text-xs font-medium text-[--color-text-muted] transition hover:text-[--color-text] hover:bg-[--color-bg-muted]"
+                  className="inline-flex items-center gap-1.5 rounded-[--radius-pill] border border-[--color-border] bg-[--color-panel] px-2.5 py-1.5 text-xs font-semibold text-[--color-text-muted] transition hover:border-[--color-border-alt] hover:bg-[--color-bg-muted] hover:text-[--color-text]"
                 >
                   <Filter size={12} />
                   Filters
-                  <span className="rounded-full bg-[--color-bg-muted] px-1.5 py-0.5 text-[10px] font-semibold">
+                  <span className="rounded-full border border-[--color-border] bg-[color-mix(in_srgb,var(--color-primary)_14%,var(--color-panel))] px-1.5 py-0.5 text-[10px] font-semibold text-[--color-primary]">
                     {activeFilterCount}
                   </span>
                 </button>
                 <button
                   type="button"
                   onClick={clearSorting}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-[--color-border] px-2.5 py-1.5 text-xs font-medium text-[--color-text-muted] transition hover:text-[--color-text] hover:bg-[--color-bg-muted]"
+                  className="inline-flex items-center gap-1.5 rounded-[--radius-pill] border border-[--color-border] bg-[--color-panel] px-2.5 py-1.5 text-xs font-semibold text-[--color-text-muted] transition hover:border-[--color-border-alt] hover:bg-[--color-bg-muted] hover:text-[--color-text]"
                 >
                   <ArrowUpDown size={12} />
                   Sorting
-                  <span className="rounded-full bg-[--color-bg-muted] px-1.5 py-0.5 text-[10px] font-semibold">
+                  <span className="rounded-full border border-[--color-border] bg-[color-mix(in_srgb,var(--color-primary)_14%,var(--color-panel))] px-1.5 py-0.5 text-[10px] font-semibold text-[--color-primary]">
                     {activeSortCount}
                   </span>
                 </button>
                 <button
                   type="button"
                   onClick={clearAllControls}
-                  className="inline-flex items-center gap-1 rounded-lg border border-[--color-border] px-2.5 py-1.5 text-xs font-medium text-[--color-text-muted] transition hover:text-[--color-text] hover:bg-[--color-bg-muted]"
+                  className="inline-flex items-center gap-1 rounded-[--radius-pill] border border-[--color-border] bg-[--color-panel] px-2.5 py-1.5 text-xs font-semibold text-[--color-text-muted] transition hover:border-[--color-border-alt] hover:bg-[--color-bg-muted] hover:text-[--color-text]"
                 >
                   <RotateCcw size={12} />
                   All
-                  <span className="rounded-full bg-[--color-bg-muted] px-1.5 py-0.5 text-[10px] font-semibold">
+                  <span className="rounded-full border border-[--color-border] bg-[color-mix(in_srgb,var(--color-primary)_14%,var(--color-panel))] px-1.5 py-0.5 text-[10px] font-semibold text-[--color-primary]">
                     {activeFilterCount + activeSortCount}
                   </span>
                 </button>
@@ -1520,7 +1520,7 @@ export function LeadsView({
                 transition={{ duration: 0.24, ease: "easeInOut" }}
                 className="overflow-hidden"
               >
-                <div className="rounded-lg border border-[--color-border] bg-[--color-bg-muted]/40 p-3">
+                <div className="rounded-[--radius-md] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_90%,var(--color-bg-subtle))] p-3.5 shadow-[var(--shadow-inset)]">
                   <div className="mb-3 flex items-center gap-1.5">
                     {(
                       [
@@ -1540,10 +1540,10 @@ export function LeadsView({
                         key={tab.key}
                         type="button"
                         onClick={() => setControlsTab(tab.key)}
-                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
+                        className={`inline-flex items-center gap-1.5 rounded-[--radius-pill] px-3 py-1 text-xs font-semibold transition-colors ${
                           controlsTab === tab.key
-                            ? "bg-[--color-primary] text-white"
-                            : "border border-[--color-border] bg-[--color-panel] text-[--color-text-muted] hover:text-[--color-text]"
+                            ? "border border-[--color-primary] bg-[color-mix(in_srgb,var(--color-primary)_18%,var(--color-panel))] text-[--color-primary]"
+                            : "border border-[--color-border] bg-[--color-panel] text-[--color-text-muted] hover:border-[--color-border-alt] hover:text-[--color-text]"
                         }`}
                       >
                         {tab.icon}
@@ -1602,9 +1602,9 @@ export function LeadsView({
                               const isActive = modeFilter === option.value;
                               const colorClass =
                                 option.value === "test"
-                                  ? "border-sky-300/70 bg-sky-500/10 text-sky-700 dark:text-sky-300"
+                                  ? "border-[--color-border-alt] bg-[color-mix(in_srgb,var(--color-primary)_14%,var(--color-panel))] text-[--color-primary]"
                                   : option.value === "live"
-                                    ? "border-emerald-300/70 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                                    ? "border-[--color-border-alt] bg-[color-mix(in_srgb,var(--color-primary)_14%,var(--color-panel))] text-[--color-primary]"
                                     : "border-[--color-border] bg-[--color-panel] text-[--color-text-muted]";
 
                               return (
@@ -1612,11 +1612,11 @@ export function LeadsView({
                                   key={option.value}
                                   type="button"
                                   onClick={() => setModeFilter(option.value)}
-                                  className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                                  className={`rounded-[--radius-pill] border px-3 py-1 text-xs font-semibold transition ${
                                     isActive
                                       ? "ring-2 ring-[--color-primary]/20 " +
                                         colorClass
-                                      : "text-[--color-text-muted] hover:text-[--color-text] border-[--color-border] bg-[--color-panel]"
+                                      : "text-[--color-text-muted] hover:text-[--color-text] border-[--color-border] bg-[--color-panel] hover:border-[--color-border-alt]"
                                   }`}
                                 >
                                   {option.label}
@@ -1641,9 +1641,9 @@ export function LeadsView({
                               const isActive = statusFilter === option.value;
                               const colorClass =
                                 option.value === "accepted"
-                                  ? "border-emerald-300/70 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                                  ? "border-[--color-border-alt] bg-[color-mix(in_srgb,var(--color-primary)_14%,var(--color-panel))] text-[--color-primary]"
                                   : option.value === "rejected"
-                                    ? "border-rose-300/70 bg-rose-500/10 text-rose-700 dark:text-rose-300"
+                                    ? "border-[--color-border-alt] bg-[color-mix(in_srgb,var(--color-primary)_14%,var(--color-panel))] text-[--color-primary]"
                                     : "border-[--color-border] bg-[--color-panel] text-[--color-text-muted]";
 
                               return (
@@ -1651,11 +1651,11 @@ export function LeadsView({
                                   key={option.value}
                                   type="button"
                                   onClick={() => setStatusFilter(option.value)}
-                                  className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                                  className={`rounded-[--radius-pill] border px-3 py-1 text-xs font-semibold transition ${
                                     isActive
                                       ? "ring-2 ring-[--color-primary]/20 " +
                                         colorClass
-                                      : "text-[--color-text-muted] hover:text-[--color-text] border-[--color-border] bg-[--color-panel]"
+                                      : "text-[--color-text-muted] hover:text-[--color-text] border-[--color-border] bg-[--color-panel] hover:border-[--color-border-alt]"
                                   }`}
                                 >
                                   {option.label}
@@ -1809,7 +1809,7 @@ export function LeadsView({
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2 rounded-lg border border-[--color-border] bg-[--color-bg-muted]/40 p-3">
+            <div className="space-y-2 rounded-[--radius-md] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-bg-subtle)_84%,var(--color-panel))] p-3 shadow-[var(--shadow-soft)]">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-[--color-text-muted]">
                 Visible Column Order
               </p>
@@ -1854,7 +1854,7 @@ export function LeadsView({
               )}
             </div>
 
-            <div className="space-y-3 rounded-lg border border-[--color-border] bg-[--color-bg-muted]/40 p-3">
+            <div className="space-y-3 rounded-[--radius-md] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-bg-subtle)_84%,var(--color-panel))] p-3 shadow-[var(--shadow-soft)]">
               <div>
                 <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-[--color-text-muted]">
                   Standard Columns
@@ -1913,7 +1913,7 @@ export function LeadsView({
             </div>
           </div>
 
-          <div className="rounded-lg border border-[--color-border] bg-[--color-bg-muted]/40 p-3 space-y-2">
+          <div className="rounded-[--radius-md] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-bg-subtle)_84%,var(--color-panel))] p-3 space-y-2 shadow-[var(--shadow-soft)]">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-[--color-text-muted]">
               Field Display and Actions
             </p>
@@ -2109,7 +2109,7 @@ export function LeadsView({
                 size="sm"
                 disabled={csvExportKeys.size === 0}
                 onClick={handleCsvExport}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white border-0"
+                className="border-0 bg-[--color-primary] text-white hover:bg-[--color-primary-hover]"
               >
                 <FileDown size={14} />
                 Download CSV

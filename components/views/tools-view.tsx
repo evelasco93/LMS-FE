@@ -77,11 +77,11 @@ function CollapsibleSection({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="rounded-lg border border-[--color-border] overflow-hidden">
+    <div className="utility-card overflow-hidden rounded-lg">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center gap-2 px-3 py-2.5 bg-[--color-bg-muted] hover:bg-[--color-bg-raised] transition-colors text-left"
+        className="w-full flex items-center gap-2 px-3 py-2.5 bg-[color-mix(in_srgb,var(--color-bg-muted)_74%,var(--color-panel))] hover:bg-[color-mix(in_srgb,var(--color-bg-subtle)_70%,var(--color-panel))] transition-colors text-left"
       >
         <span className="text-[--color-text-muted]">{icon}</span>
         <span className="flex-1 text-sm font-medium text-[--color-text-strong]">
@@ -134,14 +134,14 @@ function FlipCard({
       >
         {/* Front face */}
         <div
-          className="absolute inset-0 rounded-2xl border border-[--color-border] bg-[--color-bg-raised]"
+          className="absolute inset-0 utility-card rounded-2xl"
           style={{ backfaceVisibility: "hidden" }}
         >
           {front}
         </div>
         {/* Back face */}
         <div
-          className="absolute inset-0 rounded-2xl border border-[--color-border] bg-[--color-bg-raised]"
+          className="absolute inset-0 utility-card rounded-2xl"
           style={{
             backfaceVisibility: "hidden",
             transform: "rotateY(180deg)",
@@ -198,8 +198,8 @@ function TrustedFormCard({ plugin }: { plugin?: PluginView | null }) {
     >
       {/* Logo area */}
       <div className="relative">
-        <div className="absolute inset-0 rounded-2xl bg-green-500/20 blur-xl scale-110" />
-        <div className="relative rounded-2xl bg-gradient-to-br from-green-500/20 to-emerald-600/10 border border-green-500/20 p-5">
+        <div className="absolute -right-1 -top-1 h-8 w-8 rounded-full bg-green-500/20 blur-sm" />
+        <div className="relative rounded-2xl border border-green-500/24 bg-[color-mix(in_srgb,var(--color-panel)_90%,#16a34a_10%)] p-5 shadow-[4px_6px_12px_rgba(22,163,74,0.2)]">
           <Shield size={44} strokeWidth={1.5} className="text-green-500" />
         </div>
       </div>
@@ -224,7 +224,7 @@ function TrustedFormCard({ plugin }: { plugin?: PluginView | null }) {
         <button
           type="button"
           onClick={() => setFlipped(false)}
-          className="rounded-md p-0.5 text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg-muted] transition-colors"
+          className="rounded-md p-0.5 text-[--color-text-muted] hover:text-[--color-text] hover:bg-[color-mix(in_srgb,var(--color-bg-muted)_72%,var(--color-panel))] transition-colors"
         >
           <ChevronLeft size={16} />
         </button>
@@ -321,7 +321,7 @@ function TrustedFormResult({
       {/* Scrollable content */}
       <div className="max-h-[400px] overflow-y-auto space-y-3 pr-0.5">
         {/* Fields */}
-        <div className="rounded-lg border border-[--color-border] bg-[--color-bg-muted] px-3 py-1">
+        <div className="utility-card rounded-lg px-3 py-1">
           {data.outcome !== undefined && (
             <ResultField label="Outcome" value={String(data.outcome)} />
           )}
@@ -407,7 +407,7 @@ function TrustedFormResult({
           const extras = Object.entries(data).filter(([k]) => !known.has(k));
           if (!extras.length) return null;
           return (
-            <div className="rounded-lg border border-[--color-border] bg-[--color-bg-muted] px-3 py-1">
+            <div className="utility-card rounded-lg px-3 py-1">
               {extras.map(([k, v]) => (
                 <ResultField
                   key={k}
@@ -536,8 +536,8 @@ function IpqsCard({
     >
       {/* Logo area */}
       <div className="relative">
-        <div className="absolute inset-0 rounded-2xl bg-blue-500/20 blur-xl scale-110" />
-        <div className="relative rounded-2xl bg-gradient-to-br from-blue-500/20 to-indigo-600/10 border border-blue-500/20 p-5 text-blue-400">
+        <div className="absolute -right-1 -top-1 h-8 w-8 rounded-full bg-blue-500/20 blur-sm" />
+        <div className="relative rounded-2xl border border-blue-500/24 bg-[color-mix(in_srgb,var(--color-panel)_90%,#2563eb_10%)] p-5 text-blue-400 shadow-[4px_6px_12px_rgba(37,99,235,0.2)]">
           <IpqsIcon size={44} />
         </div>
       </div>
@@ -560,7 +560,7 @@ function IpqsCard({
         <button
           type="button"
           onClick={() => setFlipped(false)}
-          className="rounded-md p-0.5 text-[--color-text-muted] hover:text-[--color-text] hover:bg-[--color-bg-muted] transition-colors"
+          className="rounded-md p-0.5 text-[--color-text-muted] hover:text-[--color-text] hover:bg-[color-mix(in_srgb,var(--color-bg-muted)_72%,var(--color-panel))] transition-colors"
         >
           <ChevronLeft size={16} />
         </button>
@@ -648,7 +648,7 @@ function InputRow({
   onEnter?: () => void;
 }) {
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-[--color-border] bg-[--color-bg-muted] px-2.5 py-1.5">
+    <div className="utility-card flex items-center gap-2 rounded-lg px-2.5 py-1.5">
       <span className="text-[--color-text-muted] shrink-0">{icon}</span>
       <div className="flex-1 min-w-0">
         <p className="text-[10px] font-medium text-[--color-text-muted] uppercase tracking-wide leading-none mb-0.5">
@@ -858,7 +858,7 @@ export function ToolsView() {
       className="space-y-6 px-1"
     >
       {/* Cards grid */}
-      <div className="flex flex-wrap gap-6">
+      <div className="flex flex-wrap justify-center gap-6">
         <TrustedFormCard plugin={tfPlugin} />
         <IpqsCard plugin={ipqsPlugin} prefill={ipqsPrefill} />
       </div>

@@ -72,14 +72,14 @@ export function Table<T extends Record<string, any>>({
   firstRowDataTour,
 }: TableProps<T>) {
   return (
-    <div className="panel overflow-x-auto">
-      <table className="min-w-full border-collapse text-sm">
-        <thead className="bg-[--color-bg-muted] text-left text-xs uppercase tracking-wide text-[--color-text-muted]">
+    <div className="panel panel-raised scrollbar-thin overflow-x-auto">
+      <table className="min-w-full border-collapse text-[13px]">
+        <thead className="bg-[color-mix(in_srgb,var(--color-bg-muted)_78%,var(--color-panel))] text-left text-[10px] uppercase tracking-[0.07em] text-[--color-text-muted]">
           <tr>
             {columns.map((col) => (
               <th
                 key={String(col.key)}
-                className="border-b border-[--color-border] px-4 py-3 font-semibold"
+                className="border-b border-[--color-border] px-3 py-1.5 font-semibold"
                 style={{ width: col.width }}
               >
                 {typeof col.label === "string" ? (
@@ -99,7 +99,7 @@ export function Table<T extends Record<string, any>>({
             <tr>
               <td
                 colSpan={columns.length}
-                className="px-4 py-6 text-center text-[--color-text-muted]"
+                className="px-3 py-3 text-center text-[--color-text-muted]"
               >
                 {emptyLabel}
               </td>
@@ -124,7 +124,7 @@ export function Table<T extends Record<string, any>>({
                     : "",
                   idx % 2 === 0
                     ? "bg-transparent"
-                    : "bg-[color-mix(in_srgb,var(--color-border)_8%,transparent)]",
+                    : "bg-[color-mix(in_srgb,var(--color-border)_4%,transparent)]",
                 )}
                 {...(idx === 0 && firstRowDataTour
                   ? { "data-tour": firstRowDataTour }
@@ -134,7 +134,7 @@ export function Table<T extends Record<string, any>>({
                 {columns.map((col) => (
                   <td
                     key={String(col.key)}
-                    className="whitespace-nowrap px-4 py-3 text-[--color-text]"
+                    className="whitespace-nowrap px-3 py-1.5 text-[12px] text-[--color-text]"
                   >
                     {col.render
                       ? col.render(row)

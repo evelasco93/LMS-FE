@@ -61,7 +61,7 @@ export function OverviewTab({
             setSettingsSubTab("base-criteria");
             onTabChange("settings", "base-criteria");
           }}
-          className="flex items-start gap-3 rounded-lg border border-[--color-border] bg-[--color-panel] px-4 py-3 text-left transition hover:border-[--color-primary] hover:bg-[--color-accent]"
+          className="flex items-start gap-3 rounded-[--radius-md] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_92%,var(--color-bg-subtle))] px-4 py-3 text-left shadow-[var(--shadow-inset)] transition hover:border-[--color-border-alt] hover:bg-[color-mix(in_srgb,var(--color-primary)_12%,var(--color-panel))]"
         >
           <LayoutGrid
             size={16}
@@ -89,7 +89,7 @@ export function OverviewTab({
             setSettingsSubTab("logic");
             onTabChange("settings", "logic");
           }}
-          className="flex items-start gap-3 rounded-lg border border-[--color-border] bg-[--color-panel] px-4 py-3 text-left transition hover:border-[--color-primary] hover:bg-[--color-accent]"
+          className="flex items-start gap-3 rounded-[--radius-md] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_92%,var(--color-bg-subtle))] px-4 py-3 text-left shadow-[var(--shadow-inset)] transition hover:border-[--color-border-alt] hover:bg-[color-mix(in_srgb,var(--color-primary)_12%,var(--color-panel))]"
         >
           <GitBranch
             size={16}
@@ -117,7 +117,7 @@ export function OverviewTab({
             setSettingsSubTab("routing");
             onTabChange("settings", "routing");
           }}
-          className="flex items-start gap-3 rounded-lg border border-[--color-border] bg-[--color-panel] px-4 py-3 text-left transition hover:border-[--color-primary] hover:bg-[--color-accent]"
+          className="flex items-start gap-3 rounded-[--radius-md] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_92%,var(--color-bg-subtle))] px-4 py-3 text-left shadow-[var(--shadow-inset)] transition hover:border-[--color-border-alt] hover:bg-[color-mix(in_srgb,var(--color-primary)_12%,var(--color-panel))]"
         >
           <Settings2
             size={16}

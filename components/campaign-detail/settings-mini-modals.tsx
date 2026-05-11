@@ -146,7 +146,7 @@ export function SettingsMiniModals({
       >
         <div className="space-y-4">
           {tagDefinitions.length === 0 ? (
-            <p className="rounded-lg border border-[--color-border] bg-[--color-bg-muted] px-3 py-2 text-sm text-[--color-text-muted]">
+            <p className="rounded-[--radius-md] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-bg-subtle)_82%,var(--color-panel))] px-3 py-2 text-sm text-[--color-text-muted] shadow-[var(--shadow-soft)]">
               No tag definitions yet. Create one below.
             </p>
           ) : (
@@ -164,7 +164,7 @@ export function SettingsMiniModals({
                           : [...prev, def.label],
                       )
                     }
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    className={`inline-flex items-center gap-1.5 rounded-[--radius-pill] border px-3 py-1.5 text-xs font-semibold transition-colors shadow-[var(--shadow-inset)] ${
                       active
                         ? def.color
                           ? ""
@@ -202,7 +202,7 @@ export function SettingsMiniModals({
                   }
                 }}
                 placeholder="New tag name…"
-                className="flex-1 rounded-md border border-[--color-border] bg-[--color-bg] px-2.5 py-1.5 text-sm text-[--color-text] placeholder:text-[--color-text-muted] focus:border-[--color-primary] focus:outline-none"
+                className="flex-1 rounded-[--radius-pill] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_84%,var(--color-bg-subtle))] px-3 py-1.5 text-sm text-[--color-text] placeholder:text-[--color-text-muted] focus:border-[--color-primary] focus:outline-none"
               />
               <Button
                 size="sm"
