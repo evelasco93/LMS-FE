@@ -470,6 +470,39 @@ export function HomeView({
   const soldRate =
     totals.accepted > 0 ? Math.round((totals.sold / totals.accepted) * 100) : 0;
 
+  type KpiCard = {
+    label: string;
+    value: number | string;
+    onClick?: () => void;
+    valueClassName?: string;
+    help?: string;
+  };
+
+  const kpiCards: KpiCard[] = [
+    { label: "Received", value: totals.received },
+    { label: "Accepted", value: totals.accepted },
+    {
+      label: "Sold",
+      value: totals.sold,
+      onClick: () => openLeadsByStatus("sold"),
+    },
+    {
+      label: "Rejected",
+      value: totals.rejected,
+      onClick: () => openLeadsByStatus("rejected"),
+    },
+    {
+      label: "Accepted Rate",
+      value: `${acceptedRate}%`,
+      valueClassName: getRateTextColor(acceptedRate),
+    },
+    {
+      label: "Sold Rate",
+      value: `${soldRate}%`,
+      valueClassName: getRateTextColor(soldRate),
+    },
+  ];
+
   return (
     <motion.section
       key="home"
@@ -506,7 +539,11 @@ export function HomeView({
               onClick={() => setFiltersOpen((prev) => !prev)}
             >
               {filtersOpen ? "Hide" : "Show"}
-              {filtersOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              {filtersOpen ? (
+                <ChevronUp size={14} />
+              ) : (
+                <ChevronDown size={14} />
+              )}
             </button>
           </div>
 
@@ -613,7 +650,11 @@ export function HomeView({
                 >
                   Apply filters
                 </Button>
-                <Button size="sm" variant="ghost" onClick={resetOptionalFilters}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={resetOptionalFilters}
+                >
                   Clear optional filters
                 </Button>
                 {filterError && (
@@ -640,30 +681,7 @@ export function HomeView({
       )}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
-        {[
-          { label: "Received", value: totals.received },
-          { label: "Accepted", value: totals.accepted },
-          {
-            label: "Sold",
-            value: totals.sold,
-            onClick: () => openLeadsByStatus("sold"),
-          },
-          {
-            label: "Rejected",
-            value: totals.rejected,
-            onClick: () => openLeadsByStatus("rejected"),
-          },
-          {
-            label: "Accepted Rate",
-            value: `${acceptedRate}%`,
-            valueClassName: getRateTextColor(acceptedRate),
-          },
-          {
-            label: "Sold Rate",
-            value: `${soldRate}%`,
-            valueClassName: getRateTextColor(soldRate),
-          },
-        ].map((kpi) => (
+        {kpiCards.map((kpi) => (
           <div
             key={kpi.label}
             className={`panel p-3 sm:p-4 ${kpi.onClick ? "cursor-pointer transition hover:brightness-[1.02]" : ""}`}
@@ -995,7 +1013,8 @@ export function HomeView({
                       onClick={(_, index) => {
                         const row = outcomeMixData[index];
                         if (row?.name === "Sold") openLeadsByStatus("sold");
-                        if (row?.name === "Rejected") openLeadsByStatus("rejected");
+                        if (row?.name === "Rejected")
+                          openLeadsByStatus("rejected");
                       }}
                     >
                       {outcomeMixData.map((entry, index) => (
