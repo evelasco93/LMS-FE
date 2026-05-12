@@ -681,7 +681,7 @@ export function HomeView({
       )}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
-        {kpiCards.map((kpi) => (
+        {kpiCards.map((kpi: KpiCard) => (
           <div
             key={kpi.label}
             className={`panel p-3 sm:p-4 ${kpi.onClick ? "cursor-pointer transition hover:brightness-[1.02]" : ""}`}
