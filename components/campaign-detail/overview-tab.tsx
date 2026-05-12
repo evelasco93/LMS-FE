@@ -2,7 +2,6 @@
 
 import { ArrowRight, GitBranch, LayoutGrid, Settings2 } from "lucide-react";
 import { InfoItem } from "@/components/ui/info-item";
-import { formatDateTime } from "@/lib/utils";
 import type { Campaign, CriteriaField, LogicRule, Lead } from "@/lib/types";
 import type { CampaignDetailTab } from "@/lib/types";
 
@@ -35,8 +34,6 @@ export function OverviewTab({
   return (
     <>
       <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-3">
-        <InfoItem label="Created" value={formatDateTime(campaign.created_at)} />
-        <InfoItem label="Updated" value={formatDateTime(campaign.updated_at)} />
         <InfoItem
           label="Lead Count"
           value={(campaignLeadCountTotal ?? leadsForCampaign.length).toString()}
