@@ -9,6 +9,7 @@ import type { CampaignDetailTab } from "@/lib/types";
 export function OverviewTab({
   campaign,
   leadsForCampaign,
+  campaignLeadCountTotal,
   linkedClientsCount,
   linkedAffiliatesCount,
   criteriaFields,
@@ -19,6 +20,7 @@ export function OverviewTab({
 }: {
   campaign: Campaign;
   leadsForCampaign: Lead[];
+  campaignLeadCountTotal?: number | null;
   linkedClientsCount: number;
   linkedAffiliatesCount: number;
   criteriaFields: CriteriaField[];
@@ -37,7 +39,7 @@ export function OverviewTab({
         <InfoItem label="Updated" value={formatDateTime(campaign.updated_at)} />
         <InfoItem
           label="Lead Count"
-          value={leadsForCampaign.length.toString()}
+          value={(campaignLeadCountTotal ?? leadsForCampaign.length).toString()}
           onClick={() => onOpenLeadsForCampaign(campaign.id)}
         />
         <InfoItem

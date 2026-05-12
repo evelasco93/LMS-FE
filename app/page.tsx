@@ -738,6 +738,7 @@ function DashboardContent({
       search: getParam("lead_search") ?? "",
       campaignId: getParam("lead_campaign") ?? "all",
       affiliateId: getParam("lead_affiliate") ?? "all",
+      sourceKey: getParam("lead_source_key") ?? "all",
       mode: (getParam("lead_mode") as LeadViewFilters["mode"]) || "all",
       status: (getParam("lead_status") as LeadViewFilters["status"]) || "all",
       sortBy: fallbackPrimary.key,
@@ -880,6 +881,7 @@ function DashboardContent({
       lead_search: undefined,
       lead_campaign: undefined,
       lead_affiliate: undefined,
+      lead_source_key: undefined,
       lead_mode: undefined,
       lead_status: undefined,
       lead_sort: undefined,
@@ -994,6 +996,8 @@ function DashboardContent({
         filters.campaignId !== "all" ? filters.campaignId : undefined,
       lead_affiliate:
         filters.affiliateId !== "all" ? filters.affiliateId : undefined,
+      lead_source_key:
+        filters.sourceKey !== "all" ? filters.sourceKey : undefined,
       lead_mode: filters.mode !== "all" ? filters.mode : undefined,
       lead_status: filters.status !== "all" ? filters.status : undefined,
       lead_sort: primarySort.key !== "created_at" ? primarySort.key : undefined,
@@ -1050,6 +1054,7 @@ function DashboardContent({
         options?.affiliateId && options.affiliateId !== "all"
           ? options.affiliateId
           : undefined,
+      lead_source_key: undefined,
       lead_mode:
         options?.mode && options.mode !== "all" ? options.mode : undefined,
       lead_status: undefined,
@@ -1087,6 +1092,88 @@ function DashboardContent({
       window_tab: undefined,
       view: active !== "leads" ? active : undefined,
     });
+  };
+
+  const openLeadsFromMetrics = (options: {
+    status?: "accepted" | "rejected" | "sold";
+    sourceKey?: string;
+    campaignId?: string;
+    affiliateId?: string;
+  }) => {
+    setCampaignDetailOpen(false);
+    setSelectedCampaign(null);
+    setFocusedAffiliateId(null);
+    setCampaignDetailTab("overview");
+    setCampaignDetailSubTab(undefined);
+
+    const nextParams = {
+      view: "leads",
+      lead: undefined,
+      leadTab: undefined,
+      leadQc: undefined,
+      leadPt: undefined,
+      lead_search: undefined,
+      lead_campaign:
+        options.campaignId && options.campaignId !== "all"
+          ? options.campaignId
+          : undefined,
+      lead_affiliate:
+        options.affiliateId && options.affiliateId !== "all"
+          ? options.affiliateId
+          : undefined,
+      lead_source_key:
+        options.sourceKey && options.sourceKey !== "all"
+          ? options.sourceKey
+          : undefined,
+      lead_mode: undefined,
+      lead_status: options.status,
+      lead_sort: undefined,
+      lead_dir: undefined,
+      lead_sorts: undefined,
+      campaign: undefined,
+      section: undefined,
+      subsection: undefined,
+      affiliate: undefined,
+    };
+
+    if (active !== "leads") {
+      setActive("leads");
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => setQueryParams(nextParams));
+      });
+    } else {
+      setQueryParams(nextParams);
+    }
+  };
+
+  const openCampaignFromMetrics = (campaignId?: string) => {
+    if (campaignId) {
+      openCampaign(campaignId);
+      return;
+    }
+
+    setCampaignDetailOpen(false);
+    setSelectedCampaign(null);
+    setFocusedAffiliateId(null);
+    setCampaignDetailTab("overview");
+    setCampaignDetailSubTab(undefined);
+
+    const nextParams = {
+      view: "campaigns",
+      campaign: undefined,
+      section: undefined,
+      subsection: undefined,
+      affiliate: undefined,
+    };
+
+    if (active !== "campaigns") {
+      setActive("campaigns");
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => setQueryParams(nextParams));
+      });
+    } else {
+      setQueryParams(nextParams);
+    }
   };
 
   const {
@@ -1185,7 +1272,12 @@ function DashboardContent({
                 exit={{ opacity: 0, y: -4 }}
                 transition={{ duration: 0.14, ease: "easeOut" }}
               >
-                <HomeView campaigns={campaigns} affiliates={affiliates} />
+                <HomeView
+                  campaigns={campaigns}
+                  affiliates={affiliates}
+                  onOpenLeads={openLeadsFromMetrics}
+                  onOpenCampaign={openCampaignFromMetrics}
+                />
               </motion.section>
             )}
             {active === "leads" && (

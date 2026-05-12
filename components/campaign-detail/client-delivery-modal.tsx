@@ -2,7 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Globe, Plus, Shield, Trash2, AlertTriangle, Info } from "lucide-react";
+import {
+  Globe,
+  Plus,
+  Shield,
+  Trash2,
+  AlertTriangle,
+  Info,
+  Star,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Modal } from "@/components/modal";
 import { Button } from "@/components/button";
@@ -618,7 +626,8 @@ export function ClientDeliveryModal({
                 <Globe size={12} className="shrink-0 opacity-60" />
                 <span className="min-w-0 flex-1 truncate">{d.name}</span>
                 {d.is_primary && (
-                  <span className="shrink-0 rounded-full border border-[--color-border] bg-[--color-panel] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                  <span className="shrink-0 inline-flex items-center gap-1 rounded-full border border-[--color-primary]/35 bg-[--color-primary]/10 px-1.5 py-[2px] text-[9px] font-semibold uppercase tracking-wide text-[--color-primary]">
+                    <Star size={12} className="fill-current" />
                     Primary
                   </span>
                 )}
@@ -788,7 +797,7 @@ export function ClientDeliveryModal({
                             </select>
                           </label>
 
-                          <label className="flex items-end gap-2 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-3 py-2 text-xs text-[--color-text]">
+                          <label className="flex items-center gap-1.5 rounded-md border border-[--color-border] bg-[--color-bg-muted] px-2.5 py-1.5 text-xs text-[--color-text]">
                             <input
                               type="checkbox"
                               checked={!!draft.is_primary}
@@ -799,6 +808,14 @@ export function ClientDeliveryModal({
                                 }))
                               }
                               className="h-3.5 w-3.5 rounded border-[--color-border] text-[--color-primary] focus:ring-[--color-primary]/30"
+                            />
+                            <Star
+                              size={14}
+                              className={`shrink-0 ${
+                                draft.is_primary
+                                  ? "fill-current text-[--color-primary]"
+                                  : "text-[--color-text-muted]"
+                              }`}
                             />
                             <span>
                               Mark as primary destination (controls sold or

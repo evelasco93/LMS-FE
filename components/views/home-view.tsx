@@ -7,6 +7,8 @@ import {
   Activity,
   AlertTriangle,
   CalendarRange,
+  ChevronDown,
+  ChevronUp,
   RefreshCcw,
 } from "lucide-react";
 import {
@@ -46,13 +48,22 @@ const ZERO_COUNTERS: MetricsCounters = {
   rejected: 0,
 };
 
-const PIE_COLORS = ["#2550a2", "#1e73b1", "#81cff0", "#2e7d32", "#c9934d"];
+const CAMPAIGN_COLORS = ["#2550a2", "#1e73b1", "#81cff0", "#2e7d32", "#c9934d"];
+const SOURCE_COLORS = ["#0f766e", "#0ea5e9", "#22c55e", "#f59e0b", "#ef4444"];
+const OUTCOME_COLORS = ["#1d4ed8", "#0f766e", "#b45309"];
 
 const numberFormatter = new Intl.NumberFormat("en-US");
 
 type HomeViewProps = {
   campaigns: Campaign[];
   affiliates: Affiliate[];
+  onOpenLeads?: (options: {
+    status?: "accepted" | "rejected" | "sold";
+    sourceKey?: string;
+    campaignId?: string;
+    affiliateId?: string;
+  }) => void;
+  onOpenCampaign?: (campaignId?: string) => void;
 };
 
 type PieDatum = {
@@ -60,6 +71,21 @@ type PieDatum = {
   name: string;
   value: number;
 };
+
+type SourceTableRow = {
+  key: string;
+  name: string;
+  received: number;
+  accepted: number;
+  sold: number;
+};
+
+type TimePreset =
+  | "year_to_date"
+  | "this_month"
+  | "last_30_days"
+  | "last_7_days"
+  | "custom";
 
 function toInputDateValue(date: Date) {
   const offsetMs = date.getTimezoneOffset() * 60_000;
@@ -99,7 +125,45 @@ function sumCounters(rows: MetricsContractEntry[]) {
   return rows.reduce((acc, row) => acc + row.counters.received, 0);
 }
 
-export function HomeView({ campaigns, affiliates }: HomeViewProps) {
+function getPresetDateRange(preset: TimePreset, now: Date) {
+  const to = toInputDateValue(now);
+  if (preset === "year_to_date") {
+    const from = new Date(now.getFullYear(), 0, 1);
+    return { from: toInputDateValue(from), to };
+  }
+  if (preset === "this_month") {
+    const from = new Date(now.getFullYear(), now.getMonth(), 1);
+    return { from: toInputDateValue(from), to };
+  }
+  if (preset === "last_7_days") {
+    const from = new Date(now);
+    from.setDate(from.getDate() - 6);
+    return { from: toInputDateValue(from), to };
+  }
+  const from = new Date(now);
+  from.setDate(from.getDate() - 29);
+  return { from: toInputDateValue(from), to };
+}
+
+function getRateBand(rate: number) {
+  if (rate <= 30) return "red";
+  if (rate >= 81) return "green";
+  return "yellow";
+}
+
+function getRateTextColor(rate: number) {
+  const band = getRateBand(rate);
+  if (band === "red") return "text-[--color-danger]";
+  if (band === "green") return "text-[--color-success]";
+  return "text-[#b28707]";
+}
+
+export function HomeView({
+  campaigns,
+  affiliates,
+  onOpenLeads,
+  onOpenCampaign,
+}: HomeViewProps) {
   const today = useMemo(() => new Date(), []);
   const defaultToDate = useMemo(() => toInputDateValue(today), [today]);
   const defaultFromDate = useMemo(() => {
@@ -117,6 +181,8 @@ export function HomeView({ campaigns, affiliates }: HomeViewProps) {
     from_date: defaultFromDate,
     to_date: defaultToDate,
   });
+  const [filtersOpen, setFiltersOpen] = useState(true);
+  const [activePreset, setActivePreset] = useState<TimePreset>("last_30_days");
   const [filterError, setFilterError] = useState<string | null>(null);
 
   const liveCampaigns = useMemo(
@@ -244,6 +310,33 @@ export function HomeView({ campaigns, affiliates }: HomeViewProps) {
     return map;
   }, [campaigns, affiliates]);
 
+  const sourceAffiliateByKey = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const campaign of campaigns) {
+      for (const affiliate of campaign.affiliates || []) {
+        const key = affiliate.campaign_key?.trim();
+        const affiliateId = affiliate.affiliate_id?.trim();
+        if (key && affiliateId && !map.has(key)) {
+          map.set(key, affiliateId);
+        }
+      }
+    }
+    return map;
+  }, [campaigns]);
+
+  const sourceCampaignByKey = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const campaign of campaigns) {
+      for (const affiliate of campaign.affiliates || []) {
+        const key = affiliate.campaign_key?.trim();
+        if (key && !map.has(key)) {
+          map.set(key, campaign.id);
+        }
+      }
+    }
+    return map;
+  }, [campaigns]);
+
   const campaignBreakdown = useMemo(() => {
     const rows = breakdown?.data?.campaigns || [];
     return toPieData(rows, campaignLabelById);
@@ -252,6 +345,24 @@ export function HomeView({ campaigns, affiliates }: HomeViewProps) {
   const sourceBreakdown = useMemo(() => {
     const rows = breakdown?.data?.sources || [];
     return toPieData(rows, sourceLabelByKey);
+  }, [breakdown, sourceLabelByKey]);
+
+  const sourceTableRows = useMemo(() => {
+    return (breakdown?.data?.sources || [])
+      .map((item) => {
+        const key = item.key?.trim();
+        if (!key) return null;
+        return {
+          key,
+          name: sourceLabelByKey.get(key) || key,
+          received: item.counters.received,
+          accepted: item.counters.accepted,
+          sold: item.counters.sold,
+        };
+      })
+      .filter((item): item is SourceTableRow => Boolean(item))
+      .filter((item) => item.received > 0)
+      .sort((a, b) => b.received - a.received);
   }, [breakdown, sourceLabelByKey]);
 
   const contractRows = useMemo(() => {
@@ -278,6 +389,10 @@ export function HomeView({ campaigns, affiliates }: HomeViewProps) {
     () => sourceBreakdown.reduce((acc, entry) => acc + entry.value, 0),
     [sourceBreakdown],
   );
+  const sourceTableTotal = useMemo(
+    () => sourceTableRows.reduce((acc, row) => acc + row.received, 0),
+    [sourceTableRows],
+  );
   const outcomeTotal = useMemo(
     () => outcomeMixData.reduce((acc, entry) => acc + entry.value, 0),
     [outcomeMixData],
@@ -302,6 +417,28 @@ export function HomeView({ campaigns, affiliates }: HomeViewProps) {
       to_date: draftFilters.to_date,
       campaign_id: draftFilters.campaign_id || undefined,
     });
+    setActivePreset("custom");
+  };
+
+  const applyPreset = (preset: TimePreset) => {
+    if (preset === "custom") {
+      setActivePreset("custom");
+      return;
+    }
+
+    const { from, to } = getPresetDateRange(preset, today);
+    setFilterError(null);
+    setActivePreset(preset);
+    setDraftFilters((prev) => ({
+      ...prev,
+      from_date: from,
+      to_date: to,
+    }));
+    setAppliedFilters((prev) => ({
+      ...prev,
+      from_date: from,
+      to_date: to,
+    }));
   };
 
   const resetOptionalFilters = () => {
@@ -311,6 +448,19 @@ export function HomeView({ campaigns, affiliates }: HomeViewProps) {
       to_date: prev.to_date,
     }));
     setFilterError(null);
+  };
+
+  const openLeadsBySource = (sourceKey: string) => {
+    onOpenLeads?.({
+      sourceKey,
+      campaignId:
+        appliedFilters.campaign_id || sourceCampaignByKey.get(sourceKey),
+      affiliateId: sourceAffiliateByKey.get(sourceKey),
+    });
+  };
+
+  const openLeadsByStatus = (status: "rejected" | "sold") => {
+    onOpenLeads?.({ status, campaignId: appliedFilters.campaign_id });
   };
 
   const acceptedRate =
@@ -345,80 +495,134 @@ export function HomeView({ campaigns, affiliates }: HomeViewProps) {
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <label className="text-sm">
-            <span className="mb-1 block text-xs font-semibold text-[--color-text-muted]">
-              From date
-            </span>
-            <input
-              type="date"
-              className={inputClass}
-              value={draftFilters.from_date}
-              onChange={(event) =>
-                setDraftFilters((prev) => ({
-                  ...prev,
-                  from_date: event.target.value,
-                }))
-              }
-            />
-          </label>
-
-          <label className="text-sm">
-            <span className="mb-1 block text-xs font-semibold text-[--color-text-muted]">
-              To date
-            </span>
-            <input
-              type="date"
-              className={inputClass}
-              value={draftFilters.to_date}
-              onChange={(event) =>
-                setDraftFilters((prev) => ({
-                  ...prev,
-                  to_date: event.target.value,
-                }))
-              }
-            />
-          </label>
-
-          <label className="text-sm">
-            <span className="mb-1 block text-xs font-semibold text-[--color-text-muted]">
-              Campaign (optional)
-            </span>
-            <select
-              className={inputClass}
-              value={draftFilters.campaign_id || ""}
-              onChange={(event) =>
-                setDraftFilters((prev) => ({
-                  ...prev,
-                  campaign_id: event.target.value,
-                }))
-              }
+        <div className="mt-4 rounded-[--radius-sm] border border-[--color-border] bg-[--color-bg-muted] p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+              Filters
+            </p>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-[--radius-pill] border border-[--color-border] bg-[--color-panel] px-2.5 py-1 text-xs font-semibold text-[--color-text-muted] transition hover:text-[--color-text-strong]"
+              onClick={() => setFiltersOpen((prev) => !prev)}
             >
-              <option value="">All LIVE campaigns</option>
-              {liveCampaigns.map((campaign) => (
-                <option key={campaign.id} value={campaign.id}>
-                  {campaign.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+              {filtersOpen ? "Hide" : "Show"}
+              {filtersOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
+          </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <Button
-            size="sm"
-            onClick={applyFilters}
-            iconLeft={<RefreshCcw size={14} />}
-          >
-            Apply filters
-          </Button>
-          <Button size="sm" variant="ghost" onClick={resetOptionalFilters}>
-            Clear optional filters
-          </Button>
-          {filterError && (
-            <span className="text-xs font-medium text-[--color-danger]">
-              {filterError}
-            </span>
+          {filtersOpen && (
+            <>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {(
+                  [
+                    { key: "year_to_date", label: "Year to date" },
+                    { key: "this_month", label: "This month" },
+                    { key: "last_30_days", label: "Last 30 days" },
+                    { key: "last_7_days", label: "Last 7 days" },
+                    { key: "custom", label: "Custom" },
+                  ] as const
+                ).map((preset) => {
+                  const isActive = activePreset === preset.key;
+                  return (
+                    <button
+                      key={preset.key}
+                      type="button"
+                      onClick={() => applyPreset(preset.key)}
+                      className={`rounded-[--radius-pill] border px-3 py-1 text-xs font-semibold transition ${
+                        isActive
+                          ? "border-[--color-border-alt] bg-[color-mix(in_srgb,var(--color-primary)_16%,var(--color-panel))] text-[--color-primary]"
+                          : "border-[--color-border] bg-[--color-panel] text-[--color-text-muted] hover:text-[--color-text]"
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                {activePreset === "custom" && (
+                  <>
+                    <label className="text-sm">
+                      <span className="mb-1 block text-xs font-semibold text-[--color-text-muted]">
+                        From date
+                      </span>
+                      <input
+                        type="date"
+                        className={inputClass}
+                        value={draftFilters.from_date}
+                        onChange={(event) => {
+                          setActivePreset("custom");
+                          setDraftFilters((prev) => ({
+                            ...prev,
+                            from_date: event.target.value,
+                          }));
+                        }}
+                      />
+                    </label>
+
+                    <label className="text-sm">
+                      <span className="mb-1 block text-xs font-semibold text-[--color-text-muted]">
+                        To date
+                      </span>
+                      <input
+                        type="date"
+                        className={inputClass}
+                        value={draftFilters.to_date}
+                        onChange={(event) => {
+                          setActivePreset("custom");
+                          setDraftFilters((prev) => ({
+                            ...prev,
+                            to_date: event.target.value,
+                          }));
+                        }}
+                      />
+                    </label>
+                  </>
+                )}
+
+                <label className="text-sm">
+                  <span className="mb-1 block text-xs font-semibold text-[--color-text-muted]">
+                    Campaign (optional)
+                  </span>
+                  <select
+                    className={inputClass}
+                    value={draftFilters.campaign_id || ""}
+                    onChange={(event) =>
+                      setDraftFilters((prev) => ({
+                        ...prev,
+                        campaign_id: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="">All LIVE campaigns</option>
+                    {liveCampaigns.map((campaign) => (
+                      <option key={campaign.id} value={campaign.id}>
+                        {campaign.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  onClick={applyFilters}
+                  iconLeft={<RefreshCcw size={14} />}
+                >
+                  Apply filters
+                </Button>
+                <Button size="sm" variant="ghost" onClick={resetOptionalFilters}>
+                  Clear optional filters
+                </Button>
+                {filterError && (
+                  <span className="text-xs font-medium text-[--color-danger]">
+                    {filterError}
+                  </span>
+                )}
+              </div>
+            </>
           )}
         </div>
       </div>
@@ -435,25 +639,53 @@ export function HomeView({ campaigns, affiliates }: HomeViewProps) {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
         {[
           { label: "Received", value: totals.received },
           { label: "Accepted", value: totals.accepted },
-          { label: "Sold", value: totals.sold },
+          {
+            label: "Sold",
+            value: totals.sold,
+            onClick: () => openLeadsByStatus("sold"),
+          },
+          {
+            label: "Rejected",
+            value: totals.rejected,
+            onClick: () => openLeadsByStatus("rejected"),
+          },
           {
             label: "Accepted Rate",
             value: `${acceptedRate}%`,
+            valueClassName: getRateTextColor(acceptedRate),
           },
           {
             label: "Sold Rate",
             value: `${soldRate}%`,
+            valueClassName: getRateTextColor(soldRate),
           },
         ].map((kpi) => (
-          <div key={kpi.label} className="panel p-3 sm:p-4">
+          <div
+            key={kpi.label}
+            className={`panel p-3 sm:p-4 ${kpi.onClick ? "cursor-pointer transition hover:brightness-[1.02]" : ""}`}
+            onClick={kpi.onClick}
+            role={kpi.onClick ? "button" : undefined}
+            tabIndex={kpi.onClick ? 0 : undefined}
+            onKeyDown={(event) => {
+              if (!kpi.onClick) return;
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                kpi.onClick();
+              }
+            }}
+          >
             <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
               {kpi.label}
             </p>
-            <p className="mt-2 text-xl font-bold text-[--color-text-strong] sm:text-2xl">
+            <p
+              className={`mt-2 text-xl font-bold sm:text-2xl ${
+                kpi.valueClassName || "text-[--color-text-strong]"
+              }`}
+            >
               {typeof kpi.value === "number"
                 ? numberFormatter.format(kpi.value)
                 : kpi.value}
@@ -577,11 +809,15 @@ export function HomeView({ campaigns, affiliates }: HomeViewProps) {
                       innerRadius={58}
                       outerRadius={86}
                       paddingAngle={2}
+                      onClick={(_, index) => {
+                        const row = campaignBreakdown[index];
+                        if (row?.key) onOpenCampaign?.(row.key);
+                      }}
                     >
                       {campaignBreakdown.map((entry, index) => (
                         <Cell
                           key={`${entry.name}-${index}`}
-                          fill={PIE_COLORS[index % PIE_COLORS.length]}
+                          fill={CAMPAIGN_COLORS[index % CAMPAIGN_COLORS.length]}
                         />
                       ))}
                     </Pie>
@@ -600,15 +836,17 @@ export function HomeView({ campaigns, affiliates }: HomeViewProps) {
                       ? Math.round((entry.value / campaignTotal) * 100)
                       : 0;
                   return (
-                    <div
+                    <button
                       key={`${entry.name}-legend`}
-                      className="flex items-center gap-2"
+                      type="button"
+                      className="flex w-full items-center gap-2 text-left transition hover:text-[--color-primary]"
+                      onClick={() => onOpenCampaign?.(entry.key)}
                     >
                       <span
                         className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
                         style={{
                           backgroundColor:
-                            PIE_COLORS[index % PIE_COLORS.length],
+                            CAMPAIGN_COLORS[index % CAMPAIGN_COLORS.length],
                         }}
                         aria-hidden
                       />
@@ -621,7 +859,7 @@ export function HomeView({ campaigns, affiliates }: HomeViewProps) {
                       <span className="text-[--color-text-muted]">
                         {ratio}%
                       </span>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
@@ -669,11 +907,15 @@ export function HomeView({ campaigns, affiliates }: HomeViewProps) {
                       innerRadius={58}
                       outerRadius={86}
                       paddingAngle={2}
+                      onClick={(_, index) => {
+                        const row = sourceBreakdown[index];
+                        if (row?.key) openLeadsBySource(row.key);
+                      }}
                     >
                       {sourceBreakdown.map((entry, index) => (
                         <Cell
                           key={`${entry.name}-${index}`}
-                          fill={PIE_COLORS[index % PIE_COLORS.length]}
+                          fill={SOURCE_COLORS[index % SOURCE_COLORS.length]}
                         />
                       ))}
                     </Pie>
@@ -697,15 +939,17 @@ export function HomeView({ campaigns, affiliates }: HomeViewProps) {
                       ? Math.round((entry.value / sourceTotal) * 100)
                       : 0;
                   return (
-                    <div
+                    <button
                       key={`${entry.name}-legend`}
-                      className="flex items-center gap-2"
+                      type="button"
+                      className="flex w-full items-center gap-2 text-left transition hover:text-[--color-primary]"
+                      onClick={() => openLeadsBySource(entry.key)}
                     >
                       <span
                         className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
                         style={{
                           backgroundColor:
-                            PIE_COLORS[index % PIE_COLORS.length],
+                            SOURCE_COLORS[index % SOURCE_COLORS.length],
                         }}
                         aria-hidden
                       />
@@ -718,7 +962,7 @@ export function HomeView({ campaigns, affiliates }: HomeViewProps) {
                       <span className="text-[--color-text-muted]">
                         {numberFormatter.format(entry.value)} ({ratio}%)
                       </span>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
@@ -748,11 +992,16 @@ export function HomeView({ campaigns, affiliates }: HomeViewProps) {
                       innerRadius={58}
                       outerRadius={86}
                       paddingAngle={2}
+                      onClick={(_, index) => {
+                        const row = outcomeMixData[index];
+                        if (row?.name === "Sold") openLeadsByStatus("sold");
+                        if (row?.name === "Rejected") openLeadsByStatus("rejected");
+                      }}
                     >
                       {outcomeMixData.map((entry, index) => (
                         <Cell
                           key={`${entry.name}-${index}`}
-                          fill={PIE_COLORS[index % PIE_COLORS.length]}
+                          fill={OUTCOME_COLORS[index % OUTCOME_COLORS.length]}
                         />
                       ))}
                     </Pie>
@@ -771,15 +1020,26 @@ export function HomeView({ campaigns, affiliates }: HomeViewProps) {
                       ? Math.round((entry.value / outcomeTotal) * 100)
                       : 0;
                   return (
-                    <div
+                    <button
                       key={`${entry.name}-legend`}
-                      className="flex items-center gap-2"
+                      type="button"
+                      className={`flex w-full items-center gap-2 text-left ${
+                        entry.name === "Sold" || entry.name === "Rejected"
+                          ? "transition hover:text-[--color-primary]"
+                          : ""
+                      }`}
+                      onClick={() => {
+                        if (entry.name === "Sold") openLeadsByStatus("sold");
+                        if (entry.name === "Rejected") {
+                          openLeadsByStatus("rejected");
+                        }
+                      }}
                     >
                       <span
                         className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
                         style={{
                           backgroundColor:
-                            PIE_COLORS[index % PIE_COLORS.length],
+                            OUTCOME_COLORS[index % OUTCOME_COLORS.length],
                         }}
                         aria-hidden
                       />
@@ -792,13 +1052,83 @@ export function HomeView({ campaigns, affiliates }: HomeViewProps) {
                       <span className="text-[--color-text-muted]">
                         {numberFormatter.format(entry.value)} ({ratio}%)
                       </span>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
             </>
           )}
         </div>
+      </div>
+
+      <div className="panel p-3 sm:p-4">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold text-[--color-text-strong]">
+            Top Sources
+          </h3>
+          <span className="inline-flex items-center gap-1 text-xs text-[--color-text-muted]">
+            <Activity size={14} />
+            Total received: {numberFormatter.format(sourceTableTotal)}
+          </span>
+        </div>
+
+        {breakdownLoading && sourceTableRows.length === 0 ? (
+          <div className="h-36 animate-pulse rounded-[--radius-sm] bg-[--color-bg-subtle]" />
+        ) : sourceTableRows.length === 0 ? (
+          <div className="rounded-[--radius-sm] border border-dashed border-[--color-border] p-6 text-center text-sm text-[--color-text-muted]">
+            No sources available for this filter scope.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full border-separate border-spacing-y-2 text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-wide text-[--color-text-muted]">
+                  <th className="px-3 py-1">Source</th>
+                  <th className="px-3 py-1">Received</th>
+                  <th className="px-3 py-1">Accepted</th>
+                  <th className="px-3 py-1">Sold</th>
+                  <th className="px-3 py-1">Share</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sourceTableRows.slice(0, 12).map((row) => {
+                  const ratio =
+                    sourceTableTotal > 0
+                      ? Math.round((row.received / sourceTableTotal) * 100)
+                      : 0;
+
+                  return (
+                    <tr
+                      key={`source-row-${row.key}`}
+                      className="rounded-[--radius-sm] bg-[--color-bg-muted] text-[--color-text]"
+                    >
+                      <td className="px-3 py-2 font-medium text-[--color-text-strong]">
+                        <button
+                          type="button"
+                          className="truncate text-left transition hover:text-[--color-primary]"
+                          title={row.name}
+                          onClick={() => openLeadsBySource(row.key)}
+                        >
+                          {row.name}
+                        </button>
+                      </td>
+                      <td className="px-3 py-2">
+                        {numberFormatter.format(row.received)}
+                      </td>
+                      <td className="px-3 py-2">
+                        {numberFormatter.format(row.accepted)}
+                      </td>
+                      <td className="px-3 py-2">
+                        {numberFormatter.format(row.sold)}
+                      </td>
+                      <td className="px-3 py-2">{ratio}%</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <div className="panel p-3 sm:p-4">

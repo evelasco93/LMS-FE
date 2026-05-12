@@ -57,6 +57,7 @@ import {
 } from "@/lib/utils";
 import {
   listUsers,
+  getMetricsSummary,
   listPluginSettings,
   listCriteria,
   createCriteriaField,
@@ -2261,6 +2262,47 @@ export function CampaignDetailModal({
     () => leads.filter((l) => campaign?.id && l.campaign_id === campaign.id),
     [leads, campaign],
   );
+  const [campaignLeadCountTotal, setCampaignLeadCountTotal] = useState<
+    number | null
+  >(null);
+
+  useEffect(() => {
+    if (!campaign?.id || !isOpen) {
+      setCampaignLeadCountTotal(null);
+      return;
+    }
+
+    let active = true;
+
+    const loadCampaignLeadCountTotal = async () => {
+      try {
+        const summary = await getMetricsSummary({
+          from_date: "1970-01-01",
+          to_date: "9999-12-31",
+          campaign_id: campaign.id,
+        });
+        const receivedTotal = summary?.data?.totals?.received;
+        if (!active) return;
+        if (
+          typeof receivedTotal === "number" &&
+          Number.isFinite(receivedTotal)
+        ) {
+          setCampaignLeadCountTotal(receivedTotal);
+          return;
+        }
+        setCampaignLeadCountTotal(null);
+      } catch {
+        if (active) setCampaignLeadCountTotal(null);
+      }
+    };
+
+    void loadCampaignLeadCountTotal();
+
+    return () => {
+      active = false;
+    };
+  }, [campaign?.id, isOpen]);
+
   const leadsByCampaignKey = useMemo(() => {
     const counts = new Map<string, number>();
     leadsForCampaign.forEach((lead) => {
@@ -2485,8 +2527,8 @@ export function CampaignDetailModal({
         bodyClassName="bg-[color-mix(in_srgb,var(--color-panel)_92%,var(--color-bg-subtle))] px-5 py-4"
       >
         <div className="space-y-4">
-          <div className="flex h-[65vh] gap-4 rounded-[--radius-md] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_90%,var(--color-bg-subtle))] p-3 shadow-[var(--shadow-inset)]">
-            <nav className="w-48 shrink-0 space-y-1 rounded-[--radius-md] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_94%,var(--color-bg-subtle))] p-2 shadow-[var(--shadow-inset)]">
+          <div className="flex h-[65vh] gap-4 rounded-[--radius-md] bg-[color-mix(in_srgb,var(--color-panel)_90%,var(--color-bg-subtle))] p-3">
+            <nav className="w-48 shrink-0 space-y-1 rounded-[--radius-md] bg-[color-mix(in_srgb,var(--color-panel)_94%,var(--color-bg-subtle))] p-2 shadow-[var(--shadow-inset)]">
               {(
                 [
                   { key: "overview", label: "Overview", icon: LayoutGrid },
@@ -2518,7 +2560,7 @@ export function CampaignDetailModal({
               })}
             </nav>
 
-            <div className="min-w-0 flex-1 overflow-y-auto rounded-[--radius-md] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_96%,var(--color-bg-subtle))] p-3 shadow-[var(--shadow-inset)]">
+            <div className="min-w-0 flex-1 overflow-y-auto rounded-[--radius-md] bg-[color-mix(in_srgb,var(--color-panel)_96%,var(--color-bg-subtle))] p-3">
               <AnimatePresence mode="wait">
                 <motion.div
                   key={tab}
@@ -2532,6 +2574,7 @@ export function CampaignDetailModal({
                     <OverviewTab
                       campaign={campaign}
                       leadsForCampaign={leadsForCampaign}
+                      campaignLeadCountTotal={campaignLeadCountTotal}
                       linkedClientsCount={linkedClients.length}
                       linkedAffiliatesCount={linkedAffiliates.length}
                       criteriaFields={criteriaFields}

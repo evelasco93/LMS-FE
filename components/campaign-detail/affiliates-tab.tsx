@@ -177,7 +177,7 @@ export function AffiliatesTab({
             return (
               <div
                 key={a.id}
-                className={`rounded-md bg-[--color-panel] overflow-hidden ${
+                className={`overflow-hidden rounded-2xl border border-[--color-border]/70 bg-[color-mix(in_srgb,var(--color-panel)_95%,var(--color-bg-subtle))] ${
                   isFocused ? "ring-2 ring-[--color-primary]" : ""
                 }`}
               >

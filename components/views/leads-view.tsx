@@ -272,8 +272,9 @@ export interface LeadViewFilters {
   search: string;
   campaignId: string;
   affiliateId: string;
+  sourceKey: string;
   mode: "all" | "test" | "live";
-  status: "all" | "accepted" | "rejected";
+  status: "all" | "accepted" | "rejected" | "sold";
   sortBy: LeadSortKey;
   sortDir: "asc" | "desc";
   sorts?: Array<{ key: LeadSortKey; dir: "asc" | "desc" }>;
@@ -283,6 +284,7 @@ const DEFAULT_FILTERS: LeadViewFilters = {
   search: "",
   campaignId: "all",
   affiliateId: "all",
+  sourceKey: "all",
   mode: "all",
   status: "all",
   sortBy: "created_at",
@@ -380,6 +382,9 @@ export function LeadsView({
   const [affiliateFilter, setAffiliateFilter] = useState(
     mergedInitial.affiliateId,
   );
+  const [sourceKeyFilter, setSourceKeyFilter] = useState(
+    mergedInitial.sourceKey,
+  );
   const [modeFilter, setModeFilter] = useState<LeadViewFilters["mode"]>(
     mergedInitial.mode,
   );
@@ -415,6 +420,7 @@ export function LeadsView({
     setSearch(mergedInitial.search);
     setCampaignFilter(mergedInitial.campaignId);
     setAffiliateFilter(mergedInitial.affiliateId);
+    setSourceKeyFilter(mergedInitial.sourceKey);
     setModeFilter(mergedInitial.mode);
     setStatusFilter(mergedInitial.status);
     setSortRules(
@@ -429,6 +435,7 @@ export function LeadsView({
       search,
       campaignId: campaignFilter,
       affiliateId: affiliateFilter,
+      sourceKey: sourceKeyFilter,
       mode: modeFilter,
       status: statusFilter,
       sortBy: sortRules[0]?.key ?? "created_at",
@@ -439,6 +446,7 @@ export function LeadsView({
     search,
     campaignFilter,
     affiliateFilter,
+    sourceKeyFilter,
     modeFilter,
     statusFilter,
     sortRules,
@@ -519,6 +527,10 @@ export function LeadsView({
       );
     }
 
+    if (sourceKeyFilter !== "all") {
+      items = items.filter(({ lead }) => lead.campaign_key === sourceKeyFilter);
+    }
+
     if (modeFilter !== "all") {
       items = items.filter(({ lead }) =>
         modeFilter === "test" ? lead.test : !lead.test,
@@ -526,9 +538,13 @@ export function LeadsView({
     }
 
     if (statusFilter !== "all") {
-      items = items.filter(({ lead }) =>
-        statusFilter === "rejected" ? !!lead.rejected : !lead.rejected,
-      );
+      items = items.filter(({ lead }) => {
+        if (statusFilter === "rejected") return !!lead.rejected;
+        if (statusFilter === "sold") {
+          return lead.sold === true || lead.sold_status === "sold";
+        }
+        return !lead.rejected;
+      });
     }
 
     if (search.trim()) {
@@ -604,6 +620,7 @@ export function LeadsView({
     enrichedLeads,
     campaignFilter,
     affiliateFilter,
+    sourceKeyFilter,
     modeFilter,
     statusFilter,
     search,
@@ -646,6 +663,7 @@ export function LeadsView({
   const clearFilters = () => {
     setCampaignFilter("all");
     setAffiliateFilter("all");
+    setSourceKeyFilter("all");
     setModeFilter("all");
     setStatusFilter("all");
   };
@@ -689,6 +707,7 @@ export function LeadsView({
     (search.trim() ? 1 : 0) +
     (campaignFilter !== "all" ? 1 : 0) +
     (affiliateFilter !== "all" ? 1 : 0) +
+    (sourceKeyFilter !== "all" ? 1 : 0) +
     (modeFilter !== "all" ? 1 : 0) +
     (statusFilter !== "all" ? 1 : 0);
 
@@ -1643,6 +1662,7 @@ export function LeadsView({
                                 { value: "all", label: "All" },
                                 { value: "accepted", label: "Accepted" },
                                 { value: "rejected", label: "Rejected" },
+                                { value: "sold", label: "Sold" },
                               ] as const
                             ).map((option) => {
                               const isActive = statusFilter === option.value;

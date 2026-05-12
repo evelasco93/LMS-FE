@@ -15,7 +15,7 @@ export function HistoryTab({
   affiliateNameById: Map<string, string>;
 }) {
   return (
-    <div className="divide-y divide-[--color-border] rounded-[--radius-md] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_95%,var(--color-bg-subtle))] shadow-[var(--shadow-inset)]">
+    <div className="divide-y divide-[--color-border] rounded-[--radius-md] bg-[color-mix(in_srgb,var(--color-panel)_95%,var(--color-bg-subtle))]">
       {!campaignAuditData ? (
         <p className="py-10 text-center text-sm text-[--color-text-muted]">
           Loading history…

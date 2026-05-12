@@ -148,7 +148,7 @@ export function ClientsTab({
             return (
               <div
                 key={c.id}
-                className="rounded-md bg-[--color-panel] overflow-hidden"
+                className="overflow-hidden rounded-2xl border border-[--color-border]/70 bg-[color-mix(in_srgb,var(--color-panel)_95%,var(--color-bg-subtle))]"
               >
                 <div className="flex items-center justify-between px-3 py-2">
                   <div className="min-w-0">
