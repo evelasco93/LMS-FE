@@ -714,11 +714,18 @@ export function LeadsView({
     return [...keys].sort();
   }, [leads]);
 
-  const showingFrom = totalItems === 0 ? 0 : (page - 1) * pageSize + 1;
-  const showingTo =
+  const boundedTotalItems = Math.max(0, totalItems);
+  const rawShowingFrom = boundedTotalItems === 0 ? 0 : (page - 1) * pageSize + 1;
+  const showingFrom =
+    boundedTotalItems === 0
+      ? 0
+      : Math.max(1, Math.min(rawShowingFrom, boundedTotalItems));
+  const visibleCount = Math.max(0, paginatedLeads.length);
+  const rawShowingTo =
     showingFrom === 0
       ? 0
-      : Math.min(showingFrom + paginatedLeads.length - 1, totalItems);
+      : Math.min(showingFrom + visibleCount - 1, boundedTotalItems);
+  const showingTo = showingFrom === 0 ? 0 : Math.max(showingFrom, rawShowingTo);
 
   const allAvailableColumnKeys = useMemo(
     () => [
@@ -2118,6 +2125,12 @@ export function LeadsView({
           </div>
         </div>
       </Modal>
+
+      <div className="mb-2 flex justify-end">
+        <Badge tone="neutral">
+          Total leads (counters): {totalItems}
+        </Badge>
+      </div>
 
       <PaginationControls
         page={page}

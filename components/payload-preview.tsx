@@ -1144,7 +1144,7 @@ export function PayloadPreview({
         type="button"
         size="sm"
         variant="secondary"
-        className="bg-[--color-primary] text-[--color-bg] hover:bg-[color-mix(in_srgb,var(--color-primary)_85%,black)]"
+        className="bg-[--color-primary] !text-white hover:!text-white hover:bg-[color-mix(in_srgb,var(--color-primary)_85%,black)]"
         onClick={openPayload}
       >
         View

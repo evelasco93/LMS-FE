@@ -44,6 +44,7 @@ import {
   listClients,
   listAffiliates,
   listCampaigns,
+  getMetricsSummary,
 } from "@/lib/api";
 import type { Affiliate, Campaign, Client, Lead } from "@/lib/types";
 import type { CampaignDetailTab } from "@/lib/types";
@@ -588,10 +589,30 @@ function DashboardContent({
 
         const minimumTotal = knownCount;
 
+        let resolvedTotal = minimumTotal;
+        try {
+          const leadCampaignFilter = getParam("lead_campaign");
+          const summary = await getMetricsSummary({
+            from_date: "1970-01-01",
+            to_date: "9999-12-31",
+            campaign_id:
+              leadCampaignFilter && leadCampaignFilter !== "all"
+                ? leadCampaignFilter
+                : undefined,
+          });
+          const receivedTotal = summary?.data?.totals?.received;
+          if (typeof receivedTotal === "number" && Number.isFinite(receivedTotal)) {
+            resolvedTotal = receivedTotal;
+          }
+        } catch {
+          // Keep the minimum-known pagination total if metrics summary is unavailable.
+          resolvedTotal = minimumTotal;
+        }
+
         if (requestId === leadListRequestIdRef.current) {
           setLeadListRows(rows);
           setLeadListHasNextPage(!!nextToken);
-          setLeadListTotalItems(minimumTotal);
+          setLeadListTotalItems(resolvedTotal);
         }
       } catch (error) {
         const message =
@@ -611,7 +632,7 @@ function DashboardContent({
         }
       }
     },
-    [ensureLeadListPageLoaded, leadListPage, leadListPageSize],
+    [ensureLeadListPageLoaded, leadListPage, leadListPageSize, getParam],
   );
 
   const resetLeadListPagination = useCallback((nextPageSize: number) => {
@@ -1158,13 +1179,13 @@ function DashboardContent({
             {active === "home" && (
               <motion.section
                 key="home"
-                className="flex flex-col items-center justify-center h-full min-h-[60vh] gap-6 text-center"
+                className="space-y-4"
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -4 }}
                 transition={{ duration: 0.14, ease: "easeOut" }}
               >
-                <HomeView />
+                <HomeView campaigns={campaigns} affiliates={affiliates} />
               </motion.section>
             )}
             {active === "leads" && (

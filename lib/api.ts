@@ -22,6 +22,12 @@ import type {
   Lead,
   LogicCatalogSet,
   LogicCatalogVersion,
+  MetricsBreakdownResponse,
+  MetricsContractsResponse,
+  MetricsHealthResponse,
+  MetricsQueryParams,
+  MetricsSummaryResponse,
+  MetricsTimeseriesResponse,
   SourceAffiliatePixelInfo,
   TagDefinitionRecord,
   PaginatedResponse,
@@ -111,6 +117,31 @@ async function request<T>(path: string, options: RequestInitWithBody = {}) {
   }
 
   return handleResponse<T>(res);
+}
+
+export async function getMetricsSummary(params: MetricsQueryParams) {
+  const url = buildUrl("/metrics/summary", params);
+  return request<MetricsSummaryResponse>(url);
+}
+
+export async function getMetricsTimeseries(params: MetricsQueryParams) {
+  const url = buildUrl("/metrics/timeseries", params);
+  return request<MetricsTimeseriesResponse>(url);
+}
+
+export async function getMetricsCampaignBySource(params: MetricsQueryParams) {
+  const url = buildUrl("/metrics/campaign-by-source", params);
+  return request<MetricsBreakdownResponse>(url);
+}
+
+export async function getMetricsContracts(params: MetricsQueryParams) {
+  const url = buildUrl("/metrics/contracts", params);
+  return request<MetricsContractsResponse>(url);
+}
+
+export async function getMetricsHealth(params: Pick<MetricsQueryParams, "from_date" | "to_date">) {
+  const url = buildUrl("/metrics/health", params);
+  return request<MetricsHealthResponse>(url);
 }
 
 // Clients

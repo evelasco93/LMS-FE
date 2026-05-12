@@ -26,6 +26,7 @@
     "react-dom": "^18.2.0",
     "react-paginate": "^8.3.0",
     "react-phone-input-2": "^2.15.1",
+    "recharts": "^3.8.1",
     "sonner": "^1.4.0",
     "swr": "^2.2.4"
   },
@@ -37,6 +38,8 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "autoprefixer": "^10.4.17",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "16.2.6",
     "jsdom": "^25.0.1",
     "msw": "^2.10.5",
     "postcss": "^8.4.33",

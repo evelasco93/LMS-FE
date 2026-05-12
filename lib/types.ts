@@ -506,6 +506,95 @@ export interface ApiResponse<T> {
   data: T;
 }
 
+export type MetricsQueryParams = {
+  from_date: string;
+  to_date: string;
+  campaign_id?: string;
+  campaign_key?: string;
+};
+
+export type MetricsCounters = {
+  received: number;
+  accepted: number;
+  sold: number;
+  accepted_not_sold: number;
+  rejected: number;
+};
+
+export type MetricsRange = {
+  from_date: string;
+  to_date: string;
+};
+
+export type MetricsFilters = {
+  campaign_id?: string;
+  campaign_key?: string;
+};
+
+export type MetricsSummaryData = {
+  range: MetricsRange;
+  filters?: MetricsFilters;
+  totals: MetricsCounters;
+};
+
+export type MetricsSummaryResponse = ApiResponse<MetricsSummaryData>;
+
+export type MetricsTimeseriesPoint = {
+  bucket_start: string;
+  counters: MetricsCounters;
+};
+
+export type MetricsTimeseriesData = {
+  range: MetricsRange;
+  filters?: MetricsFilters;
+  points: MetricsTimeseriesPoint[];
+};
+
+export type MetricsTimeseriesResponse = ApiResponse<MetricsTimeseriesData>;
+
+export type MetricsBreakdownEntry = {
+  key: string;
+  counters: MetricsCounters;
+};
+
+export type MetricsBreakdownData = {
+  range: MetricsRange;
+  filters?: MetricsFilters;
+  campaign_summary?: {
+    campaign_id: string;
+    counters: MetricsCounters;
+  };
+  campaigns: MetricsBreakdownEntry[];
+  sources: MetricsBreakdownEntry[];
+};
+
+export type MetricsBreakdownResponse = ApiResponse<MetricsBreakdownData>;
+
+export type MetricsContractEntry = {
+  contract_id: string;
+  counters: MetricsCounters;
+};
+
+export type MetricsContractsData = {
+  contracts: MetricsContractEntry[];
+};
+
+export type MetricsContractsResponse = ApiResponse<MetricsContractsData>;
+
+export type MetricsHealthChecks = {
+  received_equals_accepted_plus_rejected: boolean;
+  accepted_equals_sold_plus_accepted_not_sold: boolean;
+};
+
+export type MetricsHealthData = {
+  status: "ok" | "degraded";
+  totals: MetricsCounters;
+  checks: MetricsHealthChecks;
+  issues: string[];
+};
+
+export type MetricsHealthResponse = ApiResponse<MetricsHealthData>;
+
 export type CredentialType = "api_key" | "basic_auth" | "bearer_token";
 
 /** One entry from the AVAILABLE_PLUGINS registry — static metadata, no DB. */
