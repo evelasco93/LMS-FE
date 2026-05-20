@@ -37,6 +37,7 @@ import {
   MetricsBreakdownEntry,
   MetricsContractEntry,
   MetricsCounters,
+  MetricsPeakLeadWindow,
   MetricsQueryParams,
 } from "@/lib/types";
 
@@ -156,6 +157,36 @@ function getRateTextColor(rate: number) {
   if (band === "red") return "text-[--color-danger]";
   if (band === "green") return "text-[--color-success]";
   return "text-[#b28707]";
+}
+
+function formatPeakLeadWindowLocalLabel(
+  peakLeadWindow: MetricsPeakLeadWindow | null,
+) {
+  if (!peakLeadWindow) return "N/A";
+
+  const start = new Date(peakLeadWindow.start);
+  const end = new Date(peakLeadWindow.end);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return peakLeadWindow.label;
+  }
+
+  const timeFormatter = new Intl.DateTimeFormat(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const timezoneFormatter = new Intl.DateTimeFormat(undefined, {
+    timeZoneName: "short",
+  });
+
+  const timeZoneName =
+    timezoneFormatter
+      .formatToParts(start)
+      .find((part) => part.type === "timeZoneName")?.value ||
+    Intl.DateTimeFormat().resolvedOptions().timeZone ||
+    "local";
+
+  return `${timeFormatter.format(start)}-${timeFormatter.format(end)} ${timeZoneName}`;
 }
 
 export function HomeView({
@@ -373,6 +404,7 @@ export function HomeView({
 
   const totals = summary?.data?.totals || ZERO_COUNTERS;
   const peakLeadWindow = summary?.data?.peak_lead_window || null;
+  const peakLeadWindowLabel = formatPeakLeadWindowLocalLabel(peakLeadWindow);
 
   const peakLeadWindowHelp = peakLeadWindow
     ? `${numberFormatter.format(peakLeadWindow.received)} of ${numberFormatter.format(peakLeadWindow.total_received)} leads (${peakLeadWindow.share_percent.toFixed(1)}%)`
@@ -508,7 +540,7 @@ export function HomeView({
     },
     {
       label: "Peak Intake Hour",
-      value: peakLeadWindow?.label || "N/A",
+      value: peakLeadWindowLabel,
       help: peakLeadWindowHelp,
     },
   ];
