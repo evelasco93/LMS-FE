@@ -531,10 +531,20 @@ export type MetricsFilters = {
   campaign_key?: string;
 };
 
+export type MetricsPeakLeadWindow = {
+  start: string;
+  end: string;
+  label: string;
+  received: number;
+  total_received: number;
+  share_percent: number;
+};
+
 export type MetricsSummaryData = {
   range: MetricsRange;
   filters?: MetricsFilters;
   totals: MetricsCounters;
+  peak_lead_window: MetricsPeakLeadWindow | null;
 };
 
 export type MetricsSummaryResponse = ApiResponse<MetricsSummaryData>;

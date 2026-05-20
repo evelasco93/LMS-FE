@@ -372,6 +372,11 @@ export function HomeView({
   }, [contracts]);
 
   const totals = summary?.data?.totals || ZERO_COUNTERS;
+  const peakLeadWindow = summary?.data?.peak_lead_window || null;
+
+  const peakLeadWindowHelp = peakLeadWindow
+    ? `${numberFormatter.format(peakLeadWindow.received)} of ${numberFormatter.format(peakLeadWindow.total_received)} leads (${peakLeadWindow.share_percent.toFixed(1)}%)`
+    : "No intake window data for selected range.";
 
   const outcomeMixData = useMemo(() => {
     return [
@@ -500,6 +505,11 @@ export function HomeView({
       label: "Sold Rate",
       value: `${soldRate}%`,
       valueClassName: getRateTextColor(soldRate),
+    },
+    {
+      label: "Peak Intake Hour",
+      value: peakLeadWindow?.label || "N/A",
+      help: peakLeadWindowHelp,
     },
   ];
 
@@ -680,7 +690,7 @@ export function HomeView({
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-7">
         {kpiCards.map((kpi: KpiCard) => (
           <div
             key={kpi.label}
