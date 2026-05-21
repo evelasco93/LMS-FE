@@ -89,8 +89,7 @@ type TimePreset =
   | "custom";
 
 function toInputDateValue(date: Date) {
-  const offsetMs = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 10);
+  return date.toISOString().slice(0, 10);
 }
 
 function formatAxisDate(value: string) {
@@ -129,20 +128,20 @@ function sumCounters(rows: MetricsContractEntry[]) {
 function getPresetDateRange(preset: TimePreset, now: Date) {
   const to = toInputDateValue(now);
   if (preset === "year_to_date") {
-    const from = new Date(now.getFullYear(), 0, 1);
+    const from = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
     return { from: toInputDateValue(from), to };
   }
   if (preset === "this_month") {
-    const from = new Date(now.getFullYear(), now.getMonth(), 1);
+    const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     return { from: toInputDateValue(from), to };
   }
   if (preset === "last_7_days") {
     const from = new Date(now);
-    from.setDate(from.getDate() - 6);
+    from.setUTCDate(from.getUTCDate() - 6);
     return { from: toInputDateValue(from), to };
   }
   const from = new Date(now);
-  from.setDate(from.getDate() - 29);
+  from.setUTCDate(from.getUTCDate() - 29);
   return { from: toInputDateValue(from), to };
 }
 
@@ -199,7 +198,7 @@ export function HomeView({
   const defaultToDate = useMemo(() => toInputDateValue(today), [today]);
   const defaultFromDate = useMemo(() => {
     const start = new Date(today);
-    start.setDate(start.getDate() - 29);
+    start.setUTCDate(start.getUTCDate() - 29);
     return toInputDateValue(start);
   }, [today]);
 
