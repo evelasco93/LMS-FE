@@ -767,10 +767,15 @@ function IpqsCheckSection({
   const passed = check.success === true;
   const failed = check.success === false;
 
+  useEffect(() => {
+    setOpen(failed);
+  }, [failed]);
+
   const rawFields = check.raw ? Object.entries(check.raw) : [];
   const criteriaEntries = check.criteria_results
     ? Object.entries(check.criteria_results)
     : [];
+  const failedCriteria = criteriaEntries.filter(([, pass]) => !pass);
 
   return (
     <div className="rounded-lg border border-[--color-border] bg-[--color-bg] overflow-hidden">
@@ -817,6 +822,14 @@ function IpqsCheckSection({
                   <p className="text-[10px] uppercase tracking-wide text-[--color-text-muted] font-semibold">
                     Criteria Results
                   </p>
+                  {failedCriteria.length > 0 && (
+                    <p className="text-xs text-[--color-danger]">
+                      Failed checks:{" "}
+                      {failedCriteria
+                        .map(([key]) => key.replace(/_/g, " "))
+                        .join(", ")}
+                    </p>
+                  )}
                   {criteriaEntries.map(([key, pass]) => (
                     <div
                       key={key}
