@@ -538,7 +538,7 @@ export function HomeView({
       valueClassName: getRateTextColor(soldRate),
     },
     {
-      label: "Peak Intake Hour",
+      label: "Peak Lead Submission Hour",
       value: peakLeadWindowLabel,
       help: peakLeadWindowHelp,
     },
