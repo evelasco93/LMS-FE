@@ -15,7 +15,6 @@ import {
   updateCampaignPlugins,
   setCampaignAffiliateLeadCap,
   setCampaignAffiliateSoldPixelConfig,
-  setCampaignClientDeliveryConfig,
   setCampaignDistributionConfig,
   setClientWeight,
 } from "@/lib/api";
@@ -286,32 +285,6 @@ export function useCampaignActions({
     [refreshCampaignsAndSelect],
   );
 
-  const onUpdateClientDeliveryConfig = useCallback(
-    async (
-      campaignId: string,
-      clientId: string,
-      payload: ClientDeliveryConfig,
-    ) => {
-      const promise = setCampaignClientDeliveryConfig(
-        campaignId,
-        clientId,
-        payload,
-      );
-      toast.promise(promise, {
-        loading: "Saving delivery config…",
-        success: "Delivery config updated",
-        error: (err) => err?.message || "Unable to update delivery config",
-      });
-      try {
-        await promise;
-      } catch {
-        return;
-      }
-      await refreshCampaignsAndSelect(campaignId);
-    },
-    [refreshCampaignsAndSelect],
-  );
-
   const onUpdateAffiliateSoldPixelConfig = useCallback(
     async (
       campaignId: string,
@@ -385,7 +358,6 @@ export function useCampaignActions({
     onUpdateCampaignStatus,
     onUpdateCampaignPlugins,
     onUpdateAffiliateLeadCap,
-    onUpdateClientDeliveryConfig,
     onUpdateAffiliateSoldPixelConfig,
     onUpdateCampaignDistribution,
     onUpdateCampaignClientWeight,

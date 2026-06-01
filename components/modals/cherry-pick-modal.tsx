@@ -1007,7 +1007,6 @@ export function CherryPickHistoryModal({
   if (!lead?.cherry_pick_meta) return null;
 
   const meta = lead.cherry_pick_meta;
-  const client = clients?.find((c) => c.id === meta.target_client_id);
   const actor = meta.executed_by;
   const actorName =
     actor?.full_name ||
@@ -1023,6 +1022,7 @@ export function CherryPickHistoryModal({
     sentPayloadSnapshot?.query_params ?? dr?.sent_query_params;
   const sentBodyPayload =
     sentPayloadSnapshot?.body_payload ?? dr?.sent_body_payload;
+  const deliveryClient = clients?.find((c) => c.id === dr?.client_id);
   const configuredWebhookUrl =
     sentPayloadSnapshot?.configured_webhook_url ?? dr?.webhook_url;
   const hasSentQueryParams =
@@ -1090,7 +1090,7 @@ export function CherryPickHistoryModal({
             Sent to
           </p>
           <p className="text-[--color-text]">
-            {client?.name ?? meta.target_client_id}
+            {deliveryClient?.name ?? meta.target_contract_id}
           </p>
         </div>
 

@@ -188,7 +188,6 @@ export function CampaignDetailModal({
   onRotateParticipantKey,
   onUpdateAffiliateLeadCap,
   onUpdateAffiliateSoldPixelConfig,
-  onUpdateClientDeliveryConfig,
   onUpdateCampaignDistribution,
   onUpdateClientWeight,
   onOpenLeadsForCampaign,
@@ -273,11 +272,6 @@ export function CampaignDetailModal({
     campaignId: string,
     affiliateId: string,
     payload: AffiliateSoldPixelConfig,
-  ) => Promise<void>;
-  onUpdateClientDeliveryConfig: (
-    campaignId: string,
-    clientId: string,
-    payload: ClientDeliveryConfig,
   ) => Promise<void>;
   onUpdateCampaignDistribution: (
     campaignId: string,
@@ -683,8 +677,8 @@ export function CampaignDetailModal({
   // ── Criteria Catalog states ──────────────────────────────────────────────
   // ── Logic Catalog states ─────────────────────────────────────────────────
   const [localClientLinks, setLocalClientLinks] = useState<
-    NonNullable<Campaign["clients"]>
-  >(campaign?.clients ?? []);
+    NonNullable<Campaign["contracts"]>
+  >(campaign?.contracts ?? []);
   const [localAffiliateLinks, setLocalAffiliateLinks] = useState<
     NonNullable<Campaign["affiliates"]>
   >(campaign?.affiliates ?? []);
@@ -2092,14 +2086,14 @@ export function CampaignDetailModal({
       setIpqsStep(campaign.plugins?.ipqs?.stage ?? 3);
       setTfStepEditing(false);
       setIpqsStepEditing(false);
-      setLocalClientLinks(campaign.clients ?? []);
+      setLocalClientLinks(campaign.contracts ?? []);
       setLocalAffiliateLinks(campaign.affiliates ?? []);
 
       const mode = campaign.distribution?.mode ?? "round_robin";
       setRoutingMode(mode);
       setRoutingEnabled(campaign.distribution?.enabled ?? false);
 
-      const liveClientLinks = (campaign.clients ?? []).filter(
+      const liveClientLinks = (campaign.contracts ?? []).filter(
         (link) => link.status === "LIVE",
       );
       if (liveClientLinks.length === 0) {

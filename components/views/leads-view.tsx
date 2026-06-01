@@ -480,7 +480,7 @@ export function LeadsView({
   const soldClientNameById = useMemo(() => {
     const map = new Map<string, string>();
     campaigns.forEach((campaign) => {
-      (campaign.clients || []).forEach((client) => {
+      (campaign.contracts || []).forEach((client) => {
         const raw = client as unknown as {
           client_id?: string;
           client_name?: string;
@@ -493,6 +493,30 @@ export function LeadsView({
           (typeof raw.name === "string" && raw.name.trim()) ||
           id;
         if (!map.has(id)) map.set(id, name);
+      });
+    });
+    return map;
+  }, [campaigns]);
+
+  const contractTargetById = useMemo(() => {
+    const map = new Map<string, { clientId: string; clientName: string }>();
+    campaigns.forEach((campaign) => {
+      (campaign.contracts || []).forEach((contract) => {
+        if (!contract.contract_id || !contract.client_id) return;
+        const raw = contract as unknown as {
+          client_name?: string;
+          name?: string;
+        };
+        const clientName =
+          (typeof raw.client_name === "string" && raw.client_name.trim()) ||
+          (typeof raw.name === "string" && raw.name.trim()) ||
+          contract.client_id;
+        if (!map.has(contract.contract_id)) {
+          map.set(contract.contract_id, {
+            clientId: contract.client_id,
+            clientName,
+          });
+        }
       });
     });
     return map;
@@ -734,7 +758,8 @@ export function LeadsView({
   }, [leads]);
 
   const boundedTotalItems = Math.max(0, totalItems);
-  const rawShowingFrom = boundedTotalItems === 0 ? 0 : (page - 1) * pageSize + 1;
+  const rawShowingFrom =
+    boundedTotalItems === 0 ? 0 : (page - 1) * pageSize + 1;
   const showingFrom =
     boundedTotalItems === 0
       ? 0
@@ -1328,21 +1353,31 @@ export function LeadsView({
             : "";
         case "__sold_to_client_id": {
           if (!(lead.sold === true || lead.sold_status === "sold")) return "";
+          const contractTarget = lead.cherry_pick_meta?.target_contract_id
+            ? contractTargetById.get(lead.cherry_pick_meta.target_contract_id)
+            : undefined;
           return (
             lead.sold_to_client_id ||
             lead.delivery_result?.client_id ||
-            lead.cherry_pick_meta?.target_client_id ||
+            contractTarget?.clientId ||
             ""
           );
         }
         case "__sold_to_client_name": {
           if (!(lead.sold === true || lead.sold_status === "sold")) return "";
+          const contractTarget = lead.cherry_pick_meta?.target_contract_id
+            ? contractTargetById.get(lead.cherry_pick_meta.target_contract_id)
+            : undefined;
           const clientId =
             lead.sold_to_client_id ||
             lead.delivery_result?.client_id ||
-            lead.cherry_pick_meta?.target_client_id ||
+            contractTarget?.clientId ||
             "";
-          return clientId ? (soldClientNameById.get(clientId) ?? clientId) : "";
+          return clientId
+            ? (soldClientNameById.get(clientId) ??
+                contractTarget?.clientName ??
+                clientId)
+            : "";
         }
         case "id":
           return lead.id ?? "";
@@ -2147,9 +2182,7 @@ export function LeadsView({
       </Modal>
 
       <div className="mb-2 flex justify-end">
-        <Badge tone="neutral">
-          Total leads (counters): {totalItems}
-        </Badge>
+        <Badge tone="neutral">Total leads (counters): {totalItems}</Badge>
       </div>
 
       <PaginationControls

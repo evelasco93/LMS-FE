@@ -131,7 +131,6 @@ export interface ParticipantHistoryEntry {
   to: string;
   changed_at: string;
   changed_by?: RequestActor | null;
-}
 
 export interface Client {
   id: string;
@@ -260,7 +259,7 @@ export interface Campaign {
       };
     };
   };
-  clients?: CampaignClient[];
+  contracts?: CampaignClient[];
   affiliates?: CampaignAffiliate[];
   removed_clients?: Array<{
     client_id: string;
@@ -425,7 +424,8 @@ export interface LeadDecisionTrace {
 }
 
 export interface CherryPickMeta {
-  target_client_id: string;
+  target_contract_id: string;
+  target_campaign_id?: string;
   source_campaign_id: string;
   delivery_result: LeadDeliveryResult;
   executed_at: string;

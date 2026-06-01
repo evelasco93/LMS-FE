@@ -46,7 +46,6 @@ function auditActionLabel(action: string): string {
     deleted: "Deleted",
     soft_deleted: "Deactivated",
     restored: "Restored",
-    delivery_config_updated: "Delivery Config Updated",
     distribution_updated: "Distribution Updated",
     lead_delivered: "Lead Delivered",
     delivery_skipped: "Delivery Skipped",

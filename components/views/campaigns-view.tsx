@@ -29,7 +29,7 @@ import type { CampaignDetailTab } from "@/lib/types";
 
 function canDeleteCampaign(campaign: Campaign, leads: Lead[]): boolean {
   const hasLinked =
-    (campaign.clients?.length ?? 0) > 0 ||
+    (campaign.contracts?.length ?? 0) > 0 ||
     (campaign.affiliates?.length ?? 0) > 0;
   const hasLeads = leads.some((l) => l.campaign_id === campaign.id);
   const validStatus = campaign.status === "DRAFT" || campaign.status === "TEST";
@@ -133,7 +133,7 @@ export function CampaignsView({
               cmp = (a.status || "").localeCompare(b.status || "");
               break;
             case "clients":
-              cmp = (a.clients?.length ?? 0) - (b.clients?.length ?? 0);
+              cmp = (a.contracts?.length ?? 0) - (b.contracts?.length ?? 0);
               break;
             case "affiliates":
               cmp = (a.affiliates?.length ?? 0) - (b.affiliates?.length ?? 0);
@@ -179,7 +179,11 @@ export function CampaignsView({
       createCampaign(payload).then(async (res) => {
         const campaignId = (res as any)?.data?.id;
         if (campaignId) {
-          try { await seedBaseFields(campaignId); } catch { /* non-critical */ }
+          try {
+            await seedBaseFields(campaignId);
+          } catch {
+            /* non-critical */
+          }
         }
         await onDataChanged();
       }),
@@ -516,7 +520,7 @@ export function CampaignsView({
           {
             key: "clients",
             label: "End Users",
-            render: (c) => c.clients?.length || 0,
+            render: (c) => c.contracts?.length || 0,
           },
           {
             key: "affiliates",

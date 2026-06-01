@@ -38,9 +38,19 @@ function safePct(numerator: number, denominator: number): number {
   return (numerator / denominator) * 100;
 }
 
-/** Sold % = sold / received × 100. */
+function deriveSoldExclusive(c: MetricsCounters): {
+  cherry: number;
+  soldExclusive: number;
+} {
+  const cherry = c.cherry_picked ?? 0;
+  const soldExclusive = Math.max(c.sold - cherry, 0);
+  return { cherry, soldExclusive };
+}
+
+/** Sold % = soldExclusive / received × 100. */
 export function soldRate(c: MetricsCounters): number {
-  return safePct(c.sold, c.received);
+  const { soldExclusive } = deriveSoldExclusive(c);
+  return safePct(soldExclusive, c.received);
 }
 
 /** Cherry-picked % = cherry_picked / received × 100. */
@@ -48,12 +58,10 @@ export function cherryPickedRate(c: MetricsCounters): number {
   return safePct(c.cherry_picked ?? 0, c.received);
 }
 
-/**
- * Accepted % = (sold + cherry_picked) / received × 100.
- * Mirrors the Volume tile identity `Accepted = Sold + Cherry Picked`.
- */
+/** Accepted % = (soldExclusive + cherry_picked) / received × 100. */
 export function acceptedRate(c: MetricsCounters): number {
-  return safePct(c.sold + (c.cherry_picked ?? 0), c.received);
+  const { cherry, soldExclusive } = deriveSoldExclusive(c);
+  return safePct(soldExclusive + cherry, c.received);
 }
 
 /**
@@ -138,13 +146,14 @@ export function buildMarketingSourceRows(
       const quality = entry.quality;
       const duplicates = resolveDuplicateCount(counters, quality);
       const dnq = Math.max(counters.rejected - duplicates, 0);
+      const { cherry, soldExclusive } = deriveSoldExclusive(counters);
 
       return {
         key,
         label: labelResolver(key) || key,
         leads: counters.received,
-        cherryPicked: counters.cherry_picked ?? 0,
-        sold: counters.sold,
+        cherryPicked: cherry,
+        sold: soldExclusive,
         // CR — Rejected = DNQ + Duplicate (matches BE `counters.rejected`).
         // Previously displayed `accepted_not_sold` (buyer-rejection); the user
         // mental model uses the QA-rejection bucket so OVERALL math identities
@@ -152,7 +161,7 @@ export function buildMarketingSourceRows(
         rejected: dnq + duplicates,
         dnq,
         duplicate: duplicates,
-        soldPct: soldRate(counters),
+        soldPct: safePct(soldExclusive, counters.received),
         rejectedPct: rejectedRate(counters, quality),
         dnqPct: dnqRate(counters, quality),
         duplicatePct: duplicateRate(counters, quality),
@@ -295,8 +304,9 @@ export function assertMetricsFilterCompat(filters: {
 
 export type VolumeCounts = {
   received: number;
-  /** Derived: sold + cherry_picked. */
+  /** Derived as sold + cherryPicked (where sold is non-overlap sold). */
   accepted: number;
+  /** Non-overlap sold; excludes cherry-picked overlap from sold. */
   sold: number;
   cherryPicked: number;
   /** Derived: dnq + duplicate. Matches BE `counters.rejected`. */
@@ -307,12 +317,12 @@ export type VolumeCounts = {
 
 /**
  * Derive Volume tile counts from the same MetricsCounters / QualityRollup
- * shape used by the donut and Marketing Sources table. Enforces the
- * parent-equals-children identities:
- *   - accepted = sold + cherry_picked
- *   - rejected = dnq + duplicate
- * so the Volume tiles, Status donut, and Marketing Sources OVERALL row
- * never drift from each other.
+ * shape used by the donut and Marketing Sources table.
+ *
+ * Accepted is derived as `sold + cherry_picked` so the parent tile is always
+ * the exact sum of its visible children.
+ * Rejected is derived as `dnq + duplicate` to keep bucket parity with the
+ * status donut and Marketing Sources OVERALL row.
  */
 export function deriveVolumeCounts(
   c: MetricsCounters,
@@ -320,11 +330,11 @@ export function deriveVolumeCounts(
 ): VolumeCounts {
   const duplicate = resolveDuplicateCount(c, q);
   const dnq = Math.max(c.rejected - duplicate, 0);
-  const cherryPicked = c.cherry_picked ?? 0;
+  const { cherry: cherryPicked, soldExclusive } = deriveSoldExclusive(c);
   return {
     received: c.received,
-    accepted: c.sold + cherryPicked,
-    sold: c.sold,
+    accepted: soldExclusive + cherryPicked,
+    sold: soldExclusive,
     cherryPicked,
     rejected: dnq + duplicate,
     dnq,

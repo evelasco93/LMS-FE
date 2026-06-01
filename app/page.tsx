@@ -601,7 +601,10 @@ function DashboardContent({
                 : undefined,
           });
           const receivedTotal = summary?.data?.totals?.received;
-          if (typeof receivedTotal === "number" && Number.isFinite(receivedTotal)) {
+          if (
+            typeof receivedTotal === "number" &&
+            Number.isFinite(receivedTotal)
+          ) {
             resolvedTotal = receivedTotal;
           }
         } catch {
@@ -1188,7 +1191,6 @@ function DashboardContent({
     onUpdateCampaignStatus,
     onUpdateCampaignPlugins,
     onUpdateAffiliateLeadCap,
-    onUpdateClientDeliveryConfig,
     onUpdateAffiliateSoldPixelConfig,
     onUpdateCampaignDistribution,
     onUpdateCampaignClientWeight,
@@ -1211,22 +1213,22 @@ function DashboardContent({
         <header className="mb-5 flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5">
           <div className="flex min-w-0 items-center">
             <div className="relative min-w-0">
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.div
-                key={active}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.15, ease: "easeOut" }}
-              >
-                <h1 className="mt-1 text-2xl font-semibold text-[--color-text-strong]">
-                  {title}
-                </h1>
-                <p className="truncate text-sm text-[--color-text-muted]">
-                  {description}
-                </p>
-              </motion.div>
-            </AnimatePresence>
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.div
+                  key={active}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.15, ease: "easeOut" }}
+                >
+                  <h1 className="mt-1 text-2xl font-semibold text-[--color-text-strong]">
+                    {title}
+                  </h1>
+                  <p className="truncate text-sm text-[--color-text-muted]">
+                    {description}
+                  </p>
+                </motion.div>
+              </AnimatePresence>
             </div>
           </div>
           <div className="flex items-center gap-3" data-tour="header-actions">
@@ -1501,7 +1503,6 @@ function DashboardContent({
         onRotateParticipantKey={onRotateCampaignParticipantKey}
         onUpdateAffiliateLeadCap={onUpdateAffiliateLeadCap}
         onUpdateAffiliateSoldPixelConfig={onUpdateAffiliateSoldPixelConfig}
-        onUpdateClientDeliveryConfig={onUpdateClientDeliveryConfig}
         onUpdateCampaignDistribution={onUpdateCampaignDistribution}
         onUpdateClientWeight={onUpdateCampaignClientWeight}
         onNestedModalChange={(params) => {

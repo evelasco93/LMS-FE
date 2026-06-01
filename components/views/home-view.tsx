@@ -507,7 +507,8 @@ export function HomeView({
               Metrics Dashboard
             </h2>
             <p className="mt-1 text-sm text-[--color-text-muted]">
-              Live aggregate views for intake, acceptance, and sales outcomes.
+              Live aggregate views for intake, acceptance, and sold outcomes
+              with cherry-picked tracked separately.
             </p>
           </div>
           <div className="inline-flex items-center gap-2 rounded-[--radius-pill] border border-[--color-border] bg-[--color-bg-muted] px-3 py-1.5 text-xs text-[--color-text-muted]">
@@ -875,7 +876,7 @@ function OverallMetricsTiles({
       label: "Accepted %",
       value: acceptedRate(totals),
       tone: "text-[--color-success]",
-      tip: "(sold + cherry_picked) ÷ received — share of leads accepted by a buyer or rescued via cherry-pick.",
+      tip: "accepted ÷ received — accepted is non-overlap and equals Sold + Cherry Picked.",
     },
     {
       label: "Rejected %",
@@ -890,13 +891,13 @@ function OverallMetricsTiles({
       label: "Sold %",
       value: soldRate(totals),
       tone: "text-[--color-success]",
-      tip: "sold ÷ received — share of inbound leads that completed a sale.",
+      tip: "sold ÷ received — direct sold only, excluding cherry-picked leads.",
     },
     {
       label: "Cherry Picked %",
       value: cherryPickedRate(totals),
       tone: "text-[--color-cherry]",
-      tip: "cherry_picked ÷ received — leads accepted via the cherry-pick rescue flow.",
+      tip: "cherry_picked ÷ received — accepted via the separate cherry-pick rescue flow (not counted in Sold).",
     },
     {
       label: "DNQ %",
@@ -970,53 +971,68 @@ function OverallTotalsChips({
   loading: boolean;
 }) {
   const fmt = numberFormatter.format;
-  // Enforce parent = sum of children:
-  //   accepted = sold + cherry_picked
+  // Keep volume math aligned with dashboard taxonomy:
+  //   accepted = backend accepted
   //   rejected = dnq + duplicate
-  // The donut + Marketing Sources OVERALL row use the same helper so values
-  // never drift across the dashboard.
   const v = deriveVolumeCounts(totals, quality ?? null);
   const hasDuplicateData =
     quality !== undefined || totals.rejected_duplicates !== undefined;
 
-  const parents: Array<{ label: string; value: string; tone?: string }> = [
+  const parents: Array<{
+    label: string;
+    value: string;
+    tone?: string;
+    tip: string;
+  }> = [
     {
       label: "Received",
       value: fmt(v.received),
       tone: "text-[--color-primary]",
+      tip: "Total inbound leads for the selected filters.",
     },
     {
       label: "Accepted",
       value: fmt(v.accepted),
       tone: "text-[--color-success]",
+      tip: "Accepted total for the selected filters; non-overlap definition: Accepted = Sold + Cherry Picked.",
     },
     {
       label: "Rejected",
       value: fmt(v.rejected),
       tone: "text-[--color-danger]",
+      tip: "Derived parent total: Rejected = DNQ + Duplicate.",
     },
   ];
 
-  const children: Array<{ label: string; value: string; tone?: string }> = [
+  const children: Array<{
+    label: string;
+    value: string;
+    tone?: string;
+    tip: string;
+  }> = [
     {
       label: "Sold",
       value: fmt(v.sold),
       tone: "text-[--color-success]",
+      tip: "Direct sold only, excluding cherry-picked leads.",
     },
     {
       label: "Cherry Picked",
       value: fmt(v.cherryPicked),
       tone: "text-[--color-cherry]",
+      tip: "Accepted via the separate cherry-pick rescue flow; tracked separately from Sold.",
     },
     {
       label: "DNQ",
       value: fmt(v.dnq),
       tone: "text-[--color-warning]",
+      tip: "Did not qualify (non-duplicate rejections).",
     },
     {
       label: "Duplicate",
       value: hasDuplicateData ? fmt(v.duplicate) : "—",
       tone: "text-[--color-duplicate]",
+      tip: "Rejected as duplicate lead fingerprints.",
     },
   ];
 
@@ -1025,37 +1041,43 @@ function OverallTotalsChips({
       {/* Parent tiles (totals) on top — Received / Accepted / Rejected. */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {parents.map((chip) => (
-          <div
+          <HoverTooltip
             key={chip.label}
-            className="panel flex min-h-[102px] w-full cursor-default flex-col items-center justify-center p-2 text-center select-none sm:p-3"
+            message={chip.tip}
+            className="block w-full"
           >
-            <span className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
-              {chip.label}
-            </span>
-            <span
-              className={`mt-2 text-xl font-bold tabular-nums sm:text-2xl ${chip.tone ?? "text-[--color-text-strong]"}`}
-            >
-              {loading ? "—" : chip.value}
-            </span>
-          </div>
+            <div className="panel flex min-h-[102px] w-full cursor-default flex-col items-center justify-center p-2 text-center select-none sm:p-3">
+              <span className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                {chip.label}
+              </span>
+              <span
+                className={`mt-2 text-xl font-bold tabular-nums sm:text-2xl ${chip.tone ?? "text-[--color-text-strong]"}`}
+              >
+                {loading ? "—" : chip.value}
+              </span>
+            </div>
+          </HoverTooltip>
         ))}
       </div>
       {/* Child tiles (breakdown) below. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {children.map((chip) => (
-          <div
+          <HoverTooltip
             key={chip.label}
-            className="panel flex min-h-[84px] w-full cursor-default flex-col items-center justify-center bg-[--color-bg-muted] p-2 text-center select-none sm:p-3"
+            message={chip.tip}
+            className="block w-full"
           >
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
-              {chip.label}
-            </span>
-            <span
-              className={`mt-1 text-lg font-semibold tabular-nums sm:text-xl ${chip.tone ?? "text-[--color-text]"}`}
-            >
-              {loading ? "—" : chip.value}
-            </span>
-          </div>
+            <div className="panel flex min-h-[84px] w-full cursor-default flex-col items-center justify-center bg-[--color-bg-muted] p-2 text-center select-none sm:p-3">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                {chip.label}
+              </span>
+              <span
+                className={`mt-1 text-lg font-semibold tabular-nums sm:text-xl ${chip.tone ?? "text-[--color-text]"}`}
+              >
+                {loading ? "—" : chip.value}
+              </span>
+            </div>
+          </HoverTooltip>
         ))}
       </div>
     </div>

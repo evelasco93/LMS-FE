@@ -542,18 +542,6 @@ export async function setCampaignAffiliateSoldPixelConfig(
   });
 }
 
-export async function setCampaignClientDeliveryConfig(
-  campaignId: string,
-  clientId: string,
-  payload: ClientDeliveryConfig,
-) {
-  const url = `${API_BASE_URL}/campaigns/${campaignId}/contracts/${clientId}/delivery`;
-  return request<ApiResponse<Campaign>>(url, {
-    method: "PUT",
-    body: JSON.stringify(payload),
-  });
-}
-
 /** Sets only the weighted-distribution share for a single linked client.
  *  The full delivery config must be supplied so all required fields are included. */
 export async function setClientWeight(

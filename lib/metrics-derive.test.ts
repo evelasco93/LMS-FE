@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ZERO_COUNTERS,
   ZERO_REJECTION_BUCKETS,
+  acceptedRate,
   assertMetricsFilterCompat,
   bucketHourlyByLocalHour,
   bucketWeekdayByLocal,
@@ -79,9 +80,23 @@ describe("rate helpers", () => {
     expect(ipqsFailRate(null)).toBe(0);
   });
 
-  it("computes sold and rejected rates from received", () => {
+  it("computes sold, accepted, and rejected rates from received", () => {
     expect(soldRate(counters)).toBe(20);
+    expect(acceptedRate(counters)).toBe(20);
     expect(rejectedRate(counters)).toBe(40);
+  });
+
+  it("uses sold-exclusive overlap math when cherry_picked is included in sold", () => {
+    const overlap: MetricsCounters = {
+      received: 90,
+      accepted: 0,
+      sold: 28,
+      accepted_not_sold: 0,
+      rejected: 62,
+      cherry_picked: 2,
+    };
+    expect(soldRate(overlap)).toBeCloseTo((26 / 90) * 100, 5);
+    expect(acceptedRate(overlap)).toBeCloseTo((28 / 90) * 100, 5);
   });
 
   it("DNQ % = (rejected − duplicates) / received, IPQS fails folded in", () => {
@@ -269,11 +284,11 @@ describe("assertMetricsFilterCompat", () => {
   });
 });
 
-describe("deriveVolumeCounts (Volume tile parent = sum of children)", () => {
-  it("Accepted = Sold + Cherry Picked, Rejected = DNQ + Duplicate", () => {
+describe("deriveVolumeCounts (Volume tile identities)", () => {
+  it("Accepted = Sold + Cherry Picked; Rejected = DNQ + Duplicate", () => {
     const c: MetricsCounters = {
       received: 100,
-      accepted: 30, // wire value intentionally inconsistent — must be ignored
+      accepted: 30,
       sold: 20,
       accepted_not_sold: 0,
       rejected: 7,
@@ -287,9 +302,9 @@ describe("deriveVolumeCounts (Volume tile parent = sum of children)", () => {
     };
     const v = deriveVolumeCounts(c, q);
     expect(v.received).toBe(100);
-    expect(v.sold).toBe(20);
+    expect(v.sold).toBe(15);
     expect(v.cherryPicked).toBe(5);
-    expect(v.accepted).toBe(25);
+    expect(v.accepted).toBe(20);
     expect(v.accepted).toBe(v.sold + v.cherryPicked);
     expect(v.duplicate).toBe(2);
     expect(v.dnq).toBe(5);
@@ -333,6 +348,7 @@ describe("deriveVolumeCounts (Volume tile parent = sum of children)", () => {
     const v = deriveVolumeCounts(totals, q);
     // Volume tile math
     expect(v.accepted).toBe(v.sold + v.cherryPicked);
+    expect(v.accepted).toBe(18);
     expect(v.rejected).toBe(v.dnq + v.duplicate);
     expect(v.rejected).toBe(7);
     // Marketing Sources OVERALL row reads the same derivation, so
@@ -342,6 +358,54 @@ describe("deriveVolumeCounts (Volume tile parent = sum of children)", () => {
     const overallDuplicate =
       overallStatus.find((d) => d.key === "duplicate")?.value ?? 0;
     expect(overallDnq + overallDuplicate).toBe(v.rejected);
+  });
+
+  it("derives overlap case: sold=26, cherry=2, accepted=28, rejected=62", () => {
+    const c: MetricsCounters = {
+      received: 90,
+      accepted: 0,
+      sold: 28,
+      accepted_not_sold: 0,
+      rejected: 62,
+      cherry_picked: 2,
+    };
+    const q: QualityRollup = {
+      duplicate_count: 12,
+      duplicate_pct: null,
+      source_quality_score: null,
+      rejection_buckets: { ...ZERO_REJECTION_BUCKETS, duplicate: 12 },
+    };
+    const v = deriveVolumeCounts(c, q);
+    expect(v.sold).toBe(26);
+    expect(v.cherryPicked).toBe(2);
+    expect(v.accepted).toBe(28);
+    expect(v.rejected).toBe(62);
+  });
+});
+
+describe("buildMarketingSourceRows — sold bucket parity", () => {
+  it("uses sold-exclusive values for sold and soldPct", () => {
+    const overlap: MetricsCounters = {
+      received: 90,
+      accepted: 0,
+      sold: 28,
+      accepted_not_sold: 0,
+      rejected: 62,
+      cherry_picked: 2,
+    };
+    const q: QualityRollup = {
+      duplicate_count: 12,
+      duplicate_pct: null,
+      source_quality_score: null,
+      rejection_buckets: { ...ZERO_REJECTION_BUCKETS, duplicate: 12 },
+    };
+    const [row] = buildMarketingSourceRows(
+      [{ key: "aff-overlap", counters: overlap, quality: q }],
+      () => "Overlap Affiliate",
+    );
+    expect(row.sold).toBe(26);
+    expect(row.cherryPicked).toBe(2);
+    expect(row.soldPct).toBeCloseTo((26 / 90) * 100, 5);
   });
 });
 

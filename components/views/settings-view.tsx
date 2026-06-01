@@ -227,7 +227,6 @@ function auditActionLabel(action: string): string {
     credential_disabled: "Credential Disabled",
     plugin_setting_enabled: "Integration Enabled",
     plugin_setting_disabled: "Integration Disabled",
-    delivery_config_updated: "Delivery Config Updated",
     distribution_updated: "Distribution Updated",
     lead_delivered: "Lead Delivered",
     delivery_skipped: "Delivery Skipped",
@@ -271,7 +270,6 @@ function auditActionTone(
     return "warning";
   if (
     action === "updated" ||
-    action === "delivery_config_updated" ||
     action === "distribution_updated" ||
     action === "weight_updated" ||
     action.endsWith("_added") ||

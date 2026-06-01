@@ -332,7 +332,7 @@ function renderStructuredLeadHistoryChange(
         <div className="space-y-1">
           {renderHistoryRows(
             [
-              { label: "Target End User", value: root.target_client_id },
+              { label: "Target Contract", value: root.target_contract_id },
               { label: "Source Campaign", value: root.source_campaign_id },
               { label: "Executed At", value: root.executed_at },
               {

@@ -56,7 +56,7 @@ interface ParticipantModalsProps {
   linkedAffiliates: Affiliate[];
   clientLinkMap: Map<string, CampaignClient>;
   affiliateLinkMap: Map<string, CampaignAffiliate>;
-  localClientLinks: NonNullable<Campaign["clients"]>;
+  localClientLinks: NonNullable<Campaign["contracts"]>;
   localAffiliateLinks: NonNullable<Campaign["affiliates"]>;
   participantAction: {
     type: "client" | "affiliate";
@@ -137,7 +137,7 @@ interface ParticipantModalsProps {
   setPinnedBaseExpandedRules: Dispatch<SetStateAction<Set<string>>>;
   setDeliveryClientId: Dispatch<SetStateAction<string | null>>;
   setLocalClientLinks: Dispatch<
-    SetStateAction<NonNullable<Campaign["clients"]>>
+    SetStateAction<NonNullable<Campaign["contracts"]>>
   >;
   setLocalAffiliateLinks: Dispatch<
     SetStateAction<NonNullable<Campaign["affiliates"]>>

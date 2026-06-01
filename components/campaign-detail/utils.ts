@@ -17,7 +17,6 @@ export function auditActionLabel(action: string): string {
     soft_deleted: "Deactivated",
     restored: "Restored",
     status_changed: "Status Changed",
-    delivery_config_updated: "Delivery Config Updated",
     distribution_updated: "Distribution Updated",
     lead_delivered: "Lead Delivered",
     delivery_skipped: "Delivery Skipped",
@@ -48,7 +47,6 @@ export function auditActionTone(
     return "warning";
   if (
     action === "updated" ||
-    action === "delivery_config_updated" ||
     action === "distribution_updated" ||
     action === "weight_updated" ||
     action.endsWith("_added") ||
