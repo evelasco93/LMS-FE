@@ -23,8 +23,16 @@ import type {
   LogicCatalogSet,
   LogicCatalogVersion,
   MetricsBreakdownResponse,
+  MetricsByAffiliateCampaignsResponse,
+  MetricsByAffiliateKeysResponse,
+  MetricsByAffiliateResponse,
+  MetricsByCampaignAffiliatesResponse,
+  MetricsBySourceResponse,
   MetricsContractsResponse,
   MetricsHealthResponse,
+  MetricsHourlyResponse,
+  MetricsIpqsResponse,
+  MetricsQualityResponse,
   MetricsQueryParams,
   MetricsSummaryResponse,
   MetricsTimeseriesResponse,
@@ -120,13 +128,37 @@ async function request<T>(path: string, options: RequestInitWithBody = {}) {
 }
 
 export async function getMetricsSummary(params: MetricsQueryParams) {
+  if (params.affiliate_id && params.campaign_key) {
+    throw new Error("affiliate_id and campaign_key are mutually exclusive");
+  }
   const url = buildUrl("/metrics/summary", params);
   return request<MetricsSummaryResponse>(url);
 }
 
 export async function getMetricsTimeseries(params: MetricsQueryParams) {
+  if (params.affiliate_id && params.campaign_key) {
+    throw new Error("affiliate_id and campaign_key are mutually exclusive");
+  }
   const url = buildUrl("/metrics/timeseries", params);
   return request<MetricsTimeseriesResponse>(url);
+}
+
+/** CR-002 — Hourly grain timeseries for the Time Breakdown card. */
+export async function getMetricsTimeseriesHourly(params: MetricsQueryParams) {
+  if (params.affiliate_id && params.campaign_key) {
+    throw new Error("affiliate_id and campaign_key are mutually exclusive");
+  }
+  const url = buildUrl("/metrics/timeseries/hourly", params);
+  return request<MetricsHourlyResponse>(url);
+}
+
+/** CR-002 — One series per affiliate over the selected range (BY SOURCE chart). */
+export async function getMetricsTimeseriesBySource(params: MetricsQueryParams) {
+  if (params.affiliate_id && params.campaign_key) {
+    throw new Error("affiliate_id and campaign_key are mutually exclusive");
+  }
+  const url = buildUrl("/metrics/timeseries/by-source", params);
+  return request<MetricsBySourceResponse>(url);
 }
 
 export async function getMetricsCampaignBySource(params: MetricsQueryParams) {
@@ -139,9 +171,73 @@ export async function getMetricsContracts(params: MetricsQueryParams) {
   return request<MetricsContractsResponse>(url);
 }
 
-export async function getMetricsHealth(params: Pick<MetricsQueryParams, "from_date" | "to_date">) {
+export async function getMetricsHealth(
+  params: Pick<MetricsQueryParams, "from_date" | "to_date">,
+) {
   const url = buildUrl("/metrics/health", params);
   return request<MetricsHealthResponse>(url);
+}
+
+// ── CR-001 — affiliate / IPQS / quality endpoints ────────────────────
+
+export async function getMetricsByAffiliate(
+  affiliateId: string,
+  params: Pick<MetricsQueryParams, "from_date" | "to_date" | "campaign_id">,
+) {
+  const url = buildUrl(
+    `/metrics/by-affiliate/${encodeURIComponent(affiliateId)}`,
+    params,
+  );
+  return request<MetricsByAffiliateResponse>(url);
+}
+
+export async function getMetricsByAffiliateCampaigns(
+  affiliateId: string,
+  params: Pick<MetricsQueryParams, "from_date" | "to_date">,
+) {
+  const url = buildUrl(
+    `/metrics/by-affiliate/${encodeURIComponent(affiliateId)}/campaigns`,
+    params,
+  );
+  return request<MetricsByAffiliateCampaignsResponse>(url);
+}
+
+export async function getMetricsByAffiliateKeys(
+  affiliateId: string,
+  params: Pick<MetricsQueryParams, "from_date" | "to_date">,
+) {
+  const url = buildUrl(
+    `/metrics/by-affiliate/${encodeURIComponent(affiliateId)}/keys`,
+    params,
+  );
+  return request<MetricsByAffiliateKeysResponse>(url);
+}
+
+export async function getMetricsByCampaignAffiliates(
+  campaignId: string,
+  params: Pick<MetricsQueryParams, "from_date" | "to_date">,
+) {
+  const url = buildUrl(
+    `/metrics/by-campaign/${encodeURIComponent(campaignId)}/affiliates`,
+    params,
+  );
+  return request<MetricsByCampaignAffiliatesResponse>(url);
+}
+
+export async function getMetricsIpqs(params: MetricsQueryParams) {
+  if (params.affiliate_id && params.campaign_key) {
+    throw new Error("affiliate_id and campaign_key are mutually exclusive");
+  }
+  const url = buildUrl("/metrics/ipqs", params);
+  return request<MetricsIpqsResponse>(url);
+}
+
+export async function getMetricsQuality(params: MetricsQueryParams) {
+  if (params.affiliate_id && params.campaign_key) {
+    throw new Error("affiliate_id and campaign_key are mutually exclusive");
+  }
+  const url = buildUrl("/metrics/quality", params);
+  return request<MetricsQualityResponse>(url);
 }
 
 // Clients

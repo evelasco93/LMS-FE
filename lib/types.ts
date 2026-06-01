@@ -511,6 +511,7 @@ export type MetricsQueryParams = {
   to_date: string;
   campaign_id?: string;
   campaign_key?: string;
+  affiliate_id?: string;
 };
 
 export type MetricsCounters = {
@@ -519,6 +520,49 @@ export type MetricsCounters = {
   sold: number;
   accepted_not_sold: number;
   rejected: number;
+  /** Cherry-picked leads in the window. Orthogonal to received/accepted/sold/rejected
+   *  — a cherry-picked lead can be in any final status. Optional while the
+   *  backend ships; FE callers should treat missing as 0. */
+  cherry_picked?: number;
+  /** CR-002 — BE-rolled split of `rejected` into three disjoint buckets. Optional
+   *  while the backend ships; FE falls back to derived values from `quality`. */
+  rejected_dnq?: number;
+  rejected_spam?: number;
+  rejected_duplicates?: number;
+};
+
+export type IpqsCheckRollup = {
+  pass: number;
+  fail: number;
+  score_sum: number;
+  score_count: number;
+  avg_fraud_score: number | null;
+};
+
+export type IpqsRollup = {
+  phone: IpqsCheckRollup;
+  email: IpqsCheckRollup;
+  ip: IpqsCheckRollup;
+  trusted_score_pct: number | null;
+};
+
+export type RejectionBuckets = {
+  duplicate: number;
+  validation: number;
+  logic_rules: number;
+  trusted_form: number;
+  ipqs_phone: number;
+  ipqs_email: number;
+  ipqs_ip: number;
+  affiliate_disabled: number;
+  other: number;
+};
+
+export type QualityRollup = {
+  duplicate_count: number;
+  duplicate_pct: number | null;
+  source_quality_score: number | null;
+  rejection_buckets: RejectionBuckets;
 };
 
 export type MetricsRange = {
@@ -529,6 +573,7 @@ export type MetricsRange = {
 export type MetricsFilters = {
   campaign_id?: string;
   campaign_key?: string;
+  affiliate_id?: string;
 };
 
 export type MetricsPeakLeadWindow = {
@@ -544,6 +589,8 @@ export type MetricsSummaryData = {
   range: MetricsRange;
   filters?: MetricsFilters;
   totals: MetricsCounters;
+  ipqs?: IpqsRollup;
+  quality?: QualityRollup;
   peak_lead_window: MetricsPeakLeadWindow | null;
 };
 
@@ -552,6 +599,8 @@ export type MetricsSummaryResponse = ApiResponse<MetricsSummaryData>;
 export type MetricsTimeseriesPoint = {
   bucket_start: string;
   counters: MetricsCounters;
+  ipqs?: IpqsRollup;
+  quality?: QualityRollup;
 };
 
 export type MetricsTimeseriesData = {
@@ -565,6 +614,8 @@ export type MetricsTimeseriesResponse = ApiResponse<MetricsTimeseriesData>;
 export type MetricsBreakdownEntry = {
   key: string;
   counters: MetricsCounters;
+  ipqs?: IpqsRollup;
+  quality?: QualityRollup;
 };
 
 export type MetricsBreakdownData = {
@@ -573,6 +624,8 @@ export type MetricsBreakdownData = {
   campaign_summary?: {
     campaign_id: string;
     counters: MetricsCounters;
+    ipqs?: IpqsRollup;
+    quality?: QualityRollup;
   };
   campaigns: MetricsBreakdownEntry[];
   sources: MetricsBreakdownEntry[];
@@ -604,6 +657,88 @@ export type MetricsHealthData = {
 };
 
 export type MetricsHealthResponse = ApiResponse<MetricsHealthData>;
+
+// ── CR-001 — affiliate / IPQS / quality slice response shapes ──────────
+
+export type MetricsByAffiliateData = MetricsSummaryData;
+export type MetricsByAffiliateResponse = ApiResponse<MetricsByAffiliateData>;
+
+export type MetricsByAffiliateCampaignsData = MetricsBreakdownData;
+export type MetricsByAffiliateCampaignsResponse =
+  ApiResponse<MetricsByAffiliateCampaignsData>;
+
+export type MetricsAffiliateKeyEntry = {
+  campaign_key: string;
+  counters: MetricsCounters;
+};
+
+export type MetricsByAffiliateKeysData = {
+  range: MetricsRange;
+  filters: { affiliate_id: string };
+  keys: MetricsAffiliateKeyEntry[];
+};
+export type MetricsByAffiliateKeysResponse =
+  ApiResponse<MetricsByAffiliateKeysData>;
+
+export type MetricsByCampaignAffiliatesData = MetricsBreakdownData;
+export type MetricsByCampaignAffiliatesResponse =
+  ApiResponse<MetricsByCampaignAffiliatesData>;
+
+export type MetricsIpqsData = {
+  range: MetricsRange;
+  filters?: MetricsFilters;
+  ipqs: IpqsRollup;
+};
+export type MetricsIpqsResponse = ApiResponse<MetricsIpqsData>;
+
+export type MetricsQualityData = {
+  range: MetricsRange;
+  filters?: MetricsFilters;
+  quality: QualityRollup;
+};
+export type MetricsQualityResponse = ApiResponse<MetricsQualityData>;
+
+// ── CR-002 — Hourly timeseries (weekday/weekend × day/night + hour-of-day) ──
+
+export type MetricsHourlyPoint = {
+  /** ISO date "YYYY-MM-DD" — day this hour belongs to */
+  date: string;
+  /** 0..23 in tenant-local time */
+  hour: number;
+  /** 0=Sunday..6=Saturday */
+  weekday: number;
+  counters: MetricsCounters;
+};
+
+export type MetricsHourlyData = {
+  range: MetricsRange;
+  filters?: MetricsFilters;
+  points: MetricsHourlyPoint[];
+};
+
+export type MetricsHourlyResponse = ApiResponse<MetricsHourlyData>;
+
+// ── CR-002 — BY SOURCE timeseries (one series per affiliate over the range) ──
+
+export type MetricsBySourceSeriesPoint = {
+  /** ISO date "YYYY-MM-DD" */
+  bucket_start: string;
+  received: number;
+};
+
+export type MetricsBySourceSeries = {
+  affiliate_id: string;
+  affiliate_name: string;
+  points: MetricsBySourceSeriesPoint[];
+};
+
+export type MetricsBySourceData = {
+  range: MetricsRange;
+  filters?: MetricsFilters;
+  series: MetricsBySourceSeries[];
+};
+
+export type MetricsBySourceResponse = ApiResponse<MetricsBySourceData>;
 
 export type CredentialType = "api_key" | "basic_auth" | "bearer_token";
 

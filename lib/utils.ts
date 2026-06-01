@@ -171,3 +171,17 @@ export const resolveDisplayName = (value: unknown): string | null => {
   }
   return String(value);
 };
+
+/**
+ * Unified Trusted Score percentage formatter used everywhere the IPQS-derived
+ * trusted score is rendered (KPI strip, totals chips, Marketing Sources table
+ * row label, OVERALL row label). Always one decimal so `73.5%` (header) and
+ * `74.0%` (table) never diverge in precision.
+ */
+export function formatTrustedScorePct(
+  value: number | null | undefined,
+): string {
+  if (value === null || value === undefined || !Number.isFinite(value))
+    return "—";
+  return `${value.toFixed(1)}%`;
+}

@@ -1,23 +1,21 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import useSWR from "swr";
 import {
-  Activity,
   AlertTriangle,
+  ArrowLeft,
   CalendarRange,
   ChevronDown,
   ChevronUp,
   RefreshCcw,
 } from "lucide-react";
+import { useQueryState } from "@/hooks/use-query-state";
 import {
   CartesianGrid,
-  Cell,
   Line,
   LineChart,
-  Pie,
-  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -25,19 +23,32 @@ import {
 } from "recharts";
 import { Button } from "@/components/button";
 import {
+  getMetricsByAffiliateCampaigns,
+  getMetricsByCampaignAffiliates,
   getMetricsCampaignBySource,
-  getMetricsContracts,
   getMetricsSummary,
   getMetricsTimeseries,
+  getMetricsTimeseriesBySource,
+  getMetricsTimeseriesHourly,
 } from "@/lib/api";
 import { inputClass } from "@/lib/utils";
+import { HoverTooltip } from "@/components/ui/hover-tooltip";
+import {
+  type MarketingSourceRow,
+  acceptedNotSoldRate,
+  buildMarketingSourceRows,
+  dnqRate,
+  soldRate,
+  spamRate,
+} from "@/lib/metrics-derive";
+import { MetricsBySourceChart } from "@/components/views/metrics-by-source-chart";
+import { MetricsMarketingSourcesTable } from "@/components/views/metrics-marketing-sources-table";
+import { MetricsStatusDonut } from "@/components/views/metrics-status-donut";
+import { MetricsTimeBreakdown } from "@/components/views/metrics-time-breakdown";
 import {
   Affiliate,
   Campaign,
-  MetricsBreakdownEntry,
-  MetricsContractEntry,
   MetricsCounters,
-  MetricsPeakLeadWindow,
   MetricsQueryParams,
 } from "@/lib/types";
 
@@ -48,10 +59,6 @@ const ZERO_COUNTERS: MetricsCounters = {
   accepted_not_sold: 0,
   rejected: 0,
 };
-
-const CAMPAIGN_COLORS = ["#2550a2", "#1e73b1", "#81cff0", "#2e7d32", "#c9934d"];
-const SOURCE_COLORS = ["#0f766e", "#0ea5e9", "#22c55e", "#f59e0b", "#ef4444"];
-const OUTCOME_COLORS = ["#1d4ed8", "#0f766e", "#b45309"];
 
 const numberFormatter = new Intl.NumberFormat("en-US");
 
@@ -65,20 +72,6 @@ type HomeViewProps = {
     affiliateId?: string;
   }) => void;
   onOpenCampaign?: (campaignId?: string) => void;
-};
-
-type PieDatum = {
-  key: string;
-  name: string;
-  value: number;
-};
-
-type SourceTableRow = {
-  key: string;
-  name: string;
-  received: number;
-  accepted: number;
-  sold: number;
 };
 
 type TimePreset =
@@ -97,32 +90,6 @@ function formatAxisDate(value: string) {
   const date = new Date(`${value}T00:00:00`);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-function toPieData(
-  items: MetricsBreakdownEntry[],
-  labelMap?: Map<string, string>,
-) {
-  const withCounts = items
-    .map((item) => {
-      const key = item.key?.trim();
-      if (!key) return null;
-      return {
-        key,
-        name: labelMap?.get(key) || key,
-        value: item.counters.received,
-      };
-    })
-    .filter((item): item is PieDatum => Boolean(item))
-    .filter((item) => item.value > 0)
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 6);
-
-  return withCounts;
-}
-
-function sumCounters(rows: MetricsContractEntry[]) {
-  return rows.reduce((acc, row) => acc + row.counters.received, 0);
 }
 
 function getPresetDateRange(preset: TimePreset, now: Date) {
@@ -145,54 +112,10 @@ function getPresetDateRange(preset: TimePreset, now: Date) {
   return { from: toInputDateValue(from), to };
 }
 
-function getRateBand(rate: number) {
-  if (rate <= 30) return "red";
-  if (rate >= 81) return "green";
-  return "yellow";
-}
-
-function getRateTextColor(rate: number) {
-  const band = getRateBand(rate);
-  if (band === "red") return "text-[--color-danger]";
-  if (band === "green") return "text-[--color-success]";
-  return "text-[#b28707]";
-}
-
-function formatPeakLeadWindowLocalLabel(
-  peakLeadWindow: MetricsPeakLeadWindow | null,
-) {
-  if (!peakLeadWindow) return "N/A";
-
-  const start = new Date(peakLeadWindow.start);
-  const end = new Date(peakLeadWindow.end);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-    return peakLeadWindow.label;
-  }
-
-  const timeFormatter = new Intl.DateTimeFormat(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-  const timezoneFormatter = new Intl.DateTimeFormat(undefined, {
-    timeZoneName: "short",
-  });
-
-  const timeZoneName =
-    timezoneFormatter
-      .formatToParts(start)
-      .find((part) => part.type === "timeZoneName")?.value ||
-    Intl.DateTimeFormat().resolvedOptions().timeZone ||
-    "local";
-
-  return `${timeFormatter.format(start)}-${timeFormatter.format(end)} ${timeZoneName}`;
-}
-
 export function HomeView({
   campaigns,
   affiliates,
   onOpenLeads,
-  onOpenCampaign,
 }: HomeViewProps) {
   const today = useMemo(() => new Date(), []);
   const defaultToDate = useMemo(() => toInputDateValue(today), [today]);
@@ -206,6 +129,7 @@ export function HomeView({
     from_date: defaultFromDate,
     to_date: defaultToDate,
     campaign_id: "",
+    affiliate_id: "",
   });
   const [appliedFilters, setAppliedFilters] = useState<MetricsQueryParams>({
     from_date: defaultFromDate,
@@ -214,6 +138,21 @@ export function HomeView({
   const [filtersOpen, setFiltersOpen] = useState(true);
   const [activePreset, setActivePreset] = useState<TimePreset>("last_30_days");
   const [filterError, setFilterError] = useState<string | null>(null);
+
+  const { getParam, setQueryParams } = useQueryState();
+  const urlAffiliateId = getParam("affiliate_id");
+  useEffect(() => {
+    setAppliedFilters((prev) => {
+      const next = urlAffiliateId || undefined;
+      if ((prev.affiliate_id || undefined) === next) return prev;
+      return { ...prev, affiliate_id: next };
+    });
+    setDraftFilters((prev) => {
+      const next = urlAffiliateId || "";
+      if ((prev.affiliate_id || "") === next) return prev;
+      return { ...prev, affiliate_id: next };
+    });
+  }, [urlAffiliateId]);
 
   const liveCampaigns = useMemo(
     () => campaigns.filter((campaign) => campaign.status === "ACTIVE"),
@@ -226,26 +165,13 @@ export function HomeView({
     );
   }, [liveCampaigns]);
 
-  const contractNameById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const campaign of campaigns) {
-      for (const client of campaign.clients || []) {
-        const contractId = client.contract_id?.trim();
-        const contractName = client.contract_name?.trim();
-        if (contractId && contractName && !map.has(contractId)) {
-          map.set(contractId, contractName);
-        }
-      }
-    }
-    return map;
-  }, [campaigns]);
-
   const summaryKey = useMemo(
     () => [
       "metrics-summary",
       appliedFilters.from_date,
       appliedFilters.to_date,
       appliedFilters.campaign_id || "",
+      appliedFilters.affiliate_id || "",
     ],
     [appliedFilters],
   );
@@ -269,6 +195,18 @@ export function HomeView({
     { revalidateOnFocus: false, revalidateOnReconnect: false },
   );
 
+  const { data: bySource, isLoading: bySourceLoading } = useSWR(
+    ["metrics-timeseries-by-source", ...summaryKey.slice(1)],
+    () => getMetricsTimeseriesBySource(appliedFilters),
+    { revalidateOnFocus: false, revalidateOnReconnect: false },
+  );
+
+  const { data: hourly, isLoading: hourlyLoading } = useSWR(
+    ["metrics-timeseries-hourly", ...summaryKey.slice(1)],
+    () => getMetricsTimeseriesHourly(appliedFilters),
+    { revalidateOnFocus: false, revalidateOnReconnect: false },
+  );
+
   const {
     data: breakdown,
     error: breakdownError,
@@ -279,20 +217,53 @@ export function HomeView({
     { revalidateOnFocus: false, revalidateOnReconnect: false },
   );
 
-  const {
-    data: contracts,
-    error: contractsError,
-    isLoading: contractsLoading,
-  } = useSWR(
-    ["metrics-contracts", ...summaryKey.slice(1, 4)],
+  const byCampaignAffiliatesKey = useMemo(
     () =>
-      getMetricsContracts({
-        from_date: appliedFilters.from_date,
-        to_date: appliedFilters.to_date,
-        campaign_id: appliedFilters.campaign_id,
-      }),
-    { revalidateOnFocus: false, revalidateOnReconnect: false },
+      appliedFilters.campaign_id
+        ? [
+            "metrics-by-campaign-affiliates",
+            appliedFilters.campaign_id,
+            appliedFilters.from_date,
+            appliedFilters.to_date,
+          ]
+        : null,
+    [appliedFilters],
   );
+
+  const { data: byCampaignAffiliates, isLoading: byCampaignAffiliatesLoading } =
+    useSWR(
+      byCampaignAffiliatesKey,
+      () =>
+        getMetricsByCampaignAffiliates(appliedFilters.campaign_id as string, {
+          from_date: appliedFilters.from_date,
+          to_date: appliedFilters.to_date,
+        }),
+      { revalidateOnFocus: false, revalidateOnReconnect: false },
+    );
+
+  const byAffiliateCampaignsKey = useMemo(
+    () =>
+      appliedFilters.affiliate_id
+        ? [
+            "metrics-by-affiliate-campaigns",
+            appliedFilters.affiliate_id,
+            appliedFilters.from_date,
+            appliedFilters.to_date,
+          ]
+        : null,
+    [appliedFilters],
+  );
+
+  const { data: byAffiliateCampaigns, isLoading: byAffiliateCampaignsLoading } =
+    useSWR(
+      byAffiliateCampaignsKey,
+      () =>
+        getMetricsByAffiliateCampaigns(appliedFilters.affiliate_id as string, {
+          from_date: appliedFilters.from_date,
+          to_date: appliedFilters.to_date,
+        }),
+      { revalidateOnFocus: false, revalidateOnReconnect: false },
+    );
 
   const lineData = useMemo(() => {
     return (timeseries?.data?.points || []).map((point) => ({
@@ -367,75 +338,80 @@ export function HomeView({
     return map;
   }, [campaigns]);
 
-  const campaignBreakdown = useMemo(() => {
-    const rows = breakdown?.data?.campaigns || [];
-    return toPieData(rows, campaignLabelById);
-  }, [breakdown, campaignLabelById]);
+  const affiliateNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const affiliate of affiliates) {
+      const id = affiliate.id?.trim();
+      const name = affiliate.name?.trim();
+      if (id && name) map.set(id, name);
+    }
+    return map;
+  }, [affiliates]);
 
-  const sourceBreakdown = useMemo(() => {
-    const rows = breakdown?.data?.sources || [];
-    return toPieData(rows, sourceLabelByKey);
-  }, [breakdown, sourceLabelByKey]);
+  const marketingSourceRows = useMemo<MarketingSourceRow[]>(() => {
+    if (appliedFilters.affiliate_id && byAffiliateCampaigns?.data?.campaigns) {
+      return buildMarketingSourceRows(
+        byAffiliateCampaigns.data.campaigns,
+        (key) => campaignLabelById.get(key) || key,
+      ).sort((a, b) => b.leads - a.leads);
+    }
+    if (appliedFilters.campaign_id && byCampaignAffiliates?.data?.sources) {
+      return buildMarketingSourceRows(
+        byCampaignAffiliates.data.sources,
+        (key) => affiliateNameById.get(key) || key,
+      ).sort((a, b) => b.leads - a.leads);
+    }
+    return buildMarketingSourceRows(
+      breakdown?.data?.sources || [],
+      (key) => sourceLabelByKey.get(key) || key,
+    ).sort((a, b) => b.leads - a.leads);
+  }, [
+    appliedFilters.affiliate_id,
+    appliedFilters.campaign_id,
+    byAffiliateCampaigns,
+    byCampaignAffiliates,
+    breakdown,
+    affiliateNameById,
+    campaignLabelById,
+    sourceLabelByKey,
+  ]);
 
-  const sourceTableRows = useMemo(() => {
-    return (breakdown?.data?.sources || [])
-      .map((item) => {
-        const key = item.key?.trim();
-        if (!key) return null;
-        return {
-          key,
-          name: sourceLabelByKey.get(key) || key,
-          received: item.counters.received,
-          accepted: item.counters.accepted,
-          sold: item.counters.sold,
-        };
-      })
-      .filter((item): item is SourceTableRow => Boolean(item))
-      .filter((item) => item.received > 0)
-      .sort((a, b) => b.received - a.received);
-  }, [breakdown, sourceLabelByKey]);
+  const scopedAffiliateLabel = appliedFilters.affiliate_id
+    ? affiliateNameById.get(appliedFilters.affiliate_id) ||
+      appliedFilters.affiliate_id
+    : null;
 
-  const contractRows = useMemo(() => {
-    return [...(contracts?.data?.contracts || [])]
-      .sort((a, b) => b.counters.received - a.counters.received)
-      .slice(0, 8);
-  }, [contracts]);
+  const marketingSourcesScopeLabel = appliedFilters.affiliate_id
+    ? `Campaigns under ${scopedAffiliateLabel}`
+    : appliedFilters.campaign_id
+      ? `Source = affiliate · scoped to ${selectedCampaign?.name || appliedFilters.campaign_id}`
+      : "Source = per-link campaign_key · all live campaigns";
+
+  const handleMarketingRowOpen = (row: MarketingSourceRow) => {
+    if (appliedFilters.affiliate_id) {
+      onOpenLeads?.({
+        campaignId: row.key,
+        affiliateId: appliedFilters.affiliate_id,
+      });
+      return;
+    }
+    const affiliateId = appliedFilters.campaign_id
+      ? row.key
+      : sourceAffiliateByKey.get(row.key);
+    if (affiliateId) {
+      setQueryParams({ affiliate_id: affiliateId });
+      return;
+    }
+    openLeadsBySource(row.key);
+  };
+
+  const exitAffiliateScope = () => {
+    setQueryParams({ affiliate_id: undefined });
+  };
 
   const totals = summary?.data?.totals || ZERO_COUNTERS;
-  const peakLeadWindow = summary?.data?.peak_lead_window || null;
-  const peakLeadWindowLabel = formatPeakLeadWindowLocalLabel(peakLeadWindow);
 
-  const peakLeadWindowHelp = peakLeadWindow
-    ? `${numberFormatter.format(peakLeadWindow.received)} of ${numberFormatter.format(peakLeadWindow.total_received)} leads (${peakLeadWindow.share_percent.toFixed(1)}%)`
-    : "No intake window data for selected range.";
-
-  const outcomeMixData = useMemo(() => {
-    return [
-      { name: "Sold", value: totals.sold },
-      { name: "Accepted (Not Sold)", value: totals.accepted_not_sold },
-      { name: "Rejected", value: totals.rejected },
-    ].filter((entry) => entry.value > 0);
-  }, [totals]);
-
-  const campaignTotal = useMemo(
-    () => campaignBreakdown.reduce((acc, entry) => acc + entry.value, 0),
-    [campaignBreakdown],
-  );
-  const sourceTotal = useMemo(
-    () => sourceBreakdown.reduce((acc, entry) => acc + entry.value, 0),
-    [sourceBreakdown],
-  );
-  const sourceTableTotal = useMemo(
-    () => sourceTableRows.reduce((acc, row) => acc + row.received, 0),
-    [sourceTableRows],
-  );
-  const outcomeTotal = useMemo(
-    () => outcomeMixData.reduce((acc, entry) => acc + entry.value, 0),
-    [outcomeMixData],
-  );
-
-  const activeError =
-    summaryError || timeseriesError || contractsError || breakdownError;
+  const activeError = summaryError || timeseriesError || breakdownError;
 
   const applyFilters = () => {
     if (!draftFilters.from_date || !draftFilters.to_date) {
@@ -448,11 +424,16 @@ export function HomeView({
     }
 
     setFilterError(null);
+    const nextAffiliateId = draftFilters.affiliate_id || undefined;
     setAppliedFilters({
       from_date: draftFilters.from_date,
       to_date: draftFilters.to_date,
       campaign_id: draftFilters.campaign_id || undefined,
+      affiliate_id: nextAffiliateId,
     });
+    if ((urlAffiliateId || undefined) !== nextAffiliateId) {
+      setQueryParams({ affiliate_id: nextAffiliateId });
+    }
     setActivePreset("custom");
   };
 
@@ -478,11 +459,12 @@ export function HomeView({
   };
 
   const resetOptionalFilters = () => {
-    setDraftFilters((prev) => ({ ...prev, campaign_id: "" }));
+    setDraftFilters((prev) => ({ ...prev, campaign_id: "", affiliate_id: "" }));
     setAppliedFilters((prev) => ({
       from_date: prev.from_date,
       to_date: prev.to_date,
     }));
+    if (urlAffiliateId) setQueryParams({ affiliate_id: undefined });
     setFilterError(null);
   };
 
@@ -494,55 +476,6 @@ export function HomeView({
       affiliateId: sourceAffiliateByKey.get(sourceKey),
     });
   };
-
-  const openLeadsByStatus = (status: "rejected" | "sold") => {
-    onOpenLeads?.({ status, campaignId: appliedFilters.campaign_id });
-  };
-
-  const acceptedRate =
-    totals.received > 0
-      ? Math.round((totals.accepted / totals.received) * 100)
-      : 0;
-  const soldRate =
-    totals.accepted > 0 ? Math.round((totals.sold / totals.accepted) * 100) : 0;
-
-  type KpiCard = {
-    label: string;
-    value: number | string;
-    onClick?: () => void;
-    valueClassName?: string;
-    help?: string;
-  };
-
-  const kpiCards: KpiCard[] = [
-    { label: "Received", value: totals.received },
-    { label: "Accepted", value: totals.accepted },
-    {
-      label: "Sold",
-      value: totals.sold,
-      onClick: () => openLeadsByStatus("sold"),
-    },
-    {
-      label: "Rejected",
-      value: totals.rejected,
-      onClick: () => openLeadsByStatus("rejected"),
-    },
-    {
-      label: "Accepted Rate",
-      value: `${acceptedRate}%`,
-      valueClassName: getRateTextColor(acceptedRate),
-    },
-    {
-      label: "Sold Rate",
-      value: `${soldRate}%`,
-      valueClassName: getRateTextColor(soldRate),
-    },
-    {
-      label: "Peak Lead Submission Hour",
-      value: peakLeadWindowLabel,
-      help: peakLeadWindowHelp,
-    },
-  ];
 
   return (
     <motion.section
@@ -681,6 +614,29 @@ export function HomeView({
                     ))}
                   </select>
                 </label>
+
+                <label className="text-sm">
+                  <span className="mb-1 block text-xs font-semibold text-[--color-text-muted]">
+                    Source (optional)
+                  </span>
+                  <select
+                    className={inputClass}
+                    value={draftFilters.affiliate_id || ""}
+                    onChange={(event) =>
+                      setDraftFilters((prev) => ({
+                        ...prev,
+                        affiliate_id: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="">All sources</option>
+                    {affiliates.map((affiliate) => (
+                      <option key={affiliate.id} value={affiliate.id}>
+                        {affiliate.name || affiliate.id}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
 
               <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -721,535 +677,286 @@ export function HomeView({
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-7">
-        {kpiCards.map((kpi: KpiCard) => (
-          <div
-            key={kpi.label}
-            className={`panel p-3 sm:p-4 ${kpi.onClick ? "cursor-pointer transition hover:brightness-[1.02]" : ""}`}
-            onClick={kpi.onClick}
-            role={kpi.onClick ? "button" : undefined}
-            tabIndex={kpi.onClick ? 0 : undefined}
-            onKeyDown={(event) => {
-              if (!kpi.onClick) return;
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                kpi.onClick();
-              }
-            }}
+      {appliedFilters.affiliate_id && (
+        <div className="panel flex flex-wrap items-center justify-between gap-2 border-[color-mix(in_srgb,var(--color-primary)_36%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-primary)_8%,var(--color-panel))] p-3">
+          <div className="flex flex-col text-sm">
+            <span className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+              Scoped to source
+            </span>
+            <span className="font-semibold text-[--color-text-strong]">
+              {scopedAffiliateLabel}
+            </span>
+          </div>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={exitAffiliateScope}
+            iconLeft={<ArrowLeft size={14} />}
           >
-            <p className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
-              {kpi.label}
-            </p>
-            <p
-              className={`mt-2 text-xl font-bold sm:text-2xl ${
-                kpi.valueClassName || "text-[--color-text-strong]"
-              }`}
-            >
-              {typeof kpi.value === "number"
-                ? numberFormatter.format(kpi.value)
-                : kpi.value}
-            </p>
-            {kpi.help && (
-              <p
-                className="mt-1 text-[11px] text-[--color-text-muted]"
-                title={kpi.help}
-              >
-                {kpi.help}
-              </p>
-            )}
-            {summaryLoading && !summary && (
-              <div className="mt-2 h-1.5 w-20 animate-pulse rounded-full bg-[--color-bg-tertiary]" />
-            )}
-          </div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-        <div className="panel p-3 sm:p-4 xl:col-span-2">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold text-[--color-text-strong]">
-              Timeseries
-            </h3>
-            <span className="text-xs text-[--color-text-muted]">
-              {selectedCampaign
-                ? `Campaign scoped: ${selectedCampaign.name}`
-                : "Global scope (all campaigns)"}
-            </span>
-          </div>
-
-          {timeseriesLoading && lineData.length === 0 ? (
-            <div className="h-[300px] animate-pulse rounded-[--radius-sm] bg-[--color-bg-subtle]" />
-          ) : lineData.length === 0 ? (
-            <div className="flex h-[300px] items-center justify-center rounded-[--radius-sm] border border-dashed border-[--color-border] text-sm text-[--color-text-muted]">
-              No timeseries data for the selected filters.
-            </div>
-          ) : (
-            <div className="h-[300px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart
-                  data={lineData}
-                  margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
-                >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="var(--color-border)"
-                  />
-                  <XAxis
-                    dataKey="day"
-                    tickFormatter={formatAxisDate}
-                    stroke="var(--color-text-muted)"
-                    tick={{ fontSize: 12 }}
-                  />
-                  <YAxis
-                    stroke="var(--color-text-muted)"
-                    tick={{ fontSize: 12 }}
-                  />
-                  <Tooltip
-                    labelFormatter={(label) => formatAxisDate(String(label))}
-                    contentStyle={{
-                      borderRadius: "10px",
-                      border: "1px solid var(--color-border)",
-                      background: "var(--color-panel)",
-                    }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="received"
-                    stroke="#2550a2"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="accepted"
-                    stroke="#1e73b1"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="sold"
-                    stroke="#2e7d32"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="rejected"
-                    stroke="#b4534d"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          )}
+            Back to all sources
+          </Button>
         </div>
+      )}
 
-        <div className="panel p-3 sm:p-4">
-          <h3 className="mb-3 text-sm font-semibold text-[--color-text-strong]">
-            Campaign Breakdown
-          </h3>
-          {breakdownLoading && campaignBreakdown.length === 0 ? (
-            <div className="h-[260px] animate-pulse rounded-[--radius-sm] bg-[--color-bg-subtle]" />
-          ) : campaignBreakdown.length === 0 ? (
-            <div className="flex h-[260px] items-center justify-center rounded-[--radius-sm] border border-dashed border-[--color-border] text-sm text-[--color-text-muted]">
-              No campaign breakdown data.
-            </div>
-          ) : (
-            <>
-              <div className="h-[260px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={campaignBreakdown}
-                      dataKey="value"
-                      nameKey="name"
-                      innerRadius={58}
-                      outerRadius={86}
-                      paddingAngle={2}
-                      onClick={(_, index) => {
-                        const row = campaignBreakdown[index];
-                        if (row?.key) onOpenCampaign?.(row.key);
-                      }}
-                    >
-                      {campaignBreakdown.map((entry, index) => (
-                        <Cell
-                          key={`${entry.name}-${index}`}
-                          fill={CAMPAIGN_COLORS[index % CAMPAIGN_COLORS.length]}
-                        />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      formatter={(value) =>
-                        numberFormatter.format(Number(value))
-                      }
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="mt-2 space-y-1 text-xs text-[--color-text]">
-                {campaignBreakdown.map((entry, index) => {
-                  const ratio =
-                    campaignTotal > 0
-                      ? Math.round((entry.value / campaignTotal) * 100)
-                      : 0;
-                  return (
-                    <button
-                      key={`${entry.name}-legend`}
-                      type="button"
-                      className="flex w-full items-center gap-2 text-left transition hover:text-[--color-primary]"
-                      onClick={() => onOpenCampaign?.(entry.key)}
-                    >
-                      <span
-                        className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
-                        style={{
-                          backgroundColor:
-                            CAMPAIGN_COLORS[index % CAMPAIGN_COLORS.length],
-                        }}
-                        aria-hidden
-                      />
-                      <span
-                        className="min-w-0 flex-1 truncate"
-                        title={entry.name}
-                      >
-                        {entry.name}
-                      </span>
-                      <span className="text-[--color-text-muted]">
-                        {ratio}%
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </>
-          )}
+      <AllInquiriesChart
+        lineData={lineData}
+        loading={timeseriesLoading && lineData.length === 0}
+        scopeLabel={
+          selectedCampaign
+            ? `Campaign: ${selectedCampaign.name}`
+            : "Global (all live campaigns)"
+        }
+      />
+
+      <MetricsBySourceChart
+        series={bySource?.data?.series || []}
+        loading={bySourceLoading && !bySource}
+        resolveName={(id) => affiliateNameById.get(id) || id}
+      />
+
+      <SectionTitle>Conversion</SectionTitle>
+      <OverallMetricsTiles
+        totals={totals}
+        quality={summary?.data?.quality}
+        loading={summaryLoading && !summary}
+      />
+
+      <SectionTitle>Volume</SectionTitle>
+      <OverallTotalsChips
+        totals={totals}
+        quality={summary?.data?.quality}
+        loading={summaryLoading && !summary}
+      />
+
+      <MetricsMarketingSourcesTable
+        rows={marketingSourceRows}
+        loading={
+          appliedFilters.affiliate_id
+            ? byAffiliateCampaignsLoading
+            : appliedFilters.campaign_id
+              ? byCampaignAffiliatesLoading
+              : breakdownLoading
+        }
+        overallTotals={totals}
+        overallQuality={summary?.data?.quality}
+        scopeLabel={marketingSourcesScopeLabel}
+        onRowOpen={handleMarketingRowOpen}
+      />
+
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <div className="flex flex-col gap-2">
+          <MetricsStatusDonut
+            totals={totals}
+            quality={summary?.data?.quality}
+            loading={summaryLoading && !summary}
+          />
         </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-        <div className="panel p-3 sm:p-4">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold text-[--color-text-strong]">
-              Source Volume
-            </h3>
-            <span
-              className="text-xs text-[--color-text-muted]"
-              title="Source labels map campaign keys to source names."
-            >
-              Source name based
-            </span>
-          </div>
-          {breakdownLoading && sourceBreakdown.length === 0 ? (
-            <div className="h-[260px] animate-pulse rounded-[--radius-sm] bg-[--color-bg-subtle]" />
-          ) : sourceBreakdown.length === 0 ? (
-            <div className="flex h-[260px] items-center justify-center rounded-[--radius-sm] border border-dashed border-[--color-border] px-6 text-center text-sm text-[--color-text-muted]">
-              No source volume found for the selected filters.
-            </div>
-          ) : (
-            <>
-              {selectedCampaign && (
-                <p
-                  className="mb-2 text-xs text-[--color-text-muted]"
-                  title={selectedCampaign.name}
-                >
-                  Selected campaign: {selectedCampaign.name}
-                </p>
-              )}
-              <div className="h-[260px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={sourceBreakdown}
-                      dataKey="value"
-                      nameKey="name"
-                      innerRadius={58}
-                      outerRadius={86}
-                      paddingAngle={2}
-                      onClick={(_, index) => {
-                        const row = sourceBreakdown[index];
-                        if (row?.key) openLeadsBySource(row.key);
-                      }}
-                    >
-                      {sourceBreakdown.map((entry, index) => (
-                        <Cell
-                          key={`${entry.name}-${index}`}
-                          fill={SOURCE_COLORS[index % SOURCE_COLORS.length]}
-                        />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      formatter={(value) =>
-                        numberFormatter.format(Number(value))
-                      }
-                      labelFormatter={(label, payload) => {
-                        const key = String(payload?.[0]?.payload?.key || "");
-                        const name = String(label);
-                        return key && key !== name ? `${name} (${key})` : name;
-                      }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="mt-2 space-y-1 text-xs text-[--color-text]">
-                {sourceBreakdown.map((entry, index) => {
-                  const ratio =
-                    sourceTotal > 0
-                      ? Math.round((entry.value / sourceTotal) * 100)
-                      : 0;
-                  return (
-                    <button
-                      key={`${entry.name}-legend`}
-                      type="button"
-                      className="flex w-full items-center gap-2 text-left transition hover:text-[--color-primary]"
-                      onClick={() => openLeadsBySource(entry.key)}
-                    >
-                      <span
-                        className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
-                        style={{
-                          backgroundColor:
-                            SOURCE_COLORS[index % SOURCE_COLORS.length],
-                        }}
-                        aria-hidden
-                      />
-                      <span
-                        className="min-w-0 flex-1 truncate"
-                        title={entry.name}
-                      >
-                        {entry.name}
-                      </span>
-                      <span className="text-[--color-text-muted]">
-                        {numberFormatter.format(entry.value)} ({ratio}%)
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </>
-          )}
+        <div className="flex flex-col gap-2">
+          <MetricsTimeBreakdown
+            points={timeseries?.data?.points || []}
+            hourlyPoints={hourly?.data?.points || []}
+            loading={timeseriesLoading && lineData.length === 0}
+            hourlyLoading={hourlyLoading && !hourly}
+          />
         </div>
-
-        <div className="panel p-3 sm:p-4">
-          <h3 className="mb-3 text-sm font-semibold text-[--color-text-strong]">
-            Outcome Mix
-          </h3>
-          {summaryLoading && !summary ? (
-            <div className="h-[260px] animate-pulse rounded-[--radius-sm] bg-[--color-bg-subtle]" />
-          ) : outcomeMixData.length === 0 ? (
-            <div className="flex h-[260px] items-center justify-center rounded-[--radius-sm] border border-dashed border-[--color-border] text-sm text-[--color-text-muted]">
-              No outcome mix data for the selected filters.
-            </div>
-          ) : (
-            <>
-              <div className="h-[260px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={outcomeMixData}
-                      dataKey="value"
-                      nameKey="name"
-                      innerRadius={58}
-                      outerRadius={86}
-                      paddingAngle={2}
-                      onClick={(_, index) => {
-                        const row = outcomeMixData[index];
-                        if (row?.name === "Sold") openLeadsByStatus("sold");
-                        if (row?.name === "Rejected")
-                          openLeadsByStatus("rejected");
-                      }}
-                    >
-                      {outcomeMixData.map((entry, index) => (
-                        <Cell
-                          key={`${entry.name}-${index}`}
-                          fill={OUTCOME_COLORS[index % OUTCOME_COLORS.length]}
-                        />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      formatter={(value) =>
-                        numberFormatter.format(Number(value))
-                      }
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="mt-2 space-y-1 text-xs text-[--color-text]">
-                {outcomeMixData.map((entry, index) => {
-                  const ratio =
-                    outcomeTotal > 0
-                      ? Math.round((entry.value / outcomeTotal) * 100)
-                      : 0;
-                  return (
-                    <button
-                      key={`${entry.name}-legend`}
-                      type="button"
-                      className={`flex w-full items-center gap-2 text-left ${
-                        entry.name === "Sold" || entry.name === "Rejected"
-                          ? "transition hover:text-[--color-primary]"
-                          : ""
-                      }`}
-                      onClick={() => {
-                        if (entry.name === "Sold") openLeadsByStatus("sold");
-                        if (entry.name === "Rejected") {
-                          openLeadsByStatus("rejected");
-                        }
-                      }}
-                    >
-                      <span
-                        className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
-                        style={{
-                          backgroundColor:
-                            OUTCOME_COLORS[index % OUTCOME_COLORS.length],
-                        }}
-                        aria-hidden
-                      />
-                      <span
-                        className="min-w-0 flex-1 truncate"
-                        title={entry.name}
-                      >
-                        {entry.name}
-                      </span>
-                      <span className="text-[--color-text-muted]">
-                        {numberFormatter.format(entry.value)} ({ratio}%)
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-
-      <div className="panel p-3 sm:p-4">
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold text-[--color-text-strong]">
-            Top Sources
-          </h3>
-          <span className="inline-flex items-center gap-1 text-xs text-[--color-text-muted]">
-            <Activity size={14} />
-            Total received: {numberFormatter.format(sourceTableTotal)}
-          </span>
-        </div>
-
-        {breakdownLoading && sourceTableRows.length === 0 ? (
-          <div className="h-36 animate-pulse rounded-[--radius-sm] bg-[--color-bg-subtle]" />
-        ) : sourceTableRows.length === 0 ? (
-          <div className="rounded-[--radius-sm] border border-dashed border-[--color-border] p-6 text-center text-sm text-[--color-text-muted]">
-            No sources available for this filter scope.
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full border-separate border-spacing-y-2 text-sm">
-              <thead>
-                <tr className="text-left text-xs uppercase tracking-wide text-[--color-text-muted]">
-                  <th className="px-3 py-1">Source</th>
-                  <th className="px-3 py-1">Received</th>
-                  <th className="px-3 py-1">Accepted</th>
-                  <th className="px-3 py-1">Sold</th>
-                  <th className="px-3 py-1">Share</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sourceTableRows.slice(0, 12).map((row) => {
-                  const ratio =
-                    sourceTableTotal > 0
-                      ? Math.round((row.received / sourceTableTotal) * 100)
-                      : 0;
-
-                  return (
-                    <tr
-                      key={`source-row-${row.key}`}
-                      className="rounded-[--radius-sm] bg-[--color-bg-muted] text-[--color-text]"
-                    >
-                      <td className="px-3 py-2 font-medium text-[--color-text-strong]">
-                        <button
-                          type="button"
-                          className="truncate text-left transition hover:text-[--color-primary]"
-                          title={row.name}
-                          onClick={() => openLeadsBySource(row.key)}
-                        >
-                          {row.name}
-                        </button>
-                      </td>
-                      <td className="px-3 py-2">
-                        {numberFormatter.format(row.received)}
-                      </td>
-                      <td className="px-3 py-2">
-                        {numberFormatter.format(row.accepted)}
-                      </td>
-                      <td className="px-3 py-2">
-                        {numberFormatter.format(row.sold)}
-                      </td>
-                      <td className="px-3 py-2">{ratio}%</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      <div className="panel p-3 sm:p-4">
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold text-[--color-text-strong]">
-            Top Contracts
-          </h3>
-          <span className="inline-flex items-center gap-1 text-xs text-[--color-text-muted]">
-            <Activity size={14} />
-            Total received: {numberFormatter.format(sumCounters(contractRows))}
-          </span>
-        </div>
-
-        {contractsLoading && contractRows.length === 0 ? (
-          <div className="h-36 animate-pulse rounded-[--radius-sm] bg-[--color-bg-subtle]" />
-        ) : contractRows.length === 0 ? (
-          <div className="rounded-[--radius-sm] border border-dashed border-[--color-border] p-6 text-center text-sm text-[--color-text-muted]">
-            No contract metrics found for this range.
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full border-separate border-spacing-y-2 text-sm">
-              <thead>
-                <tr className="text-left text-xs uppercase tracking-wide text-[--color-text-muted]">
-                  <th className="px-3 py-1">Contract</th>
-                  <th className="px-3 py-1">Received</th>
-                  <th className="px-3 py-1">Accepted</th>
-                  <th className="px-3 py-1">Sold</th>
-                  <th className="px-3 py-1">Rejected</th>
-                </tr>
-              </thead>
-              <tbody>
-                {contractRows.map((row) => (
-                  <tr
-                    key={row.contract_id}
-                    className="rounded-[--radius-sm] bg-[--color-bg-muted] text-[--color-text]"
-                  >
-                    <td className="px-3 py-2 font-medium text-[--color-text-strong]">
-                      {contractNameById.get(row.contract_id || "") ||
-                        row.contract_id ||
-                        "Unknown"}
-                    </td>
-                    <td className="px-3 py-2">
-                      {numberFormatter.format(row.counters.received)}
-                    </td>
-                    <td className="px-3 py-2">
-                      {numberFormatter.format(row.counters.accepted)}
-                    </td>
-                    <td className="px-3 py-2">
-                      {numberFormatter.format(row.counters.sold)}
-                    </td>
-                    <td className="px-3 py-2">
-                      {numberFormatter.format(row.counters.rejected)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
       </div>
     </motion.section>
+  );
+}
+
+// ── CR-001 — Screenshot-order helper sub-components ────────────────────────
+
+type LineDatum = {
+  day: string;
+  received: number;
+  accepted: number;
+  sold: number;
+  rejected: number;
+};
+
+function AllInquiriesChart({
+  lineData,
+  loading,
+  scopeLabel,
+}: {
+  lineData: LineDatum[];
+  loading: boolean;
+  scopeLabel: string;
+}) {
+  return (
+    <div className="panel p-3 sm:p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-[--color-text-strong]">
+          All Leads
+        </h3>
+        <span className="text-xs text-[--color-text-muted]">{scopeLabel}</span>
+      </div>
+      {loading ? (
+        <div className="h-[220px] animate-pulse rounded-[--radius-sm] bg-[--color-bg-subtle]" />
+      ) : lineData.length === 0 ? (
+        <div className="flex h-[220px] items-center justify-center rounded-[--radius-sm] border border-dashed border-[--color-border] text-sm text-[--color-text-muted]">
+          No timeseries data for the selected filters.
+        </div>
+      ) : (
+        <div className="h-[220px] w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart
+              data={lineData}
+              margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+            >
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="var(--color-border)"
+              />
+              <XAxis
+                dataKey="day"
+                tickFormatter={formatAxisDate}
+                stroke="var(--color-text-muted)"
+                tick={{ fontSize: 11 }}
+              />
+              <YAxis stroke="var(--color-text-muted)" tick={{ fontSize: 11 }} />
+              <Tooltip
+                labelFormatter={(label) => formatAxisDate(String(label))}
+                contentStyle={{
+                  borderRadius: "10px",
+                  border: "1px solid var(--color-border)",
+                  background: "var(--color-panel)",
+                }}
+              />
+              <Line
+                type="monotone"
+                dataKey="received"
+                name="Received"
+                stroke="var(--color-primary)"
+                strokeWidth={2}
+                dot={false}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OverallMetricsTiles({
+  totals,
+  quality,
+  loading,
+}: {
+  totals: MetricsCounters;
+  quality?: import("@/lib/types").QualityRollup;
+  loading: boolean;
+}) {
+  const tiles: Array<{
+    label: string;
+    value: number;
+    tone: string;
+    tip: string;
+  }> = [
+    {
+      label: "Sold %",
+      value: soldRate(totals),
+      tone: "text-[--color-success]",
+      tip: "sold ÷ received — share of inbound leads that completed a sale.",
+    },
+    {
+      label: "Accepted Not Sold %",
+      value: acceptedNotSoldRate(totals),
+      tone: "text-[--color-primary]",
+      tip: "accepted_not_sold ÷ received — leads that passed validation but did not sell.",
+    },
+    {
+      label: "DNQ %",
+      value: dnqRate(totals, quality ?? null),
+      tone: "text-[--color-warning]",
+      tip: "rejected_dnq ÷ received — leads rejected because they did not qualify (failed campaign rules, missing fields, ineligible).",
+    },
+    {
+      label: "Spam %",
+      value: spamRate(totals, quality ?? null),
+      tone: "text-[--color-danger]",
+      tip: "rejected_spam ÷ received — leads rejected as spam or fraud (IPQS, duplicate fingerprint, etc.).",
+    },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {tiles.map((tile) => (
+        <HoverTooltip
+          key={tile.label}
+          message={tile.tip}
+          className="block w-full"
+        >
+          <div className="panel flex min-h-[120px] w-full cursor-default flex-col items-center justify-center p-3 text-center select-none sm:p-4">
+            <span className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+              {tile.label}
+            </span>
+            <span
+              className={`mt-2 text-2xl font-bold tabular-nums sm:text-3xl ${tile.tone}`}
+            >
+              {loading ? "—" : `${tile.value.toFixed(1)}%`}
+            </span>
+          </div>
+        </HoverTooltip>
+      ))}
+    </div>
+  );
+}
+
+function OverallTotalsChips({
+  totals,
+  quality,
+  loading,
+}: {
+  totals: MetricsCounters;
+  quality?: import("@/lib/types").QualityRollup;
+  loading: boolean;
+}) {
+  const fmt = numberFormatter.format;
+  const cherryPicked = totals.cherry_picked ?? 0;
+  const chips: Array<{ label: string; value: string; tone?: string }> = [
+    { label: "Received", value: fmt(totals.received) },
+    { label: "Accepted", value: fmt(totals.accepted) },
+    { label: "Sold", value: fmt(totals.sold) },
+    { label: "Accepted Not Sold", value: fmt(totals.accepted_not_sold) },
+    { label: "Rejected", value: fmt(totals.rejected) },
+    {
+      label: "Duplicates",
+      value: quality ? fmt(quality.duplicate_count) : "—",
+    },
+    {
+      label: "Cherry Picked",
+      value: fmt(cherryPicked),
+      tone: "text-[--color-secondary]",
+    },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 justify-items-center gap-3 sm:grid-cols-4 lg:grid-cols-7">
+      {chips.map((chip) => (
+        <div
+          key={chip.label}
+          className="panel flex w-full cursor-default flex-col items-center justify-center p-3 text-center select-none sm:p-4"
+        >
+          <span className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+            {chip.label}
+          </span>
+          <span
+            className={`mt-2 text-lg font-bold tabular-nums sm:text-xl ${chip.tone ?? "text-[--color-text-strong]"}`}
+          >
+            {loading ? "—" : chip.value}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <h3 className="text-sm font-semibold uppercase tracking-wide text-[--color-text-strong]">
+      {children}
+    </h3>
   );
 }

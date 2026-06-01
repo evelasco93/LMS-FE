@@ -7,9 +7,12 @@ import { createPortal } from "react-dom";
 export function HoverTooltip({
   children,
   message,
+  className,
 }: {
   children: React.ReactNode;
-  message: string;
+  message: React.ReactNode;
+  /** Override the trigger wrapper className (default: `inline-flex items-center gap-1`). */
+  className?: string;
 }) {
   const [visible, setVisible] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
@@ -27,9 +30,12 @@ export function HoverTooltip({
   return (
     <div
       ref={triggerRef}
-      className="inline-flex items-center gap-1"
+      className={className ?? "inline-flex items-center gap-1"}
       onMouseEnter={show}
       onMouseLeave={hide}
+      onFocus={show}
+      onBlur={hide}
+      tabIndex={0}
     >
       {children}
       {typeof document !== "undefined" &&
