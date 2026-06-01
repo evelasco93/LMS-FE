@@ -13,6 +13,10 @@ import {
   YAxis,
 } from "recharts";
 import type { MetricsHourlyPoint, MetricsTimeseriesPoint } from "@/lib/types";
+import {
+  bucketHourlyByLocalHour,
+  bucketWeekdayByLocal,
+} from "@/lib/metrics-derive";
 
 const SLICE_TOKENS: Record<string, string> = {
   weekday: "var(--color-primary)",
@@ -23,6 +27,19 @@ const HOUR_BAR_COLOR = "var(--color-primary)";
 
 const numberFormatter = new Intl.NumberFormat("en-US");
 
+function getShortTimeZoneAbbreviation(): string {
+  if (typeof Intl === "undefined") return "local";
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZoneName: "short",
+    }).formatToParts(new Date());
+    const abbr = parts.find((p) => p.type === "timeZoneName")?.value;
+    return abbr || "local";
+  } catch {
+    return "local";
+  }
+}
+
 type MetricsTimeBreakdownProps = {
   points: MetricsTimeseriesPoint[];
   hourlyPoints?: MetricsHourlyPoint[];
@@ -30,51 +47,19 @@ type MetricsTimeBreakdownProps = {
   hourlyLoading?: boolean;
 };
 
-type Slice = { key: string; name: string; value: number };
-
-function buildWeekdaySlices(points: MetricsTimeseriesPoint[]): Slice[] {
-  let weekday = 0;
-  let weekend = 0;
-  for (const point of points) {
-    const bucket = point.bucket_start;
-    if (!bucket) continue;
-    const date = new Date(`${bucket}T00:00:00Z`);
-    if (Number.isNaN(date.getTime())) continue;
-    const dow = date.getUTCDay();
-    const received = point.counters?.received ?? 0;
-    if (dow === 0 || dow === 6) weekend += received;
-    else weekday += received;
-  }
-  const out: Slice[] = [];
-  if (weekday > 0)
-    out.push({ key: "weekday", name: "Weekday", value: weekday });
-  if (weekend > 0)
-    out.push({ key: "weekend", name: "Weekend", value: weekend });
-  return out;
-}
-
-function buildHourlyBuckets(points: MetricsHourlyPoint[]) {
-  const buckets = Array.from({ length: 24 }, (_, hour) => ({
-    hour,
-    label: `${hour.toString().padStart(2, "0")}:00`,
-    received: 0,
-  }));
-  for (const p of points) {
-    if (p.hour < 0 || p.hour > 23) continue;
-    buckets[p.hour].received += p.counters?.received ?? 0;
-  }
-  return buckets;
-}
-
 export function MetricsTimeBreakdown({
   points,
   hourlyPoints = [],
   loading,
   hourlyLoading,
 }: MetricsTimeBreakdownProps) {
-  const weekdayData = buildWeekdaySlices(points);
+  // Weekday slices derive from hourly points so the local-timezone re-bucketing
+  // matches the Hour-of-Day chart below. `points` (daily-grain) is retained for
+  // backwards-compatible callers but no longer used for derivation.
+  void points;
+  const weekdayData = bucketWeekdayByLocal(hourlyPoints);
   const weekdayTotal = weekdayData.reduce((acc, d) => acc + d.value, 0);
-  const hourlyData = buildHourlyBuckets(hourlyPoints);
+  const hourlyData = bucketHourlyByLocalHour(hourlyPoints);
   const hourlyTotal = hourlyData.reduce((acc, b) => acc + b.received, 0);
 
   return (
@@ -98,9 +83,44 @@ export function MetricsTimeBreakdown({
                   data={weekdayData}
                   dataKey="value"
                   nameKey="name"
-                  innerRadius={44}
-                  outerRadius={70}
+                  innerRadius={36}
+                  outerRadius={76}
                   paddingAngle={2}
+                  label={({
+                    value,
+                    cx,
+                    cy,
+                    midAngle,
+                    innerRadius,
+                    outerRadius,
+                  }) => {
+                    if (!weekdayTotal) return null;
+                    const pct = Math.round(
+                      (Number(value) / weekdayTotal) * 100,
+                    );
+                    if (pct < 5) return null;
+                    const RAD = Math.PI / 180;
+                    const r = (Number(innerRadius) + Number(outerRadius)) / 2;
+                    const x =
+                      Number(cx) + r * Math.cos(-Number(midAngle) * RAD);
+                    const y =
+                      Number(cy) + r * Math.sin(-Number(midAngle) * RAD);
+                    return (
+                      <text
+                        x={x}
+                        y={y}
+                        fill="#ffffff"
+                        textAnchor="middle"
+                        dominantBaseline="central"
+                        fontSize={11}
+                        fontWeight={600}
+                      >
+                        {`${pct}%`}
+                      </text>
+                    );
+                  }}
+                  labelLine={false}
+                  isAnimationActive={false}
                 >
                   {weekdayData.map((entry) => (
                     <Cell
@@ -149,7 +169,7 @@ export function MetricsTimeBreakdown({
 
       <div className="mt-4 border-t border-[--color-border] pt-3">
         <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
-          Hour of day (UTC)
+          {`Hour of day (${getShortTimeZoneAbbreviation()})`}
         </h4>
         {hourlyLoading && hourlyTotal === 0 ? (
           <div className="h-[140px] animate-pulse rounded-[--radius-sm] bg-[--color-bg-subtle]" />
@@ -182,7 +202,7 @@ export function MetricsTimeBreakdown({
                 />
                 <Tooltip
                   labelFormatter={(label) =>
-                    `${String(label).padStart(2, "0")}:00 UTC`
+                    `${String(label).padStart(2, "0")}:00`
                   }
                   formatter={(value) => numberFormatter.format(Number(value))}
                   contentStyle={{

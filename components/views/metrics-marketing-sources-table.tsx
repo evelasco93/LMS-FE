@@ -30,6 +30,10 @@ type MetricsMarketingSourcesTableProps = {
   overallTotals: MetricsCounters;
   overallQuality?: QualityRollup | null;
   scopeLabel?: string;
+  /** Heading override for the table panel. Defaults to "Marketing Sources". */
+  headingLabel?: string;
+  /** First column header override. Defaults to "Source". */
+  firstColumnLabel?: string;
   onRowOpen?: (row: MarketingSourceRow) => void;
 };
 
@@ -39,25 +43,36 @@ export function MetricsMarketingSourcesTable({
   overallTotals,
   overallQuality,
   scopeLabel,
+  headingLabel = "Marketing Sources",
+  firstColumnLabel = "Source",
   onRowOpen,
 }: MetricsMarketingSourcesTableProps) {
   const overallStatus = buildStatusBreakdown(
     overallTotals,
     overallQuality ?? null,
   );
-  const overallSpam = overallStatus.find((d) => d.key === "spam")?.value ?? 0;
   const overallDnq = overallStatus.find((d) => d.key === "dnq")?.value ?? 0;
-  const overallSpamPct =
-    overallTotals.received > 0
-      ? (overallSpam / overallTotals.received) * 100
-      : 0;
-  const overallSignedPct =
+  const overallDuplicate =
+    overallStatus.find((d) => d.key === "duplicate")?.value ?? 0;
+  // CR — Rejected = DNQ + Duplicate (matches Volume tile + per-row math).
+  // Previously displayed `accepted_not_sold` which could drift from
+  // `dnq + duplicate`, breaking OVERALL row parity in the screenshot bug.
+  const overallRejected = overallDnq + overallDuplicate;
+  const overallSoldPct =
     overallTotals.received > 0
       ? (overallTotals.sold / overallTotals.received) * 100
       : 0;
-  const overallAcceptedNotSoldPct =
+  const overallRejectedPct =
     overallTotals.received > 0
       ? (overallTotals.accepted_not_sold / overallTotals.received) * 100
+      : 0;
+  const overallDnqPct =
+    overallTotals.received > 0
+      ? (overallDnq / overallTotals.received) * 100
+      : 0;
+  const overallDuplicatePct =
+    overallTotals.received > 0
+      ? (overallDuplicate / overallTotals.received) * 100
       : 0;
   // CR-002 — Trusted Score for OVERALL is now derived from visible rows
   // (weighted by row leads); no longer pulled from `summary.ipqs.trusted_score_pct`.
@@ -73,7 +88,7 @@ export function MetricsMarketingSourcesTable({
     <div className="panel p-3 sm:p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold text-[--color-text-strong]">
-          Marketing Sources
+          {headingLabel}
         </h3>
         {scopeLabel && (
           <span className="text-xs text-[--color-text-muted]">
@@ -93,15 +108,17 @@ export function MetricsMarketingSourcesTable({
           <table className="min-w-full border-separate border-spacing-y-2 text-sm">
             <thead>
               <tr className="text-left text-[11px] uppercase tracking-wide text-[--color-text-muted]">
-                <th className="px-3 py-1">Source</th>
+                <th className="px-3 py-1">{firstColumnLabel}</th>
                 <th className="px-3 py-1 text-right"># Leads</th>
                 <th className="px-3 py-1 text-right">Cherry Picked</th>
+                <th className="px-3 py-1 text-right">Sold</th>
+                <th className="px-3 py-1 text-right">Rejected</th>
                 <th className="px-3 py-1 text-right">DNQ</th>
-                <th className="px-3 py-1 text-right">Signed</th>
-                <th className="px-3 py-1 text-right">Accepted Not Sold</th>
-                <th className="px-3 py-1 text-right">Signed %</th>
-                <th className="px-3 py-1 text-right">Accepted Not Sold %</th>
-                <th className="px-3 py-1 text-right">Spam %</th>
+                <th className="px-3 py-1 text-right">Duplicate</th>
+                <th className="px-3 py-1 text-right">Sold %</th>
+                <th className="px-3 py-1 text-right">Rejected %</th>
+                <th className="px-3 py-1 text-right">DNQ %</th>
+                <th className="px-3 py-1 text-right">Duplicate %</th>
                 <th className="px-3 py-1">Trusted Score</th>
               </tr>
             </thead>
@@ -135,22 +152,26 @@ export function MetricsMarketingSourcesTable({
                     {numberFormatter.format(row.cherryPicked)}
                   </td>
                   <td className="px-3 py-2 text-right">
+                    {numberFormatter.format(row.sold)}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {numberFormatter.format(row.rejected)}
+                  </td>
+                  <td className="px-3 py-2 text-right">
                     {numberFormatter.format(row.dnq)}
                   </td>
                   <td className="px-3 py-2 text-right">
-                    {numberFormatter.format(row.signed)}
+                    {numberFormatter.format(row.duplicate)}
                   </td>
                   <td className="px-3 py-2 text-right">
-                    {numberFormatter.format(row.acceptedNotSold)}
+                    {fmtPct(row.soldPct)}
                   </td>
                   <td className="px-3 py-2 text-right">
-                    {fmtPct(row.leadToSignedPct)}
+                    {fmtPct(row.rejectedPct)}
                   </td>
+                  <td className="px-3 py-2 text-right">{fmtPct(row.dnqPct)}</td>
                   <td className="px-3 py-2 text-right">
-                    {fmtPct(row.acceptedNotSoldPct)}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    {fmtPct(row.spamPct)}
+                    {fmtPct(row.duplicatePct)}
                   </td>
                   <td className="px-3 py-2">
                     <TrustedScoreBar
@@ -173,22 +194,28 @@ export function MetricsMarketingSourcesTable({
                   {numberFormatter.format(overallCherryPicked)}
                 </td>
                 <td className="px-3 py-2 text-right font-semibold">
-                  {numberFormatter.format(overallDnq)}
-                </td>
-                <td className="px-3 py-2 text-right font-semibold">
                   {numberFormatter.format(overallTotals.sold)}
                 </td>
                 <td className="px-3 py-2 text-right font-semibold">
-                  {numberFormatter.format(overallTotals.accepted_not_sold)}
+                  {numberFormatter.format(overallRejected)}
                 </td>
                 <td className="px-3 py-2 text-right font-semibold">
-                  {fmtPct(overallSignedPct)}
+                  {numberFormatter.format(overallDnq)}
                 </td>
                 <td className="px-3 py-2 text-right font-semibold">
-                  {fmtPct(overallAcceptedNotSoldPct)}
+                  {numberFormatter.format(overallDuplicate)}
                 </td>
                 <td className="px-3 py-2 text-right font-semibold">
-                  {fmtPct(overallSpamPct)}
+                  {fmtPct(overallSoldPct)}
+                </td>
+                <td className="px-3 py-2 text-right font-semibold">
+                  {fmtPct(overallRejectedPct)}
+                </td>
+                <td className="px-3 py-2 text-right font-semibold">
+                  {fmtPct(overallDnqPct)}
+                </td>
+                <td className="px-3 py-2 text-right font-semibold">
+                  {fmtPct(overallDuplicatePct)}
                 </td>
                 <td className="px-3 py-2">
                   <TrustedScoreBar

@@ -1716,16 +1716,16 @@ export async function fetchPostingInstructionsPayload(
 
 // ─── Cherry-Pick ──────────────────────────────────────────────────────────────
 
-export async function listEligibleClients(leadId: string) {
+export async function getEligibleContracts(leadId: string) {
   return request<{
     success: boolean;
     data: {
-      clients: import("./types").EligibleClientEntry[];
+      contracts: import("./types").EligibleContractEntry[];
       source_affiliate_pixel?: SourceAffiliatePixelInfo;
     };
   }>(
     buildUrl(
-      `/cherry-pick/eligible-clients?lead_id=${encodeURIComponent(leadId)}`,
+      `/cherry-pick/eligible-contracts?lead_id=${encodeURIComponent(leadId)}`,
     ),
   );
 }
@@ -1743,7 +1743,7 @@ export async function updateLeadPickability(
 export async function executeCherryPick(
   leadId: string,
   body: {
-    target_client_id: string;
+    target_contract_id: string;
     campaign_id?: string;
     fire_affiliate_pixel?: boolean;
     skip_trusted_form_claim?: boolean;

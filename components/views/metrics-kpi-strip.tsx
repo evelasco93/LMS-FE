@@ -2,10 +2,11 @@
 
 import type { IpqsRollup, MetricsCounters, QualityRollup } from "@/lib/types";
 import {
-  acceptedNotSoldRate,
+  duplicateRate,
+  dnqRate,
+  rejectedRate,
   resolveDnqCount,
   resolveDuplicateCount,
-  resolveSpamCount,
   soldRate,
 } from "@/lib/metrics-derive";
 import { formatTrustedScorePct } from "@/lib/utils";
@@ -49,14 +50,13 @@ export function MetricsKpiStrip({
   loading,
 }: MetricsKpiStripProps) {
   const dnq = resolveDnqCount(totals, quality ?? null);
-  const spam = resolveSpamCount(totals, quality ?? null);
   const duplicates = resolveDuplicateCount(totals, quality ?? null);
 
   // Tones are paired so a percentage column matches its count column.
   const toneSold = "text-[--color-success]";
-  const toneAcceptedNotSold = "text-[--color-primary]";
+  const toneRejected = "text-[--color-primary]";
   const toneDnq = "text-[--color-warning]";
-  const toneSpam = "text-[--color-danger]";
+  const toneDuplicate = "text-[--color-danger]";
   const toneNeutral = "text-[--color-text-strong]";
   const toneAccent = "text-[--color-secondary]";
 
@@ -75,18 +75,17 @@ export function MetricsKpiStrip({
     },
     { key: "sold", label: "Sold", value: totals.sold, tone: toneSold },
     {
-      key: "accepted_not_sold",
-      label: "Accepted Not Sold",
+      key: "rejected",
+      label: "Rejected",
       value: totals.accepted_not_sold,
-      tone: toneAcceptedNotSold,
+      tone: toneRejected,
     },
     { key: "dnq", label: "DNQ", value: dnq, tone: toneDnq },
-    { key: "spam", label: "SPAM", value: spam, tone: toneSpam },
     {
       key: "duplicates",
-      label: "Duplicates",
+      label: "Duplicate",
       value: duplicates,
-      tone: toneNeutral,
+      tone: toneDuplicate,
     },
     {
       key: "trusted_score",
@@ -106,22 +105,22 @@ export function MetricsKpiStrip({
       tone: toneSold,
     },
     {
-      key: "ans_pct",
-      label: "ACCEPTED NOT SOLD %",
-      value: acceptedNotSoldRate(totals),
-      tone: toneAcceptedNotSold,
+      key: "rejected_pct",
+      label: "REJECTED %",
+      value: rejectedRate(totals),
+      tone: toneRejected,
     },
     {
       key: "dnq_pct",
       label: "DNQ %",
-      value: totals.received > 0 ? (dnq / totals.received) * 100 : 0,
+      value: dnqRate(totals, quality ?? null),
       tone: toneDnq,
     },
     {
-      key: "spam_pct",
-      label: "SPAM %",
-      value: totals.received > 0 ? (spam / totals.received) * 100 : 0,
-      tone: toneSpam,
+      key: "duplicate_pct",
+      label: "DUPLICATE %",
+      value: duplicateRate(totals, quality ?? null),
+      tone: toneDuplicate,
     },
   ];
 

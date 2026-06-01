@@ -35,11 +35,14 @@ import { inputClass } from "@/lib/utils";
 import { HoverTooltip } from "@/components/ui/hover-tooltip";
 import {
   type MarketingSourceRow,
-  acceptedNotSoldRate,
   buildMarketingSourceRows,
+  acceptedRate,
+  cherryPickedRate,
+  deriveVolumeCounts,
   dnqRate,
+  duplicateRate,
+  rejectedRate,
   soldRate,
-  spamRate,
 } from "@/lib/metrics-derive";
 import { MetricsBySourceChart } from "@/components/views/metrics-by-source-chart";
 import { MetricsMarketingSourcesTable } from "@/components/views/metrics-marketing-sources-table";
@@ -79,6 +82,8 @@ type TimePreset =
   | "this_month"
   | "last_30_days"
   | "last_7_days"
+  | "yesterday"
+  | "today"
   | "custom";
 
 function toInputDateValue(date: Date) {
@@ -106,6 +111,15 @@ function getPresetDateRange(preset: TimePreset, now: Date) {
     const from = new Date(now);
     from.setUTCDate(from.getUTCDate() - 6);
     return { from: toInputDateValue(from), to };
+  }
+  if (preset === "today") {
+    return { from: to, to };
+  }
+  if (preset === "yesterday") {
+    const from = new Date(now);
+    from.setUTCDate(from.getUTCDate() - 1);
+    const yesterday = toInputDateValue(from);
+    return { from: yesterday, to: yesterday };
   }
   const from = new Date(now);
   from.setUTCDate(from.getUTCDate() - 29);
@@ -530,6 +544,8 @@ export function HomeView({
                     { key: "this_month", label: "This month" },
                     { key: "last_30_days", label: "Last 30 days" },
                     { key: "last_7_days", label: "Last 7 days" },
+                    { key: "yesterday", label: "Yesterday" },
+                    { key: "today", label: "Today" },
                     { key: "custom", label: "Custom" },
                   ] as const
                 ).map((preset) => {
@@ -714,15 +730,15 @@ export function HomeView({
         resolveName={(id) => affiliateNameById.get(id) || id}
       />
 
-      <SectionTitle>Conversion</SectionTitle>
-      <OverallMetricsTiles
+      <SectionTitle>Volume</SectionTitle>
+      <OverallTotalsChips
         totals={totals}
         quality={summary?.data?.quality}
         loading={summaryLoading && !summary}
       />
 
-      <SectionTitle>Volume</SectionTitle>
-      <OverallTotalsChips
+      <SectionTitle>Conversion</SectionTitle>
+      <OverallMetricsTiles
         totals={totals}
         quality={summary?.data?.quality}
         loading={summaryLoading && !summary}
@@ -740,6 +756,10 @@ export function HomeView({
         overallTotals={totals}
         overallQuality={summary?.data?.quality}
         scopeLabel={marketingSourcesScopeLabel}
+        headingLabel={
+          appliedFilters.affiliate_id ? "Campaigns" : "Marketing Sources"
+        }
+        firstColumnLabel={appliedFilters.affiliate_id ? "Campaign" : "Source"}
         onRowOpen={handleMarketingRowOpen}
       />
 
@@ -848,12 +868,24 @@ function OverallMetricsTiles({
   quality?: import("@/lib/types").QualityRollup;
   loading: boolean;
 }) {
-  const tiles: Array<{
-    label: string;
-    value: number;
-    tone: string;
-    tip: string;
-  }> = [
+  type Tile = { label: string; value: number; tone: string; tip: string };
+
+  const parents: Tile[] = [
+    {
+      label: "Accepted %",
+      value: acceptedRate(totals),
+      tone: "text-[--color-success]",
+      tip: "(sold + cherry_picked) ÷ received — share of leads accepted by a buyer or rescued via cherry-pick.",
+    },
+    {
+      label: "Rejected %",
+      value: rejectedRate(totals, quality ?? null),
+      tone: "text-[--color-danger]",
+      tip: "(DNQ + Duplicate) ÷ received — every inbound lead that did not become accepted.",
+    },
+  ];
+
+  const children: Tile[] = [
     {
       label: "Sold %",
       value: soldRate(totals),
@@ -861,45 +893,69 @@ function OverallMetricsTiles({
       tip: "sold ÷ received — share of inbound leads that completed a sale.",
     },
     {
-      label: "Accepted Not Sold %",
-      value: acceptedNotSoldRate(totals),
-      tone: "text-[--color-primary]",
-      tip: "accepted_not_sold ÷ received — leads that passed validation but did not sell.",
+      label: "Cherry Picked %",
+      value: cherryPickedRate(totals),
+      tone: "text-[--color-cherry]",
+      tip: "cherry_picked ÷ received — leads accepted via the cherry-pick rescue flow.",
     },
     {
       label: "DNQ %",
       value: dnqRate(totals, quality ?? null),
       tone: "text-[--color-warning]",
-      tip: "rejected_dnq ÷ received — leads rejected because they did not qualify (failed campaign rules, missing fields, ineligible).",
+      tip: "(rejected − duplicates) ÷ received — leads rejected because they did not qualify (campaign rules, IPQS, missing fields, ineligible).",
     },
     {
-      label: "Spam %",
-      value: spamRate(totals, quality ?? null),
-      tone: "text-[--color-danger]",
-      tip: "rejected_spam ÷ received — leads rejected as spam or fraud (IPQS, duplicate fingerprint, etc.).",
+      label: "Duplicate %",
+      value: duplicateRate(totals, quality ?? null),
+      tone: "text-[--color-duplicate]",
+      tip: "duplicates ÷ received — leads rejected as duplicates of an existing lead fingerprint.",
     },
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-      {tiles.map((tile) => (
-        <HoverTooltip
-          key={tile.label}
-          message={tile.tip}
-          className="block w-full"
-        >
-          <div className="panel flex min-h-[120px] w-full cursor-default flex-col items-center justify-center p-3 text-center select-none sm:p-4">
-            <span className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
-              {tile.label}
-            </span>
-            <span
-              className={`mt-2 text-2xl font-bold tabular-nums sm:text-3xl ${tile.tone}`}
-            >
-              {loading ? "—" : `${tile.value.toFixed(1)}%`}
-            </span>
-          </div>
-        </HoverTooltip>
-      ))}
+    <div className="space-y-3">
+      {/* Parent tiles (totals) on top — Accepted % / Rejected %. */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {parents.map((tile) => (
+          <HoverTooltip
+            key={tile.label}
+            message={tile.tip}
+            className="block w-full"
+          >
+            <div className="panel flex min-h-[102px] w-full cursor-default flex-col items-center justify-center p-2 text-center select-none sm:p-3">
+              <span className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                {tile.label}
+              </span>
+              <span
+                className={`mt-2 text-xl font-bold tabular-nums sm:text-2xl ${tile.tone}`}
+              >
+                {loading ? "—" : `${tile.value.toFixed(1)}%`}
+              </span>
+            </div>
+          </HoverTooltip>
+        ))}
+      </div>
+      {/* Child tiles (breakdown) below — Sold/Cherry Picked + DNQ/Duplicate. */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {children.map((tile) => (
+          <HoverTooltip
+            key={tile.label}
+            message={tile.tip}
+            className="block w-full"
+          >
+            <div className="panel flex min-h-[84px] w-full cursor-default flex-col items-center justify-center bg-[--color-bg-muted] p-2 text-center select-none sm:p-3">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
+                {tile.label}
+              </span>
+              <span
+                className={`mt-1 text-lg font-semibold tabular-nums sm:text-xl ${tile.tone}`}
+              >
+                {loading ? "—" : `${tile.value.toFixed(1)}%`}
+              </span>
+            </div>
+          </HoverTooltip>
+        ))}
+      </div>
     </div>
   );
 }
@@ -914,41 +970,94 @@ function OverallTotalsChips({
   loading: boolean;
 }) {
   const fmt = numberFormatter.format;
-  const cherryPicked = totals.cherry_picked ?? 0;
-  const chips: Array<{ label: string; value: string; tone?: string }> = [
-    { label: "Received", value: fmt(totals.received) },
-    { label: "Accepted", value: fmt(totals.accepted) },
-    { label: "Sold", value: fmt(totals.sold) },
-    { label: "Accepted Not Sold", value: fmt(totals.accepted_not_sold) },
-    { label: "Rejected", value: fmt(totals.rejected) },
+  // Enforce parent = sum of children:
+  //   accepted = sold + cherry_picked
+  //   rejected = dnq + duplicate
+  // The donut + Marketing Sources OVERALL row use the same helper so values
+  // never drift across the dashboard.
+  const v = deriveVolumeCounts(totals, quality ?? null);
+  const hasDuplicateData =
+    quality !== undefined || totals.rejected_duplicates !== undefined;
+
+  const parents: Array<{ label: string; value: string; tone?: string }> = [
     {
-      label: "Duplicates",
-      value: quality ? fmt(quality.duplicate_count) : "—",
+      label: "Received",
+      value: fmt(v.received),
+      tone: "text-[--color-primary]",
+    },
+    {
+      label: "Accepted",
+      value: fmt(v.accepted),
+      tone: "text-[--color-success]",
+    },
+    {
+      label: "Rejected",
+      value: fmt(v.rejected),
+      tone: "text-[--color-danger]",
+    },
+  ];
+
+  const children: Array<{ label: string; value: string; tone?: string }> = [
+    {
+      label: "Sold",
+      value: fmt(v.sold),
+      tone: "text-[--color-success]",
     },
     {
       label: "Cherry Picked",
-      value: fmt(cherryPicked),
-      tone: "text-[--color-secondary]",
+      value: fmt(v.cherryPicked),
+      tone: "text-[--color-cherry]",
+    },
+    {
+      label: "DNQ",
+      value: fmt(v.dnq),
+      tone: "text-[--color-warning]",
+    },
+    {
+      label: "Duplicate",
+      value: hasDuplicateData ? fmt(v.duplicate) : "—",
+      tone: "text-[--color-duplicate]",
     },
   ];
 
   return (
-    <div className="grid grid-cols-2 justify-items-center gap-3 sm:grid-cols-4 lg:grid-cols-7">
-      {chips.map((chip) => (
-        <div
-          key={chip.label}
-          className="panel flex w-full cursor-default flex-col items-center justify-center p-3 text-center select-none sm:p-4"
-        >
-          <span className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
-            {chip.label}
-          </span>
-          <span
-            className={`mt-2 text-lg font-bold tabular-nums sm:text-xl ${chip.tone ?? "text-[--color-text-strong]"}`}
+    <div className="space-y-3">
+      {/* Parent tiles (totals) on top — Received / Accepted / Rejected. */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {parents.map((chip) => (
+          <div
+            key={chip.label}
+            className="panel flex min-h-[102px] w-full cursor-default flex-col items-center justify-center p-2 text-center select-none sm:p-3"
           >
-            {loading ? "—" : chip.value}
-          </span>
-        </div>
-      ))}
+            <span className="text-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">
+              {chip.label}
+            </span>
+            <span
+              className={`mt-2 text-xl font-bold tabular-nums sm:text-2xl ${chip.tone ?? "text-[--color-text-strong]"}`}
+            >
+              {loading ? "—" : chip.value}
+            </span>
+          </div>
+        ))}
+      </div>
+      {/* Child tiles (breakdown) below. */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {children.map((chip) => (
+          <div
+            key={chip.label}
+            className="panel flex min-h-[84px] w-full cursor-default flex-col items-center justify-center bg-[--color-bg-muted] p-2 text-center select-none sm:p-3"
+          >
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-[--color-text-muted]">
+              {chip.label}
+            </span>
+            <span
+              className={`mt-1 text-lg font-semibold tabular-nums sm:text-xl ${chip.tone ?? "text-[--color-text]"}`}
+            >
+              {loading ? "—" : chip.value}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

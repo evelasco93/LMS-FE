@@ -6,10 +6,9 @@ import { buildStatusBreakdown } from "@/lib/metrics-derive";
 
 const SLICE_TOKENS: Record<string, string> = {
   sold: "var(--color-success)",
-  accepted_not_sold: "var(--color-primary)",
+  rejected: "var(--color-primary)",
   dnq: "var(--color-warning)",
-  duplicate: "var(--color-secondary)",
-  spam: "var(--color-danger)",
+  duplicate: "var(--color-danger)",
 };
 
 const numberFormatter = new Intl.NumberFormat("en-US");
@@ -48,9 +47,42 @@ export function MetricsStatusDonut({
                   data={data}
                   dataKey="value"
                   nameKey="name"
-                  innerRadius={54}
-                  outerRadius={82}
+                  innerRadius={46}
+                  outerRadius={86}
                   paddingAngle={2}
+                  label={({
+                    value,
+                    cx,
+                    cy,
+                    midAngle,
+                    innerRadius,
+                    outerRadius,
+                  }) => {
+                    if (!grandTotal) return null;
+                    const pct = Math.round((Number(value) / grandTotal) * 100);
+                    if (pct < 5) return null;
+                    const RAD = Math.PI / 180;
+                    const r = (Number(innerRadius) + Number(outerRadius)) / 2;
+                    const x =
+                      Number(cx) + r * Math.cos(-Number(midAngle) * RAD);
+                    const y =
+                      Number(cy) + r * Math.sin(-Number(midAngle) * RAD);
+                    return (
+                      <text
+                        x={x}
+                        y={y}
+                        fill="#ffffff"
+                        textAnchor="middle"
+                        dominantBaseline="central"
+                        fontSize={11}
+                        fontWeight={600}
+                      >
+                        {`${pct}%`}
+                      </text>
+                    );
+                  }}
+                  labelLine={false}
+                  isAnimationActive={false}
                 >
                   {data.map((entry) => (
                     <Cell

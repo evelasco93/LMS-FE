@@ -8,14 +8,14 @@ import { toast } from "sonner";
 import { Modal } from "@/components/modal";
 import { Button } from "@/components/button";
 import {
-  listEligibleClients,
+  getEligibleContracts,
   executeCherryPick,
   updateLeadPickability,
   getEntityAudit,
 } from "@/lib/api";
 import type {
   Lead,
-  EligibleClientEntry,
+  EligibleContractEntry,
   SourceAffiliatePixelInfo,
   CriteriaField,
   Client,
@@ -125,14 +125,16 @@ export function CherryPickModal({
   const [skipIpqsIp, setSkipIpqsIp] = useState(false);
 
   // ── Step 3: delivery ──────────────────────────────────────────────────────
-  const [eligibleClients, setEligibleClients] = useState<EligibleClientEntry[]>(
-    [],
-  );
+  const [eligibleContracts, setEligibleContracts] = useState<
+    EligibleContractEntry[]
+  >([]);
   const [sourceAffiliatePixel, setSourceAffiliatePixel] =
     useState<SourceAffiliatePixelInfo | null>(null);
   const [fireAffiliatePixel, setFireAffiliatePixel] = useState(false);
-  const [loadingClients, setLoadingClients] = useState(false);
-  const [selectedClientId, setSelectedClientId] = useState("");
+  const [loadingContracts, setLoadingContracts] = useState(false);
+  const [contractsLoaded, setContractsLoaded] = useState(false);
+  const [contractSearch, setContractSearch] = useState("");
+  const [selectedContractId, setSelectedContractId] = useState("");
   const [executing, setExecuting] = useState(false);
 
   // Fetch audit log for the lead (authoritative source for edited fields)
@@ -157,9 +159,11 @@ export function CherryPickModal({
     setSkipIpqsEmail(false);
     setSkipIpqsIp(false);
     setFireAffiliatePixel(false);
-    setEligibleClients([]);
+    setEligibleContracts([]);
+    setContractsLoaded(false);
+    setContractSearch("");
     setSourceAffiliatePixel(null);
-    setSelectedClientId("");
+    setSelectedContractId("");
 
     const initP: Record<string, string> = {};
     Object.entries(lead.payload || {}).forEach(([k, v]) => {
@@ -201,24 +205,29 @@ export function CherryPickModal({
     (k) => !removedKeys.has(k),
   );
 
-  // ── fetch eligible clients when entering delivery step ────────────────────
-  const loadEligibleClients = async () => {
-    if (eligibleClients.length > 0) return;
-    setLoadingClients(true);
+  // ── fetch eligible contracts when entering delivery step ─────────────────
+  // SWR-style key shape: ["cherry-pick-eligible-contracts", lead.id]. We keep
+  // useState here (not useSWR) because the fetch is gated on entering step 3,
+  // but we mirror the SWR conventions: no auto refetch, gate loading UI by
+  // (loading && data.length === 0).
+  const loadEligibleContracts = async () => {
+    if (contractsLoaded) return;
+    setLoadingContracts(true);
     try {
-      const res = await listEligibleClients(lead.id);
+      const res = await getEligibleContracts(lead.id);
       if (res.success) {
-        const items: EligibleClientEntry[] = res.data?.clients ?? [];
-        setEligibleClients(items);
+        const items: EligibleContractEntry[] = res.data?.contracts ?? [];
+        setEligibleContracts(items);
         setSourceAffiliatePixel(res.data?.source_affiliate_pixel ?? null);
         if (items.length === 1) {
-          setSelectedClientId(items[0].client_id);
+          setSelectedContractId(items[0].contract_id);
         }
       }
     } catch {
-      toast.error("Could not load eligible end users.");
+      toast.error("Could not load eligible contracts.");
     } finally {
-      setLoadingClients(false);
+      setLoadingContracts(false);
+      setContractsLoaded(true);
     }
   };
 
@@ -259,7 +268,7 @@ export function CherryPickModal({
       setStep("skippables");
     } else if (step === "skippables") {
       setStep("delivery");
-      await loadEligibleClients();
+      await loadEligibleContracts();
     }
   };
 
@@ -269,8 +278,8 @@ export function CherryPickModal({
   };
 
   const handleExecute = async () => {
-    if (!selectedClientId) {
-      toast.error("Please select an end user.");
+    if (!selectedContractId) {
+      toast.error("Please select a destination contract.");
       return;
     }
     setExecuting(true);
@@ -284,12 +293,12 @@ export function CherryPickModal({
       });
       const removedPayloadFields = [...removedKeys];
 
-      const selectedEntry = (eligibleClients ?? []).find(
-        (c) => c.client_id === selectedClientId,
+      const selectedEntry = (eligibleContracts ?? []).find(
+        (c) => c.contract_id === selectedContractId,
       );
 
       const res = await executeCherryPick(lead.id, {
-        target_client_id: selectedClientId,
+        target_contract_id: selectedContractId,
         campaign_id: selectedEntry?.campaign_id,
         fire_affiliate_pixel: fireAffiliatePixel,
         skip_trusted_form_claim: skipTrustedForm || undefined,
@@ -311,7 +320,7 @@ export function CherryPickModal({
           toast.success("Cherry-pick delivered and accepted.");
         } else {
           toast.warning(
-            `Cherry-pick delivered but end user did not accept the lead.`,
+            "Cherry-pick delivered but the destination did not accept the lead.",
           );
         }
         onSuccess(lead.id);
@@ -339,9 +348,32 @@ export function CherryPickModal({
     lead.trusted_form_result.success === false;
   const isDuplicate = lead.duplicate === true;
 
-  const selectedEntry = (eligibleClients ?? []).find(
-    (c) => c.client_id === selectedClientId,
+  const selectedEntry = (eligibleContracts ?? []).find(
+    (c) => c.contract_id === selectedContractId,
   );
+
+  // Filter contracts by search term (contract / buyer / campaign name).
+  const normalizedSearch = contractSearch.trim().toLowerCase();
+  const filteredContracts = normalizedSearch
+    ? eligibleContracts.filter((c) => {
+        const haystack = [c.contract_name, c.end_user_name, c.campaign_name]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(normalizedSearch);
+      })
+    : eligibleContracts;
+
+  // Source campaign name (best-effort): if any contract reports the lead's
+  // source campaign, use its name; otherwise fall back to the campaign id.
+  const sourceCampaignFromContracts = eligibleContracts.find(
+    (c) => c.campaign_id === lead.campaign_id,
+  );
+  const sourceCampaignDisplay =
+    sourceCampaignFromContracts?.campaign_name || lead.campaign_id;
+
+  const isCrossCampaign =
+    !!selectedEntry && selectedEntry.campaign_id !== lead.campaign_id;
 
   return (
     <Modal
@@ -671,47 +703,125 @@ export function CherryPickModal({
               transition={{ duration: 0.18, ease: "easeOut" }}
               className="space-y-4 text-sm"
             >
-              {/* Client selector */}
-              <div className="space-y-1.5">
+              {/* Contract picker */}
+              <div className="space-y-1.5" data-testid="contract-picker">
                 <p className="text-xs uppercase tracking-wide text-[--color-text-muted] font-semibold">
-                  Destination End User
+                  Destination Contract
                 </p>
-                {loadingClients ? (
+
+                {loadingContracts && eligibleContracts.length === 0 ? (
                   <p className="text-[11px] text-[--color-text-muted]">
-                    Loading eligible end users…
+                    Loading eligible contracts…
                   </p>
-                ) : eligibleClients.length === 0 ? (
-                  <p className="text-[11px] text-rose-500">
-                    No eligible end users found for this lead. The campaign must
-                    be LIVE and have at least one end user with a delivery
-                    config.
+                ) : eligibleContracts.length === 0 ? (
+                  <p
+                    className="text-[11px] text-rose-500"
+                    data-testid="contracts-empty"
+                  >
+                    No active contracts available. Create or activate a contract
+                    before cherry-picking.
                   </p>
                 ) : (
-                  <select
-                    className="w-full rounded-lg border border-[--color-border] bg-[--color-bg] px-3 py-2 text-sm text-[--color-text] focus:outline-none focus:ring-2 focus:ring-[--color-primary]/40"
-                    value={selectedClientId}
-                    onChange={(e) => setSelectedClientId(e.target.value)}
-                  >
-                    <option value="">Select an end user…</option>
-                    {eligibleClients.map((c) => (
-                      <option key={c.client_id} value={c.client_id}>
-                        {c.client_name}
-                        {c.campaign_name ? ` — ${c.campaign_name}` : ""}
-                      </option>
-                    ))}
-                  </select>
+                  <>
+                    <input
+                      type="search"
+                      placeholder="Filter by contract, buyer, or campaign…"
+                      className="w-full rounded-lg border border-[--color-border] bg-[--color-bg] px-3 py-2 text-[12px] text-[--color-text] focus:outline-none focus:ring-2 focus:ring-[--color-primary]/40"
+                      value={contractSearch}
+                      onChange={(e) => setContractSearch(e.target.value)}
+                    />
+
+                    <div
+                      role="radiogroup"
+                      aria-label="Destination contract"
+                      className="max-h-[260px] overflow-y-auto rounded-lg border border-[--color-border] divide-y divide-[--color-border]"
+                    >
+                      {filteredContracts.length === 0 ? (
+                        <p className="text-[11px] text-[--color-text-muted] px-3 py-2">
+                          No contracts match “{contractSearch}”.
+                        </p>
+                      ) : (
+                        filteredContracts.map((c) => {
+                          const checked = selectedContractId === c.contract_id;
+                          const status = (
+                            c.campaign_status || ""
+                          ).toUpperCase();
+                          const showStatusPill =
+                            status !== "" && status !== "ACTIVE";
+                          return (
+                            <label
+                              key={c.contract_id}
+                              className={`flex items-start gap-2.5 px-3 py-2 cursor-pointer transition-colors ${
+                                checked
+                                  ? "bg-[--color-primary]/10"
+                                  : "hover:bg-[--color-bg-muted]"
+                              }`}
+                            >
+                              <input
+                                type="radio"
+                                name="cherry-pick-contract"
+                                className="mt-1 h-3.5 w-3.5 accent-[--color-primary]"
+                                value={c.contract_id}
+                                checked={checked}
+                                onChange={() =>
+                                  setSelectedContractId(c.contract_id)
+                                }
+                              />
+                              <div className="min-w-0 flex-1 space-y-0.5">
+                                <div className="flex items-center flex-wrap gap-1.5">
+                                  <span className="text-[12px] font-medium text-[--color-text-strong] truncate">
+                                    {c.contract_name}
+                                  </span>
+                                  {showStatusPill && (
+                                    <span
+                                      className={`inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
+                                        status === "PAUSED"
+                                          ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                                          : status === "CLOSED"
+                                            ? "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300"
+                                            : "bg-[--color-bg-muted] text-[--color-text-muted]"
+                                      }`}
+                                    >
+                                      {status}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-[--color-text-muted] truncate">
+                                  {c.end_user_name}
+                                  {c.campaign_name
+                                    ? ` · ${c.campaign_name}`
+                                    : ""}
+                                </p>
+                                {c.delivery_url && (
+                                  <p className="font-mono text-[10px] text-[--color-text-muted] truncate">
+                                    {c.delivery_url}
+                                  </p>
+                                )}
+                              </div>
+                            </label>
+                          );
+                        })
+                      )}
+                    </div>
+                  </>
                 )}
               </div>
 
-              {/* Webhook URL preview */}
-              {selectedEntry && (
-                <div className="space-y-1">
-                  <p className="text-[10px] uppercase tracking-wide text-[--color-text-muted] font-semibold">
-                    Webhook URL
-                  </p>
-                  <p className="font-mono text-[11px] text-[--color-text-muted] break-all rounded bg-[--color-bg-muted] border border-[--color-border] px-2.5 py-1.5">
-                    {selectedEntry.delivery_url ?? "—"}
-                  </p>
+              {/* Cross-campaign delivery warning */}
+              {isCrossCampaign && selectedEntry && (
+                <div
+                  className="flex items-start gap-2 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300"
+                  data-testid="cross-campaign-warning"
+                  role="status"
+                >
+                  <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+                  <span>
+                    Cross-campaign delivery — lead source attribution stays on{" "}
+                    <span className="font-semibold">
+                      {sourceCampaignDisplay}
+                    </span>
+                    .
+                  </span>
                 </div>
               )}
 
@@ -793,7 +903,9 @@ export function CherryPickModal({
                 </Button>
                 <Button
                   size="sm"
-                  disabled={executing || !selectedClientId || loadingClients}
+                  disabled={
+                    executing || !selectedContractId || loadingContracts
+                  }
                   onClick={handleExecute}
                   className="bg-emerald-600 hover:bg-emerald-700 text-white"
                 >

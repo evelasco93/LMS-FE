@@ -432,12 +432,15 @@ export interface CherryPickMeta {
   executed_by?: RequestActor;
 }
 
-export interface EligibleClientEntry {
-  client_id: string;
-  client_name: string;
+export interface EligibleContractEntry {
+  contract_id: string;
+  contract_name: string;
   campaign_id: string;
   campaign_name: string;
-  status: string;
+  /** Raw campaign status as published by the backend (e.g. ACTIVE / PAUSED / CLOSED). */
+  campaign_status: string;
+  end_user_id: string;
+  end_user_name: string;
   delivery_url?: string;
 }
 

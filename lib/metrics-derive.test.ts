@@ -2,23 +2,26 @@ import { describe, expect, it } from "vitest";
 import {
   ZERO_COUNTERS,
   ZERO_REJECTION_BUCKETS,
-  acceptedNotSoldRate,
   assertMetricsFilterCompat,
+  bucketHourlyByLocalHour,
+  bucketWeekdayByLocal,
   buildMarketingSourceRows,
   buildOverallTrustedScorePct,
   buildStatusBreakdown,
+  deriveVolumeCounts,
   dnqRate,
+  duplicateRate,
   ipqsFailRate,
+  rejectedRate,
   resolveDnqCount,
   resolveDuplicateCount,
-  resolveSpamCount,
   soldRate,
-  spamRate,
 } from "@/lib/metrics-derive";
 import type {
   IpqsRollup,
   MetricsBreakdownEntry,
   MetricsCounters,
+  MetricsHourlyPoint,
   QualityRollup,
 } from "@/lib/types";
 
@@ -70,25 +73,25 @@ const ipqs: IpqsRollup = {
 describe("rate helpers", () => {
   it("guards against zero denominators", () => {
     expect(soldRate(ZERO_COUNTERS)).toBe(0);
-    expect(acceptedNotSoldRate(ZERO_COUNTERS)).toBe(0);
+    expect(rejectedRate(ZERO_COUNTERS)).toBe(0);
     expect(dnqRate(ZERO_COUNTERS, null)).toBe(0);
-    expect(spamRate(ZERO_COUNTERS, null)).toBe(0);
+    expect(duplicateRate(ZERO_COUNTERS, null)).toBe(0);
     expect(ipqsFailRate(null)).toBe(0);
   });
 
-  it("computes sold and accepted-not-sold rates from received", () => {
+  it("computes sold and rejected rates from received", () => {
     expect(soldRate(counters)).toBe(20);
-    expect(acceptedNotSoldRate(counters)).toBe(40);
+    expect(rejectedRate(counters)).toBe(40);
   });
 
-  it("excludes duplicates from DNQ %", () => {
-    // rejected=80, duplicates=10 → (80-10)/200 = 35%
+  it("DNQ % = (rejected − duplicates) / received, IPQS fails folded in", () => {
+    // rejected=80, duplicates=10 → (80-10)/200 = 35%. The IPQS-rejected
+    // rows (12+6+2=20) are part of `rejected` and remain inside DNQ.
     expect(dnqRate(counters, quality)).toBe(35);
   });
 
-  it("derives spam % from IPQS-rejected buckets only", () => {
-    // (12+6+2)/200 = 10%
-    expect(spamRate(counters, quality)).toBe(10);
+  it("Duplicate % = duplicates / received", () => {
+    expect(duplicateRate(counters, quality)).toBe(5);
   });
 
   it("ipqsFailRate uses combined pass+fail of all 3 checks", () => {
@@ -98,7 +101,7 @@ describe("rate helpers", () => {
 });
 
 describe("buildMarketingSourceRows", () => {
-  it("maps breakdown entries into source rows with derived columns", () => {
+  it("maps breakdown entries into source rows with renamed sold/rejected/dnq fields", () => {
     const entries: MetricsBreakdownEntry[] = [
       { key: "aff-1", counters, quality, ipqs },
       { key: "", counters: ZERO_COUNTERS },
@@ -111,14 +114,22 @@ describe("buildMarketingSourceRows", () => {
       key: "aff-1",
       label: "Affiliate One",
       leads: 200,
+      sold: 40,
+      rejected: 80,
       dnq: 70,
-      signed: 40,
-      acceptedNotSold: 80,
-      leadToSignedPct: 20,
-      acceptedNotSoldPct: 40,
-      spamPct: 10,
+      duplicate: 10,
+      soldPct: 20,
+      rejectedPct: 40,
+      dnqPct: 35,
+      duplicatePct: 5,
       trustedScorePct: 88.3,
     });
+    // Old field names must not survive.
+    expect(rows[0]).not.toHaveProperty("signed");
+    expect(rows[0]).not.toHaveProperty("acceptedNotSold");
+    expect(rows[0]).not.toHaveProperty("spamPct");
+    expect(rows[0]).not.toHaveProperty("leadToSignedPct");
+    expect(rows[0]).not.toHaveProperty("acceptedNotSoldPct");
   });
 
   it("falls back to the key when labelResolver returns empty", () => {
@@ -131,14 +142,46 @@ describe("buildMarketingSourceRows", () => {
 });
 
 describe("buildStatusBreakdown", () => {
-  it("splits rejected into duplicate, spam, and DNQ slices", () => {
+  it("returns four buckets in order: sold, rejected, dnq, duplicate", () => {
     const data = buildStatusBreakdown(counters, quality);
+    expect(data.map((d) => d.key)).toEqual([
+      "sold",
+      "rejected",
+      "dnq",
+      "duplicate",
+    ]);
     const lookup = Object.fromEntries(data.map((d) => [d.key, d.value]));
     expect(lookup.sold).toBe(40);
-    expect(lookup.accepted_not_sold).toBe(80);
+    expect(lookup.rejected).toBe(80);
+    expect(lookup.dnq).toBe(70); // 80 rejected − 10 duplicates (IPQS folded in)
     expect(lookup.duplicate).toBe(10);
-    expect(lookup.spam).toBe(20); // ipqs_phone+email+ip
-    expect(lookup.dnq).toBe(50); // 80 rejected - 10 dup - 20 spam
+  });
+
+  it("never emits a spam wedge — IPQS fails are folded into DNQ", () => {
+    // Construct counters where rejections are entirely IPQS-driven.
+    const c: MetricsCounters = {
+      received: 100,
+      accepted: 0,
+      sold: 0,
+      accepted_not_sold: 0,
+      rejected: 30,
+    };
+    const q: QualityRollup = {
+      duplicate_count: 0,
+      duplicate_pct: 0,
+      source_quality_score: 0,
+      rejection_buckets: {
+        ...ZERO_REJECTION_BUCKETS,
+        ipqs_phone: 15,
+        ipqs_email: 10,
+        ipqs_ip: 5,
+      },
+    };
+    const data = buildStatusBreakdown(c, q);
+    expect(data.find((d) => d.key === "dnq")?.value).toBe(30);
+    // No "spam" bucket exists in the new taxonomy.
+    expect(data.some((d) => (d.key as string) === "spam")).toBe(false);
+    expect(resolveDnqCount(c, q)).toBe(30);
   });
 
   it("omits zero slices", () => {
@@ -148,66 +191,56 @@ describe("buildStatusBreakdown", () => {
 });
 
 describe("rejected bucket resolvers", () => {
-  it("prefers BE-provided rejected_dnq / rejected_spam / rejected_duplicates", () => {
-    const c: MetricsCounters = {
-      ...counters,
-      rejected_dnq: 7,
-      rejected_spam: 3,
-      rejected_duplicates: 2,
-    };
-    expect(resolveDnqCount(c, quality)).toBe(7);
-    expect(resolveSpamCount(c, quality)).toBe(3);
-    expect(resolveDuplicateCount(c, quality)).toBe(2);
+  it("DNQ = rejected − duplicates regardless of IPQS rollup", () => {
+    expect(resolveDnqCount(counters, quality)).toBe(70);
+    expect(resolveDuplicateCount(counters, quality)).toBe(10);
   });
 
-  it("falls back to quality-derived buckets when counters omit splits", () => {
-    expect(resolveSpamCount(counters, quality)).toBe(20); // ipqs phone+email+ip
-    expect(resolveDuplicateCount(counters, quality)).toBe(10);
-    // rejected 80 − dup 10 − spam 20 = 50
-    expect(resolveDnqCount(counters, quality)).toBe(50);
+  it("prefers BE-provided rejected_duplicates when present", () => {
+    const c: MetricsCounters = {
+      ...counters,
+      rejected_duplicates: 25,
+    };
+    expect(resolveDuplicateCount(c, quality)).toBe(25);
+    // DNQ is then rejected − rejected_duplicates = 80 − 25 = 55
+    expect(resolveDnqCount(c, quality)).toBe(55);
   });
 });
 
 describe("buildOverallTrustedScorePct", () => {
+  const baseRow = {
+    cherryPicked: 0,
+    sold: 0,
+    rejected: 0,
+    dnq: 0,
+    duplicate: 0,
+    soldPct: 0,
+    rejectedPct: 0,
+    dnqPct: 0,
+    duplicatePct: 0,
+  };
+
   it("returns weighted average across rows with non-null scores", () => {
     const rows = [
       {
+        ...baseRow,
         key: "a",
         label: "A",
         leads: 100,
-        cherryPicked: 0,
-        dnq: 0,
-        signed: 0,
-        acceptedNotSold: 0,
-        leadToSignedPct: 0,
-        acceptedNotSoldPct: 0,
-        spamPct: 0,
         trustedScorePct: 80,
       },
       {
+        ...baseRow,
         key: "b",
         label: "B",
         leads: 100,
-        cherryPicked: 0,
-        dnq: 0,
-        signed: 0,
-        acceptedNotSold: 0,
-        leadToSignedPct: 0,
-        acceptedNotSoldPct: 0,
-        spamPct: 0,
         trustedScorePct: 60,
       },
       {
+        ...baseRow,
         key: "c",
         label: "C",
         leads: 50,
-        cherryPicked: 0,
-        dnq: 0,
-        signed: 0,
-        acceptedNotSold: 0,
-        leadToSignedPct: 0,
-        acceptedNotSoldPct: 0,
-        spamPct: 0,
         trustedScorePct: null,
       },
     ];
@@ -218,19 +251,208 @@ describe("buildOverallTrustedScorePct", () => {
     expect(buildOverallTrustedScorePct([])).toBeNull();
   });
 });
+
 describe("assertMetricsFilterCompat", () => {
-  it("returns an error when affiliate_id and campaign_key are both set", () => {
+  it("rejects sending campaign_key and affiliate_id together", () => {
     expect(
       assertMetricsFilterCompat({
-        affiliate_id: "a1",
-        campaign_key: "ck1",
+        campaign_key: "ck",
+        affiliate_id: "aff",
       }),
-    ).toMatch(/either/i);
+    ).toMatch(/either an affiliate or a campaign key/);
   });
 
-  it("returns null when only one is set", () => {
-    expect(assertMetricsFilterCompat({ affiliate_id: "a1" })).toBeNull();
-    expect(assertMetricsFilterCompat({ campaign_key: "ck1" })).toBeNull();
+  it("returns null when filters are compatible", () => {
+    expect(assertMetricsFilterCompat({ campaign_key: "ck" })).toBeNull();
+    expect(assertMetricsFilterCompat({ affiliate_id: "aff" })).toBeNull();
     expect(assertMetricsFilterCompat({})).toBeNull();
+  });
+});
+
+describe("deriveVolumeCounts (Volume tile parent = sum of children)", () => {
+  it("Accepted = Sold + Cherry Picked, Rejected = DNQ + Duplicate", () => {
+    const c: MetricsCounters = {
+      received: 100,
+      accepted: 30, // wire value intentionally inconsistent — must be ignored
+      sold: 20,
+      accepted_not_sold: 0,
+      rejected: 7,
+      cherry_picked: 5,
+    };
+    const q: QualityRollup = {
+      duplicate_count: 2,
+      duplicate_pct: null,
+      source_quality_score: null,
+      rejection_buckets: { ...ZERO_REJECTION_BUCKETS, duplicate: 2 },
+    };
+    const v = deriveVolumeCounts(c, q);
+    expect(v.received).toBe(100);
+    expect(v.sold).toBe(20);
+    expect(v.cherryPicked).toBe(5);
+    expect(v.accepted).toBe(25);
+    expect(v.accepted).toBe(v.sold + v.cherryPicked);
+    expect(v.duplicate).toBe(2);
+    expect(v.dnq).toBe(5);
+    expect(v.rejected).toBe(7);
+    expect(v.rejected).toBe(v.dnq + v.duplicate);
+  });
+
+  it("treats missing cherry_picked / quality as zero", () => {
+    const c: MetricsCounters = {
+      received: 10,
+      accepted: 0,
+      sold: 4,
+      accepted_not_sold: 0,
+      rejected: 0,
+    };
+    const v = deriveVolumeCounts(c, null);
+    expect(v.cherryPicked).toBe(0);
+    expect(v.accepted).toBe(4);
+    expect(v.duplicate).toBe(0);
+    expect(v.dnq).toBe(0);
+    expect(v.rejected).toBe(0);
+  });
+
+  it("Marketing Sources OVERALL row identity: rejected column == dnq + duplicate", () => {
+    // Bug repro — wire `accepted_not_sold=0` while DNQ+Duplicate=7. Without
+    // the derivation the OVERALL Rejected column rendered 0 (drift).
+    const totals: MetricsCounters = {
+      received: 50,
+      accepted: 25,
+      sold: 18,
+      accepted_not_sold: 0,
+      rejected: 7,
+      cherry_picked: 7,
+    };
+    const q: QualityRollup = {
+      duplicate_count: 2,
+      duplicate_pct: null,
+      source_quality_score: null,
+      rejection_buckets: { ...ZERO_REJECTION_BUCKETS, duplicate: 2 },
+    };
+    const v = deriveVolumeCounts(totals, q);
+    // Volume tile math
+    expect(v.accepted).toBe(v.sold + v.cherryPicked);
+    expect(v.rejected).toBe(v.dnq + v.duplicate);
+    expect(v.rejected).toBe(7);
+    // Marketing Sources OVERALL row reads the same derivation, so
+    // overallRejected (= dnq + duplicate) matches the Volume tile value.
+    const overallStatus = buildStatusBreakdown(totals, q);
+    const overallDnq = overallStatus.find((d) => d.key === "dnq")?.value ?? 0;
+    const overallDuplicate =
+      overallStatus.find((d) => d.key === "duplicate")?.value ?? 0;
+    expect(overallDnq + overallDuplicate).toBe(v.rejected);
+  });
+});
+
+describe("buildMarketingSourceRows — per-row Rejected identity", () => {
+  it("row.rejected always equals row.dnq + row.duplicate", () => {
+    const c1: MetricsCounters = {
+      received: 30,
+      accepted: 15,
+      sold: 10,
+      accepted_not_sold: 999, // intentionally inconsistent — must be ignored
+      rejected: 5,
+    };
+    const q1: QualityRollup = {
+      duplicate_count: 2,
+      duplicate_pct: null,
+      source_quality_score: null,
+      rejection_buckets: { ...ZERO_REJECTION_BUCKETS, duplicate: 2 },
+    };
+    const [row] = buildMarketingSourceRows(
+      [{ key: "k", counters: c1, quality: q1 }],
+      () => "K",
+    );
+    expect(row.dnq).toBe(3);
+    expect(row.duplicate).toBe(2);
+    expect(row.rejected).toBe(5);
+    expect(row.rejected).toBe(row.dnq + row.duplicate);
+  });
+});
+
+describe("bucketHourlyByLocalHour (Time Breakdown — local TZ)", () => {
+  const date = "2026-01-15";
+
+  it("re-buckets a UTC hour into the browser-local hour", () => {
+    const utcHour = 14;
+    const expectedLocalHour = new Date(
+      `${date}T${String(utcHour).padStart(2, "0")}:00:00Z`,
+    ).getHours();
+    const points: MetricsHourlyPoint[] = [
+      {
+        date,
+        hour: utcHour,
+        weekday: 4,
+        counters: { ...ZERO_COUNTERS, received: 5 },
+      },
+    ];
+    const buckets = bucketHourlyByLocalHour(points);
+    expect(buckets[expectedLocalHour].received).toBe(5);
+    // Total preserved.
+    expect(buckets.reduce((acc, b) => acc + b.received, 0)).toBe(5);
+  });
+
+  it("two distinct UTC hours land in two distinct local hour buckets", () => {
+    const points: MetricsHourlyPoint[] = [
+      {
+        date,
+        hour: 0,
+        weekday: 4,
+        counters: { ...ZERO_COUNTERS, received: 3 },
+      },
+      {
+        date,
+        hour: 12,
+        weekday: 4,
+        counters: { ...ZERO_COUNTERS, received: 7 },
+      },
+    ];
+    const buckets = bucketHourlyByLocalHour(points);
+    const local0 = new Date(`${date}T00:00:00Z`).getHours();
+    const local12 = new Date(`${date}T12:00:00Z`).getHours();
+    expect(buckets[local0].received).toBe(3);
+    expect(buckets[local12].received).toBe(7);
+    expect(buckets.reduce((acc, b) => acc + b.received, 0)).toBe(10);
+  });
+
+  it("returns 24 buckets and ignores malformed points", () => {
+    const buckets = bucketHourlyByLocalHour([
+      // @ts-expect-error — runtime guard for missing hour
+      { date, weekday: 4, counters: { received: 1 } },
+      {
+        date: "not-a-date",
+        hour: 5,
+        weekday: 0,
+        counters: { ...ZERO_COUNTERS, received: 1 },
+      },
+    ]);
+    expect(buckets).toHaveLength(24);
+    expect(buckets.every((b) => b.received === 0)).toBe(true);
+  });
+});
+
+describe("bucketWeekdayByLocal (parity with hour-of-day)", () => {
+  it("derives weekday/weekend slices from hourly UTC instants in local TZ", () => {
+    // 2026-01-17 is a Saturday in UTC. Pick noon UTC so even far-east TZs
+    // still see Saturday locally — the test asserts the value lands in the
+    // weekend bucket.
+    const points: MetricsHourlyPoint[] = [
+      {
+        date: "2026-01-17",
+        hour: 12,
+        weekday: 6,
+        counters: { ...ZERO_COUNTERS, received: 4 },
+      },
+    ];
+    const slices = bucketWeekdayByLocal(points);
+    const weekend = slices.find((s) => s.key === "weekend");
+    const weekday = slices.find((s) => s.key === "weekday");
+    expect(weekend?.value).toBe(4);
+    expect(weekday).toBeUndefined();
+  });
+
+  it("omits empty slices", () => {
+    expect(bucketWeekdayByLocal([])).toEqual([]);
   });
 });

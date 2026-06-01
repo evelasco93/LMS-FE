@@ -29,6 +29,9 @@
   --color-success: #2e7d32;
   --color-danger: #b4534d;
   --color-info: #2550a2;
+  /* Lead-status palette extensions (matched across Volume + Conversion). */
+  --color-cherry: #c2185b;
+  --color-duplicate: #7d1e3a;
   --color-highlight: #d6e9f6;
   --color-row-hover: #edf2f9;
   --color-row-selected: #e1eaf6;
@@ -78,6 +81,8 @@
   --color-success: #4ade80;
   --color-danger: #f87171;
   --color-info: #68ebfc;
+  --color-cherry: #f06292;
+  --color-duplicate: #c45a78;
   --color-highlight: #0d4378;
   --color-row-hover: #102d5a;
   --color-row-selected: #14386a;
@@ -130,23 +135,34 @@ a {
 }
 
 .panel-raised {
-  background: color-mix(in srgb, var(--color-panel) 96%, var(--color-bg-subtle));
+  background: color-mix(
+    in srgb,
+    var(--color-panel) 96%,
+    var(--color-bg-subtle)
+  );
   border: 1px solid color-mix(in srgb, var(--color-border) 88%, transparent);
-  box-shadow: 0 10px 20px color-mix(in srgb, var(--color-primary) 10%, transparent);
+  box-shadow: 0 10px 20px
+    color-mix(in srgb, var(--color-primary) 10%, transparent);
 }
 
 .shell-card {
-  background: color-mix(in srgb, var(--color-panel) 95%, var(--color-bg-subtle));
+  background: color-mix(
+    in srgb,
+    var(--color-panel) 95%,
+    var(--color-bg-subtle)
+  );
   border: 1px solid color-mix(in srgb, var(--color-border) 90%, transparent);
   border-radius: var(--radius-md);
-  box-shadow: 0 8px 18px color-mix(in srgb, var(--color-primary) 8%, transparent);
+  box-shadow: 0 8px 18px
+    color-mix(in srgb, var(--color-primary) 8%, transparent);
 }
 
 .utility-card {
   background: color-mix(in srgb, var(--color-panel) 97%, var(--color-bg-muted));
   border: 1px solid color-mix(in srgb, var(--color-border) 88%, transparent);
   border-radius: var(--radius-md);
-  box-shadow: 0 5px 12px color-mix(in srgb, var(--color-primary) 6%, transparent);
+  box-shadow: 0 5px 12px
+    color-mix(in srgb, var(--color-primary) 6%, transparent);
 }
 
 .utility-chip {
@@ -167,7 +183,11 @@ a {
   padding: 0.25rem;
   border: 1px solid color-mix(in srgb, var(--color-border) 90%, transparent);
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--color-panel) 92%, var(--color-bg-subtle));
+  background: color-mix(
+    in srgb,
+    var(--color-panel) 92%,
+    var(--color-bg-subtle)
+  );
   box-shadow: var(--shadow-inset);
 }
 
@@ -178,7 +198,11 @@ a {
 
 .segmented-control__btn--active {
   color: var(--color-primary);
-  border-color: color-mix(in srgb, var(--color-primary) 36%, var(--color-border));
+  border-color: color-mix(
+    in srgb,
+    var(--color-primary) 36%,
+    var(--color-border)
+  );
   background: color-mix(in srgb, var(--color-primary) 12%, var(--color-panel));
   box-shadow: 0 1px 0 color-mix(in srgb, white 26%, transparent);
 }

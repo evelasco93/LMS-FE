@@ -9,6 +9,7 @@ import type {
   IpqsRollup,
   MetricsBreakdownEntry,
   MetricsCounters,
+  MetricsHourlyPoint,
   QualityRollup,
   RejectionBuckets,
 } from "./types";
@@ -37,37 +38,56 @@ function safePct(numerator: number, denominator: number): number {
   return (numerator / denominator) * 100;
 }
 
-/** Sold % = sold / received × 100 (Lead → Signed in the screenshot taxonomy). */
+/** Sold % = sold / received × 100. */
 export function soldRate(c: MetricsCounters): number {
   return safePct(c.sold, c.received);
 }
 
-/** Accepted-not-Sold % = accepted_not_sold / received × 100 (Lead → Transfer). */
-export function acceptedNotSoldRate(c: MetricsCounters): number {
-  return safePct(c.accepted_not_sold, c.received);
+/** Cherry-picked % = cherry_picked / received × 100. */
+export function cherryPickedRate(c: MetricsCounters): number {
+  return safePct(c.cherry_picked ?? 0, c.received);
 }
 
 /**
- * DNQ % = (rejected − duplicate_count) / received × 100. Duplicates are
- * tracked separately and excluded from DNQ.
+ * Accepted % = (sold + cherry_picked) / received × 100.
+ * Mirrors the Volume tile identity `Accepted = Sold + Cherry Picked`.
+ */
+export function acceptedRate(c: MetricsCounters): number {
+  return safePct(c.sold + (c.cherry_picked ?? 0), c.received);
+}
+
+/**
+ * Rejected % = (DNQ + Duplicate) / received × 100.
+ * Mirrors the Volume tile identity `Rejected = DNQ + Duplicate`.
+ */
+export function rejectedRate(
+  c: MetricsCounters,
+  q?: QualityRollup | null,
+): number {
+  const duplicates = resolveDuplicateCount(c, q);
+  const dnq = Math.max(c.rejected - duplicates, 0);
+  return safePct(dnq + duplicates, c.received);
+}
+
+/**
+ * DNQ % = (rejected − duplicates) / received × 100. Duplicates are tracked
+ * separately and excluded from DNQ. IPQS fails are folded into DNQ.
  */
 export function dnqRate(c: MetricsCounters, q?: QualityRollup | null): number {
-  const duplicates = q?.duplicate_count ?? 0;
-  const nonDupRejected = Math.max(c.rejected - duplicates, 0);
-  return safePct(nonDupRejected, c.received);
+  const duplicates = resolveDuplicateCount(c, q);
+  const dnq = Math.max(c.rejected - duplicates, 0);
+  return safePct(dnq, c.received);
 }
 
-/** Spam % = IPQS-driven rejection share of received. */
-export function spamRate(c: MetricsCounters, q?: QualityRollup | null): number {
-  if (!q) return 0;
-  const spam =
-    q.rejection_buckets.ipqs_phone +
-    q.rejection_buckets.ipqs_email +
-    q.rejection_buckets.ipqs_ip;
-  return safePct(spam, c.received);
+/** Duplicate % = duplicates / received × 100. */
+export function duplicateRate(
+  c: MetricsCounters,
+  q?: QualityRollup | null,
+): number {
+  return safePct(resolveDuplicateCount(c, q), c.received);
 }
 
-/** Per-row IPQS fail rate, used for the Marketing Sources "Spam %" column. */
+/** Per-row IPQS fail rate, used for the IPQS fail-rate column. */
 export function ipqsFailRate(ipqs?: IpqsRollup | null): number {
   if (!ipqs) return 0;
   const fails = ipqs.phone.fail + ipqs.email.fail + ipqs.ip.fail;
@@ -87,12 +107,14 @@ export type MarketingSourceRow = {
   label: string;
   leads: number;
   cherryPicked: number;
+  sold: number;
+  rejected: number;
   dnq: number;
-  signed: number;
-  acceptedNotSold: number;
-  leadToSignedPct: number;
-  acceptedNotSoldPct: number;
-  spamPct: number;
+  duplicate: number;
+  soldPct: number;
+  rejectedPct: number;
+  dnqPct: number;
+  duplicatePct: number;
   trustedScorePct: number | null;
   /** Raw IPQS rollup for the row (when present) — used by the Trusted Score
    *  hover tooltip in the Marketing Sources table. */
@@ -114,7 +136,7 @@ export function buildMarketingSourceRows(
       if (!key) return null;
       const counters = entry.counters || ZERO_COUNTERS;
       const quality = entry.quality;
-      const duplicates = quality?.duplicate_count ?? 0;
+      const duplicates = resolveDuplicateCount(counters, quality);
       const dnq = Math.max(counters.rejected - duplicates, 0);
 
       return {
@@ -122,12 +144,18 @@ export function buildMarketingSourceRows(
         label: labelResolver(key) || key,
         leads: counters.received,
         cherryPicked: counters.cherry_picked ?? 0,
+        sold: counters.sold,
+        // CR — Rejected = DNQ + Duplicate (matches BE `counters.rejected`).
+        // Previously displayed `accepted_not_sold` (buyer-rejection); the user
+        // mental model uses the QA-rejection bucket so OVERALL math identities
+        // (Rejected = DNQ + Duplicate) hold across the dashboard.
+        rejected: dnq + duplicates,
         dnq,
-        signed: counters.sold,
-        acceptedNotSold: counters.accepted_not_sold,
-        leadToSignedPct: soldRate(counters),
-        acceptedNotSoldPct: acceptedNotSoldRate(counters),
-        spamPct: spamRate(counters, quality),
+        duplicate: duplicates,
+        soldPct: soldRate(counters),
+        rejectedPct: rejectedRate(counters, quality),
+        dnqPct: dnqRate(counters, quality),
+        duplicatePct: duplicateRate(counters, quality),
         trustedScorePct: entry.ipqs?.trusted_score_pct ?? null,
         ipqs: entry.ipqs ?? null,
       };
@@ -136,70 +164,40 @@ export function buildMarketingSourceRows(
 }
 
 export type StatusBreakdownDatum = {
-  key: "sold" | "accepted_not_sold" | "dnq" | "duplicate" | "spam";
+  key: "sold" | "rejected" | "dnq" | "duplicate";
   name: string;
   value: number;
 };
 
 /**
- * Status donut data — splits rejected into duplicate / spam / DNQ buckets so
- * the donut reflects the screenshot's status mix.
+ * Status donut data — four-bucket taxonomy: Sold, Rejected, DNQ, Duplicate.
+ * Zero-value wedges are filtered out.
  */
 export function buildStatusBreakdown(
   c: MetricsCounters,
   q?: QualityRollup | null,
 ): StatusBreakdownDatum[] {
-  const duplicates = q?.duplicate_count ?? 0;
-  const spam = q
-    ? q.rejection_buckets.ipqs_phone +
-      q.rejection_buckets.ipqs_email +
-      q.rejection_buckets.ipqs_ip
-    : 0;
-  const dnq = Math.max(c.rejected - duplicates - spam, 0);
+  const duplicates = resolveDuplicateCount(c, q);
+  const dnq = Math.max(c.rejected - duplicates, 0);
 
-  return [
-    { key: "sold", name: "Signed", value: c.sold },
-    {
-      key: "accepted_not_sold",
-      name: "Accepted Not Sold",
-      value: c.accepted_not_sold,
-    },
+  const data: StatusBreakdownDatum[] = [
+    { key: "sold", name: "Sold", value: c.sold },
+    { key: "rejected", name: "Rejected", value: c.accepted_not_sold },
     { key: "dnq", name: "DNQ", value: dnq },
     { key: "duplicate", name: "Duplicate", value: duplicates },
-    { key: "spam", name: "Spam", value: spam },
-  ].filter((d) => d.value > 0) as StatusBreakdownDatum[];
+  ];
+  return data.filter((d) => d.value > 0);
 }
 
 /**
- * Resolve DNQ count for a counters/quality pair. Prefers the BE-provided
- * `rejected_dnq` field (CR-002); otherwise derives from `rejected − duplicates − spam`.
+ * Resolve DNQ count: `rejected − duplicates`. IPQS fails are folded into
+ * DNQ under the new four-bucket taxonomy.
  */
 export function resolveDnqCount(
   c: MetricsCounters,
   q?: QualityRollup | null,
 ): number {
-  if (typeof c.rejected_dnq === "number") return c.rejected_dnq;
-  const duplicates = q?.duplicate_count ?? 0;
-  const spam = q
-    ? q.rejection_buckets.ipqs_phone +
-      q.rejection_buckets.ipqs_email +
-      q.rejection_buckets.ipqs_ip
-    : 0;
-  return Math.max(c.rejected - duplicates - spam, 0);
-}
-
-/** Resolve SPAM count — IPQS-driven rejected share. */
-export function resolveSpamCount(
-  c: MetricsCounters,
-  q?: QualityRollup | null,
-): number {
-  if (typeof c.rejected_spam === "number") return c.rejected_spam;
-  if (!q) return 0;
-  return (
-    q.rejection_buckets.ipqs_phone +
-    q.rejection_buckets.ipqs_email +
-    q.rejection_buckets.ipqs_ip
-  );
+  return Math.max(c.rejected - resolveDuplicateCount(c, q), 0);
 }
 
 /** Resolve DUPLICATE count. */
@@ -291,4 +289,115 @@ export function assertMetricsFilterCompat(filters: {
     return "Select either an affiliate or a campaign key, not both.";
   }
   return null;
+}
+
+// ── Volume tile math (parent = sum of children) ─────────────────────────
+
+export type VolumeCounts = {
+  received: number;
+  /** Derived: sold + cherry_picked. */
+  accepted: number;
+  sold: number;
+  cherryPicked: number;
+  /** Derived: dnq + duplicate. Matches BE `counters.rejected`. */
+  rejected: number;
+  dnq: number;
+  duplicate: number;
+};
+
+/**
+ * Derive Volume tile counts from the same MetricsCounters / QualityRollup
+ * shape used by the donut and Marketing Sources table. Enforces the
+ * parent-equals-children identities:
+ *   - accepted = sold + cherry_picked
+ *   - rejected = dnq + duplicate
+ * so the Volume tiles, Status donut, and Marketing Sources OVERALL row
+ * never drift from each other.
+ */
+export function deriveVolumeCounts(
+  c: MetricsCounters,
+  q?: QualityRollup | null,
+): VolumeCounts {
+  const duplicate = resolveDuplicateCount(c, q);
+  const dnq = Math.max(c.rejected - duplicate, 0);
+  const cherryPicked = c.cherry_picked ?? 0;
+  return {
+    received: c.received,
+    accepted: c.sold + cherryPicked,
+    sold: c.sold,
+    cherryPicked,
+    rejected: dnq + duplicate,
+    dnq,
+    duplicate,
+  };
+}
+
+// ── Time Breakdown — local-timezone re-bucketing ────────────────────────
+
+export type HourBucket = {
+  hour: number;
+  label: string;
+  received: number;
+};
+
+/**
+ * Re-bucket BE-aggregated hourly points (keyed by UTC hour) into the
+ * browser's local hour. The BE returns `{ date, hour, ... }` where `hour`
+ * is the UTC hour-of-day; we reconstruct the UTC instant and read
+ * `Date.prototype.getHours()` to get the local hour.
+ */
+export function bucketHourlyByLocalHour(
+  points: ReadonlyArray<MetricsHourlyPoint>,
+): HourBucket[] {
+  const buckets: HourBucket[] = Array.from({ length: 24 }, (_, hour) => ({
+    hour,
+    label: `${hour.toString().padStart(2, "0")}:00`,
+    received: 0,
+  }));
+  for (const p of points) {
+    if (typeof p.hour !== "number" || p.hour < 0 || p.hour > 23) continue;
+    const utc = new Date(
+      `${p.date}T${p.hour.toString().padStart(2, "0")}:00:00Z`,
+    );
+    if (Number.isNaN(utc.getTime())) continue;
+    const localHour = utc.getHours();
+    if (localHour < 0 || localHour > 23) continue;
+    buckets[localHour].received += p.counters?.received ?? 0;
+  }
+  return buckets;
+}
+
+export type WeekdaySlice = {
+  key: "weekday" | "weekend";
+  name: string;
+  value: number;
+};
+
+/**
+ * Derive weekday/weekend slices from hourly points using the browser's
+ * local timezone (parity with `bucketHourlyByLocalHour`). Reconstructs the
+ * UTC instant for each point and reads `Date.prototype.getDay()`.
+ */
+export function bucketWeekdayByLocal(
+  points: ReadonlyArray<MetricsHourlyPoint>,
+): WeekdaySlice[] {
+  let weekday = 0;
+  let weekend = 0;
+  for (const p of points) {
+    if (typeof p.hour !== "number" || p.hour < 0 || p.hour > 23) continue;
+    const utc = new Date(
+      `${p.date}T${p.hour.toString().padStart(2, "0")}:00:00Z`,
+    );
+    if (Number.isNaN(utc.getTime())) continue;
+    const dow = utc.getDay();
+    const received = p.counters?.received ?? 0;
+    if (dow === 0 || dow === 6) weekend += received;
+    else weekday += received;
+  }
+  const out: WeekdaySlice[] = [];
+  if (weekday > 0)
+    out.push({ key: "weekday", name: "Weekday", value: weekday });
+  if (weekend > 0)
+    out.push({ key: "weekend", name: "Weekend", value: weekend });
+  return out;
 }
