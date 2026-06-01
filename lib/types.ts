@@ -131,6 +131,7 @@ export interface ParticipantHistoryEntry {
   to: string;
   changed_at: string;
   changed_by?: RequestActor | null;
+}
 
 export interface Client {
   id: string;

@@ -120,7 +120,7 @@ export function ClientsView({
   const softDeleteDisabledReason = useMemo(() => {
     if (!deleteTarget) return undefined;
     const activeCampaigns = campaigns.filter((c) =>
-      c.clients?.some(
+      c.contracts?.some(
         (cl) => cl.client_id === deleteTarget.id && cl.status !== "DISABLED",
       ),
     );
@@ -132,7 +132,7 @@ export function ClientsView({
   const hardDeleteDisabledReason = useMemo(() => {
     if (!deleteTarget) return undefined;
     const linked = campaigns.filter((c) =>
-      c.clients?.some((cl) => cl.client_id === deleteTarget.id),
+      c.contracts?.some((cl) => cl.client_id === deleteTarget.id),
     );
     if (linked.length === 0) return undefined;
     const count = linked.length;
