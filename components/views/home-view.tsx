@@ -399,7 +399,7 @@ export function HomeView({
     ? `Campaigns under ${scopedAffiliateLabel}`
     : appliedFilters.campaign_id
       ? `Source = affiliate · scoped to ${selectedCampaign?.name || appliedFilters.campaign_id}`
-      : "Source = per-link campaign_key · all live campaigns";
+      : " All live campaigns";
 
   const handleMarketingRowOpen = (row: MarketingSourceRow) => {
     if (appliedFilters.affiliate_id) {
@@ -506,10 +506,6 @@ export function HomeView({
             <h2 className="text-lg font-semibold text-[--color-text-strong]">
               Metrics Dashboard
             </h2>
-            <p className="mt-1 text-sm text-[--color-text-muted]">
-              Live aggregate views for intake, acceptance, and sold outcomes
-              with cherry-picked tracked separately.
-            </p>
           </div>
           <div className="inline-flex items-center gap-2 rounded-[--radius-pill] border border-[--color-border] bg-[--color-bg-muted] px-3 py-1.5 text-xs text-[--color-text-muted]">
             <CalendarRange size={14} />
@@ -721,7 +717,7 @@ export function HomeView({
         scopeLabel={
           selectedCampaign
             ? `Campaign: ${selectedCampaign.name}`
-            : "Global (all live campaigns)"
+            : "All live campaigns"
         }
       />
 

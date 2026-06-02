@@ -107,18 +107,18 @@ export function MetricsMarketingSourcesTable({
         <div className="overflow-x-auto">
           <table className="min-w-full border-separate border-spacing-y-2 text-sm">
             <thead>
-              <tr className="text-left text-[11px] uppercase tracking-wide text-[--color-text-muted]">
+              <tr className="text-center text-[11px] uppercase tracking-wide text-[--color-text-muted]">
                 <th className="px-3 py-1">{firstColumnLabel}</th>
-                <th className="px-3 py-1 text-right"># Leads</th>
-                <th className="px-3 py-1 text-right">Cherry Picked</th>
-                <th className="px-3 py-1 text-right">Sold</th>
-                <th className="px-3 py-1 text-right">Rejected</th>
-                <th className="px-3 py-1 text-right">DNQ</th>
-                <th className="px-3 py-1 text-right">Duplicate</th>
-                <th className="px-3 py-1 text-right">Sold %</th>
-                <th className="px-3 py-1 text-right">Rejected %</th>
-                <th className="px-3 py-1 text-right">DNQ %</th>
-                <th className="px-3 py-1 text-right">Duplicate %</th>
+                <th className="px-3 py-1"># Leads</th>
+                <th className="px-3 py-1">Cherry Picked</th>
+                <th className="px-3 py-1">Sold</th>
+                <th className="px-3 py-1">Rejected</th>
+                <th className="px-3 py-1">DNQ</th>
+                <th className="px-3 py-1">Duplicate</th>
+                <th className="px-3 py-1">Sold %</th>
+                <th className="px-3 py-1">Rejected %</th>
+                <th className="px-3 py-1">DNQ %</th>
+                <th className="px-3 py-1">Duplicate %</th>
                 <th className="px-3 py-1">Trusted Score</th>
               </tr>
             </thead>
@@ -138,42 +138,44 @@ export function MetricsMarketingSourcesTable({
                   }}
                 >
                   <td
-                    className="px-3 py-2 font-medium text-[--color-text-strong]"
+                    className="px-3 py-2 text-center font-medium text-[--color-text-strong]"
                     title={row.label}
                   >
-                    <span className="block max-w-[18rem] truncate">
+                    <span className="mx-auto block max-w-[18rem] truncate text-center">
                       {row.label}
                     </span>
                   </td>
-                  <td className="px-3 py-2 text-right">
+                  <td className="px-3 py-2 text-center">
                     {numberFormatter.format(row.leads)}
                   </td>
-                  <td className="px-3 py-2 text-right">
+                  <td className="px-3 py-2 text-center">
                     {numberFormatter.format(row.cherryPicked)}
                   </td>
-                  <td className="px-3 py-2 text-right">
+                  <td className="px-3 py-2 text-center">
                     {numberFormatter.format(row.sold)}
                   </td>
-                  <td className="px-3 py-2 text-right">
+                  <td className="px-3 py-2 text-center">
                     {numberFormatter.format(row.rejected)}
                   </td>
-                  <td className="px-3 py-2 text-right">
+                  <td className="px-3 py-2 text-center">
                     {numberFormatter.format(row.dnq)}
                   </td>
-                  <td className="px-3 py-2 text-right">
+                  <td className="px-3 py-2 text-center">
                     {numberFormatter.format(row.duplicate)}
                   </td>
-                  <td className="px-3 py-2 text-right">
+                  <td className="px-3 py-2 text-center">
                     {fmtPct(row.soldPct)}
                   </td>
-                  <td className="px-3 py-2 text-right">
+                  <td className="px-3 py-2 text-center">
                     {fmtPct(row.rejectedPct)}
                   </td>
-                  <td className="px-3 py-2 text-right">{fmtPct(row.dnqPct)}</td>
-                  <td className="px-3 py-2 text-right">
+                  <td className="px-3 py-2 text-center">
+                    {fmtPct(row.dnqPct)}
+                  </td>
+                  <td className="px-3 py-2 text-center">
                     {fmtPct(row.duplicatePct)}
                   </td>
-                  <td className="px-3 py-2">
+                  <td className="px-3 py-2 text-center">
                     <TrustedScoreBar
                       pct={row.trustedScorePct}
                       ipqs={row.ipqs ?? null}
@@ -184,40 +186,40 @@ export function MetricsMarketingSourcesTable({
               ))}
 
               <tr className="rounded-[--radius-sm] bg-[color-mix(in_srgb,var(--color-primary)_10%,var(--color-panel))] text-[--color-text-strong]">
-                <td className="px-3 py-2 text-xs font-bold uppercase tracking-wide">
+                <td className="px-3 py-2 text-center text-xs font-bold uppercase tracking-wide">
                   Overall
                 </td>
-                <td className="px-3 py-2 text-right font-semibold">
+                <td className="px-3 py-2 text-center font-semibold">
                   {numberFormatter.format(overallTotals.received)}
                 </td>
-                <td className="px-3 py-2 text-right font-semibold">
+                <td className="px-3 py-2 text-center font-semibold">
                   {numberFormatter.format(overallCherryPicked)}
                 </td>
-                <td className="px-3 py-2 text-right font-semibold">
+                <td className="px-3 py-2 text-center font-semibold">
                   {numberFormatter.format(overallTotals.sold)}
                 </td>
-                <td className="px-3 py-2 text-right font-semibold">
+                <td className="px-3 py-2 text-center font-semibold">
                   {numberFormatter.format(overallRejected)}
                 </td>
-                <td className="px-3 py-2 text-right font-semibold">
+                <td className="px-3 py-2 text-center font-semibold">
                   {numberFormatter.format(overallDnq)}
                 </td>
-                <td className="px-3 py-2 text-right font-semibold">
+                <td className="px-3 py-2 text-center font-semibold">
                   {numberFormatter.format(overallDuplicate)}
                 </td>
-                <td className="px-3 py-2 text-right font-semibold">
+                <td className="px-3 py-2 text-center font-semibold">
                   {fmtPct(overallSoldPct)}
                 </td>
-                <td className="px-3 py-2 text-right font-semibold">
+                <td className="px-3 py-2 text-center font-semibold">
                   {fmtPct(overallRejectedPct)}
                 </td>
-                <td className="px-3 py-2 text-right font-semibold">
+                <td className="px-3 py-2 text-center font-semibold">
                   {fmtPct(overallDnqPct)}
                 </td>
-                <td className="px-3 py-2 text-right font-semibold">
+                <td className="px-3 py-2 text-center font-semibold">
                   {fmtPct(overallDuplicatePct)}
                 </td>
-                <td className="px-3 py-2">
+                <td className="px-3 py-2 text-center">
                   <TrustedScoreBar
                     pct={overallTrustedScorePct}
                     ipqs={overallIpqs}
@@ -244,7 +246,7 @@ function TrustedScoreBar({
 }) {
   const safe = pct === null ? null : Math.max(0, Math.min(100, pct));
   const bar = (
-    <div className="flex w-32 cursor-default select-none items-center gap-2">
+    <div className="mx-auto flex w-32 cursor-default select-none items-center gap-2">
       <div
         className="h-2 flex-1 overflow-hidden rounded-[--radius-pill] bg-[--color-bg-tertiary]"
         role="progressbar"
