@@ -57,7 +57,7 @@ import {
 } from "@/lib/utils";
 import {
   listUsers,
-  getMetricsSummary,
+  getMetricsDashboard,
   listPluginSettings,
   listCriteria,
   createCriteriaField,
@@ -168,6 +168,42 @@ import {
   normalizePixelMappingRows,
   toLogicCatalogRulesPayload,
 } from "@/components/campaign-detail/campaign-detail-helpers";
+
+function extractDashboardReceivedTotal(payload: unknown): number | null {
+  const asObject = (value: unknown): Record<string, unknown> | null =>
+    value && typeof value === "object"
+      ? (value as Record<string, unknown>)
+      : null;
+  const asFiniteNumber = (value: unknown): number | null =>
+    typeof value === "number" && Number.isFinite(value) ? value : null;
+
+  const root = asObject(payload);
+  const data = asObject(root?.data);
+  const sections = asObject(data?.sections);
+  const summaryCandidates = [
+    asObject(data?.summary),
+    asObject(data?.totals_summary),
+    asObject(sections?.summary),
+    asObject(sections?.totals_summary),
+  ].filter(
+    (candidate): candidate is Record<string, unknown> => candidate !== null,
+  );
+
+  for (const summary of summaryCandidates) {
+    const directReceived = asFiniteNumber(summary.received);
+    if (directReceived !== null) return directReceived;
+
+    const totals = asObject(summary.totals) ?? asObject(summary.totals_summary);
+    const received =
+      asFiniteNumber(totals?.received) ??
+      asFiniteNumber(totals?.total_received) ??
+      asFiniteNumber(totals?.leads_received);
+
+    if (received !== null) return received;
+  }
+
+  return null;
+}
 
 export function CampaignDetailModal({
   campaign,
@@ -2270,12 +2306,12 @@ export function CampaignDetailModal({
 
     const loadCampaignLeadCountTotal = async () => {
       try {
-        const summary = await getMetricsSummary({
+        const dashboard = await getMetricsDashboard({
           from_date: "1970-01-01",
           to_date: "9999-12-31",
           campaign_id: campaign.id,
         });
-        const receivedTotal = summary?.data?.totals?.received;
+        const receivedTotal = extractDashboardReceivedTotal(dashboard);
         if (!active) return;
         if (
           typeof receivedTotal === "number" &&

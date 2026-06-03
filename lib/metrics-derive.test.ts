@@ -172,6 +172,26 @@ describe("buildStatusBreakdown", () => {
     expect(lookup.duplicate).toBe(10);
   });
 
+  it("includes a cherry-pick bucket when cherry-picked leads are present", () => {
+    const withCherry: MetricsCounters = {
+      ...counters,
+      cherry_picked: 12,
+    };
+    const data = buildStatusBreakdown(withCherry, quality);
+    expect(data.map((d) => d.key)).toEqual([
+      "sold",
+      "rejected",
+      "cherry_pick",
+      "dnq",
+      "duplicate",
+    ]);
+    const lookup = Object.fromEntries(data.map((d) => [d.key, d.value]));
+    expect(lookup.cherry_pick).toBe(12);
+    expect(lookup.sold).toBe(40);
+    expect(lookup.dnq).toBe(70);
+    expect(lookup.duplicate).toBe(10);
+  });
+
   it("never emits a spam wedge — IPQS fails are folded into DNQ", () => {
     // Construct counters where rejections are entirely IPQS-driven.
     const c: MetricsCounters = {

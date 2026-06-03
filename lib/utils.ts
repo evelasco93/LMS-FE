@@ -185,3 +185,11 @@ export function formatTrustedScorePct(
     return "—";
   return `${value.toFixed(1)}%`;
 }
+
+export function trustedScoreBandColor(value: number | null): string {
+  if (value === null || !Number.isFinite(value))
+    return "var(--color-bg-tertiary)";
+  if (value >= 80) return "var(--color-success)";
+  if (value >= 50) return "var(--color-warning)";
+  return "var(--color-danger)";
+}

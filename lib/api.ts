@@ -27,6 +27,7 @@ import type {
   MetricsByAffiliateKeysResponse,
   MetricsByAffiliateResponse,
   MetricsByCampaignAffiliatesResponse,
+  MetricsDashboardResponse,
   MetricsBySourceResponse,
   MetricsContractsResponse,
   MetricsHealthResponse,
@@ -133,6 +134,14 @@ export async function getMetricsSummary(params: MetricsQueryParams) {
   }
   const url = buildUrl("/metrics/summary", params);
   return request<MetricsSummaryResponse>(url);
+}
+
+export async function getMetricsDashboard(params: MetricsQueryParams) {
+  if (params.affiliate_id && params.campaign_key) {
+    throw new Error("affiliate_id and campaign_key are mutually exclusive");
+  }
+  const url = buildUrl("/metrics/dashboard", params);
+  return request<MetricsDashboardResponse>(url);
 }
 
 export async function getMetricsTimeseries(params: MetricsQueryParams) {

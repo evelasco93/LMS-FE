@@ -3,6 +3,51 @@
 import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 
+const QUERY_PARAM_PRIORITY: string[] = [
+  "view",
+  "dashboard_mode",
+  "campaign",
+  "section",
+  "subsection",
+  "affiliate",
+  "window",
+  "window_id",
+  "window_tab",
+  "campaign_scope",
+  "campaign_id",
+  "campaign_key",
+  "affiliate_id",
+  "time_preset",
+  "from_date",
+  "to_date",
+  "lead",
+  "leadTab",
+  "leadQc",
+  "leadPt",
+];
+
+function toOrderedSearchParams(state: Record<string, string>): URLSearchParams {
+  const priorityIndex = new Map(
+    QUERY_PARAM_PRIORITY.map((key, index) => [key, index]),
+  );
+  const orderedKeys = Object.keys(state).sort((left, right) => {
+    const leftIndex = priorityIndex.get(left);
+    const rightIndex = priorityIndex.get(right);
+    if (leftIndex !== undefined && rightIndex !== undefined) {
+      return leftIndex - rightIndex;
+    }
+    if (leftIndex !== undefined) return -1;
+    if (rightIndex !== undefined) return 1;
+    return left.localeCompare(right);
+  });
+
+  const params = new URLSearchParams();
+  orderedKeys.forEach((key) => {
+    params.set(key, state[key]);
+  });
+  return params;
+}
+
 /**
  * Lightweight URL query-param state manager (no Next.js router overhead).
  * Replaces query params in the URL via replaceState and syncs on popstate.
@@ -45,7 +90,7 @@ export function useQueryState() {
           return prev;
         }
 
-        const params = new URLSearchParams(merged);
+        const params = toOrderedSearchParams(merged);
         const qs = params.toString();
         window.history.replaceState(
           window.history.state,

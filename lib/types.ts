@@ -511,8 +511,16 @@ export interface ApiResponse<T> {
 }
 
 export type MetricsQueryParams = {
-  from_date: string;
-  to_date: string;
+  from_date?: string;
+  to_date?: string;
+  time_preset?:
+    | "year_to_date"
+    | "this_month"
+    | "last_30_days"
+    | "last_7_days"
+    | "yesterday"
+    | "today"
+    | "all_time";
   campaign_id?: string;
   campaign_key?: string;
   affiliate_id?: string;
@@ -743,6 +751,33 @@ export type MetricsBySourceData = {
 };
 
 export type MetricsBySourceResponse = ApiResponse<MetricsBySourceData>;
+
+// ── CR-002 — Consolidated dashboard endpoint response ──────────────────────
+
+export type MetricsDashboardSections = {
+  summary?: MetricsSummaryData;
+  timeseries?: MetricsTimeseriesData;
+  timeseries_by_source?: MetricsBySourceData;
+  timeseries_hourly?: MetricsHourlyData;
+  campaign_by_source?: MetricsBreakdownData;
+  by_campaign_affiliates?: MetricsByCampaignAffiliatesData;
+  by_affiliate_campaigns?: MetricsByAffiliateCampaignsData;
+};
+
+export type MetricsDashboardData = {
+  range?: MetricsRange;
+  filters?: MetricsFilters;
+  sections?: MetricsDashboardSections;
+  summary?: MetricsSummaryData;
+  timeseries?: MetricsTimeseriesData;
+  timeseries_by_source?: MetricsBySourceData;
+  timeseries_hourly?: MetricsHourlyData;
+  campaign_by_source?: MetricsBreakdownData;
+  by_campaign_affiliates?: MetricsByCampaignAffiliatesData;
+  by_affiliate_campaigns?: MetricsByAffiliateCampaignsData;
+};
+
+export type MetricsDashboardResponse = ApiResponse<MetricsDashboardData>;
 
 export type CredentialType = "api_key" | "basic_auth" | "bearer_token";
 

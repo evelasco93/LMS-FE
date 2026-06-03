@@ -2,26 +2,25 @@
 
 import type { IpqsRollup, MetricsCounters, QualityRollup } from "@/lib/types";
 import {
+  acceptedRate,
+  cherryPickedRate,
+  dnqRate,
+  duplicateRate,
+  deriveVolumeCounts,
   type MarketingSourceRow,
   buildOverallIpqsRollup,
   buildOverallTrustedScorePct,
-  buildStatusBreakdown,
+  rejectedRate,
+  soldRate,
 } from "@/lib/metrics-derive";
 import { HoverTooltip } from "@/components/ui/hover-tooltip";
-import { formatTrustedScorePct } from "@/lib/utils";
+import { formatTrustedScorePct, trustedScoreBandColor } from "@/lib/utils";
 
 const numberFormatter = new Intl.NumberFormat("en-US");
 
 function fmtPct(value: number | null | undefined): string {
   if (value === null || value === undefined || Number.isNaN(value)) return "—";
   return `${value.toFixed(1)}%`;
-}
-
-function trustedBandColor(pct: number | null): string {
-  if (pct === null) return "var(--color-bg-tertiary)";
-  if (pct >= 80) return "var(--color-success)";
-  if (pct >= 50) return "var(--color-warning)";
-  return "var(--color-danger)";
 }
 
 type MetricsMarketingSourcesTableProps = {
@@ -47,33 +46,23 @@ export function MetricsMarketingSourcesTable({
   firstColumnLabel = "Source",
   onRowOpen,
 }: MetricsMarketingSourcesTableProps) {
-  const overallStatus = buildStatusBreakdown(
+  const overallVolume = deriveVolumeCounts(
     overallTotals,
     overallQuality ?? null,
   );
-  const overallDnq = overallStatus.find((d) => d.key === "dnq")?.value ?? 0;
-  const overallDuplicate =
-    overallStatus.find((d) => d.key === "duplicate")?.value ?? 0;
-  // CR — Rejected = DNQ + Duplicate (matches Volume tile + per-row math).
-  // Previously displayed `accepted_not_sold` which could drift from
-  // `dnq + duplicate`, breaking OVERALL row parity in the screenshot bug.
-  const overallRejected = overallDnq + overallDuplicate;
-  const overallSoldPct =
-    overallTotals.received > 0
-      ? (overallTotals.sold / overallTotals.received) * 100
-      : 0;
-  const overallRejectedPct =
-    overallTotals.received > 0
-      ? (overallTotals.accepted_not_sold / overallTotals.received) * 100
-      : 0;
-  const overallDnqPct =
-    overallTotals.received > 0
-      ? (overallDnq / overallTotals.received) * 100
-      : 0;
-  const overallDuplicatePct =
-    overallTotals.received > 0
-      ? (overallDuplicate / overallTotals.received) * 100
-      : 0;
+  const overallDnq = overallVolume.dnq;
+  const overallDuplicate = overallVolume.duplicate;
+  const overallRejected = overallVolume.rejected;
+  const overallSoldPct = soldRate(overallTotals);
+  const overallRejectedPct = rejectedRate(
+    overallTotals,
+    overallQuality ?? null,
+  );
+  const overallDnqPct = dnqRate(overallTotals, overallQuality ?? null);
+  const overallDuplicatePct = duplicateRate(
+    overallTotals,
+    overallQuality ?? null,
+  );
   // CR-002 — Trusted Score for OVERALL is now derived from visible rows
   // (weighted by row leads); no longer pulled from `summary.ipqs.trusted_score_pct`.
   const overallTrustedScorePct = buildOverallTrustedScorePct(rows);
@@ -83,6 +72,13 @@ export function MetricsMarketingSourcesTable({
   const overallCherryPicked =
     overallTotals.cherry_picked ??
     rows.reduce((sum, row) => sum + row.cherryPicked, 0);
+  const overallCherryPickedPct =
+    overallTotals.cherry_picked !== undefined
+      ? cherryPickedRate(overallTotals)
+      : overallTotals.received > 0
+        ? (overallCherryPicked / overallTotals.received) * 100
+        : 0;
+  const overallAcceptedPct = acceptedRate(overallTotals);
 
   return (
     <div className="panel p-3 sm:p-4">
@@ -112,10 +108,13 @@ export function MetricsMarketingSourcesTable({
                 <th className="px-3 py-1"># Leads</th>
                 <th className="px-3 py-1">Cherry Picked</th>
                 <th className="px-3 py-1">Sold</th>
+                <th className="px-3 py-1">Accepted</th>
                 <th className="px-3 py-1">Rejected</th>
                 <th className="px-3 py-1">DNQ</th>
                 <th className="px-3 py-1">Duplicate</th>
                 <th className="px-3 py-1">Sold %</th>
+                <th className="px-3 py-1">Cherry Picked %</th>
+                <th className="px-3 py-1">Accepted %</th>
                 <th className="px-3 py-1">Rejected %</th>
                 <th className="px-3 py-1">DNQ %</th>
                 <th className="px-3 py-1">Duplicate %</th>
@@ -155,6 +154,9 @@ export function MetricsMarketingSourcesTable({
                     {numberFormatter.format(row.sold)}
                   </td>
                   <td className="px-3 py-2 text-center">
+                    {numberFormatter.format(row.sold + row.cherryPicked)}
+                  </td>
+                  <td className="px-3 py-2 text-center">
                     {numberFormatter.format(row.rejected)}
                   </td>
                   <td className="px-3 py-2 text-center">
@@ -165,6 +167,19 @@ export function MetricsMarketingSourcesTable({
                   </td>
                   <td className="px-3 py-2 text-center">
                     {fmtPct(row.soldPct)}
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    {fmtPct(
+                      row.leads > 0 ? (row.cherryPicked / row.leads) * 100 : 0,
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    {fmtPct(
+                      row.soldPct +
+                        (row.leads > 0
+                          ? (row.cherryPicked / row.leads) * 100
+                          : 0),
+                    )}
                   </td>
                   <td className="px-3 py-2 text-center">
                     {fmtPct(row.rejectedPct)}
@@ -196,7 +211,10 @@ export function MetricsMarketingSourcesTable({
                   {numberFormatter.format(overallCherryPicked)}
                 </td>
                 <td className="px-3 py-2 text-center font-semibold">
-                  {numberFormatter.format(overallTotals.sold)}
+                  {numberFormatter.format(overallVolume.sold)}
+                </td>
+                <td className="px-3 py-2 text-center font-semibold">
+                  {numberFormatter.format(overallVolume.accepted)}
                 </td>
                 <td className="px-3 py-2 text-center font-semibold">
                   {numberFormatter.format(overallRejected)}
@@ -209,6 +227,12 @@ export function MetricsMarketingSourcesTable({
                 </td>
                 <td className="px-3 py-2 text-center font-semibold">
                   {fmtPct(overallSoldPct)}
+                </td>
+                <td className="px-3 py-2 text-center font-semibold">
+                  {fmtPct(overallCherryPickedPct)}
+                </td>
+                <td className="px-3 py-2 text-center font-semibold">
+                  {fmtPct(overallAcceptedPct)}
                 </td>
                 <td className="px-3 py-2 text-center font-semibold">
                   {fmtPct(overallRejectedPct)}
@@ -260,7 +284,7 @@ function TrustedScoreBar({
             className="h-full rounded-[--radius-pill]"
             style={{
               width: `${safe}%`,
-              backgroundColor: trustedBandColor(safe),
+              backgroundColor: trustedScoreBandColor(safe),
             }}
           />
         )}

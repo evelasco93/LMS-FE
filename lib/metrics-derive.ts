@@ -173,7 +173,7 @@ export function buildMarketingSourceRows(
 }
 
 export type StatusBreakdownDatum = {
-  key: "sold" | "rejected" | "dnq" | "duplicate";
+  key: "sold" | "rejected" | "cherry_pick" | "dnq" | "duplicate";
   name: string;
   value: number;
 };
@@ -188,10 +188,12 @@ export function buildStatusBreakdown(
 ): StatusBreakdownDatum[] {
   const duplicates = resolveDuplicateCount(c, q);
   const dnq = Math.max(c.rejected - duplicates, 0);
+  const cherryPick = c.cherry_picked ?? 0;
 
   const data: StatusBreakdownDatum[] = [
     { key: "sold", name: "Sold", value: c.sold },
     { key: "rejected", name: "Rejected", value: c.accepted_not_sold },
+    { key: "cherry_pick", name: "Cherry Pick", value: cherryPick },
     { key: "dnq", name: "DNQ", value: dnq },
     { key: "duplicate", name: "Duplicate", value: duplicates },
   ];

@@ -44,7 +44,7 @@ import {
   listClients,
   listAffiliates,
   listCampaigns,
-  getMetricsSummary,
+  getMetricsDashboard,
 } from "@/lib/api";
 import type { Affiliate, Campaign, Client, Lead } from "@/lib/types";
 import type { CampaignDetailTab } from "@/lib/types";
@@ -74,6 +74,42 @@ const userDisplayName = (u: AuthUser): string => {
   if (name) return name;
   return u.email.split("@")[0] ?? u.email;
 };
+
+function extractDashboardReceivedTotal(payload: unknown): number | null {
+  const asObject = (value: unknown): Record<string, unknown> | null =>
+    value && typeof value === "object"
+      ? (value as Record<string, unknown>)
+      : null;
+  const asFiniteNumber = (value: unknown): number | null =>
+    typeof value === "number" && Number.isFinite(value) ? value : null;
+
+  const root = asObject(payload);
+  const data = asObject(root?.data);
+  const sections = asObject(data?.sections);
+  const summaryCandidates = [
+    asObject(data?.summary),
+    asObject(data?.totals_summary),
+    asObject(sections?.summary),
+    asObject(sections?.totals_summary),
+  ].filter(
+    (candidate): candidate is Record<string, unknown> => candidate !== null,
+  );
+
+  for (const summary of summaryCandidates) {
+    const directReceived = asFiniteNumber(summary.received);
+    if (directReceived !== null) return directReceived;
+
+    const totals = asObject(summary.totals) ?? asObject(summary.totals_summary);
+    const received =
+      asFiniteNumber(totals?.received) ??
+      asFiniteNumber(totals?.total_received) ??
+      asFiniteNumber(totals?.leads_received);
+
+    if (received !== null) return received;
+  }
+
+  return null;
+}
 
 // ─── Dashboard (auth shell) ───────────────────────────────────────────────────
 export default function Dashboard() {
@@ -243,7 +279,7 @@ function DashboardContent({
   // Sync browser tab title to active view
   useEffect(() => {
     const labels: Record<NavKey, string> = {
-      home: "Home",
+      home: "Dashboard",
       leads: "Leads",
       clients: "End Users",
       affiliates: "Sources",
@@ -592,15 +628,14 @@ function DashboardContent({
         let resolvedTotal = minimumTotal;
         try {
           const leadCampaignFilter = getParam("lead_campaign");
-          const summary = await getMetricsSummary({
-            from_date: "1970-01-01",
-            to_date: "9999-12-31",
+          const dashboard = await getMetricsDashboard({
+            time_preset: "all_time",
             campaign_id:
               leadCampaignFilter && leadCampaignFilter !== "all"
                 ? leadCampaignFilter
                 : undefined,
           });
-          const receivedTotal = summary?.data?.totals?.received;
+          const receivedTotal = extractDashboardReceivedTotal(dashboard);
           if (
             typeof receivedTotal === "number" &&
             Number.isFinite(receivedTotal)
@@ -608,7 +643,7 @@ function DashboardContent({
             resolvedTotal = receivedTotal;
           }
         } catch {
-          // Keep the minimum-known pagination total if metrics summary is unavailable.
+          // Keep the minimum-known pagination total if dashboard metrics are unavailable.
           resolvedTotal = minimumTotal;
         }
 
@@ -754,8 +789,14 @@ function DashboardContent({
   // SWR refreshes of campaign data don't re-trigger navigation logic).
   useEffect(() => {
     const viewParam = getParam("view");
-    // Support legacy "settings" URL param — redirect to admin
-    const resolvedView = viewParam === "settings" ? "admin" : viewParam;
+    // Support legacy "settings" URL param — redirect to admin.
+    // Dashboard URLs resolve to the home nav section.
+    const resolvedView =
+      viewParam === "settings"
+        ? "admin"
+        : viewParam === "dashboard"
+          ? "home"
+          : viewParam;
     if (
       resolvedView &&
       [
@@ -771,11 +812,19 @@ function DashboardContent({
       // Non-admins trying to deep-link to admin get bounced to home
       if (resolvedView === "admin" && role !== "admin") {
         setActive("home");
-        setQueryParams({ view: "home" });
+        setQueryParams({ view: undefined });
         toast.error("Page not found.", { id: "admin-blocked" });
       } else {
         setActive(resolvedView as NavKey);
-        setQueryParams({ view: resolvedView });
+        if (viewParam === "dashboard") {
+          setQueryParams({ view: "dashboard" });
+        } else if (viewParam === "home") {
+          setQueryParams({ view: "home" });
+        } else if (resolvedView === "home") {
+          setQueryParams({ view: undefined });
+        } else {
+          setQueryParams({ view: resolvedView });
+        }
       }
     }
   }, [getParam, role]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -832,7 +881,7 @@ function DashboardContent({
 
   const title = useMemo(() => {
     const map: Record<NavKey, string> = {
-      home: "Home",
+      home: "Dashboard",
       leads: "Leads",
       clients: "End Users",
       affiliates: "Sources",
@@ -846,7 +895,7 @@ function DashboardContent({
   const description = useMemo(() => {
     switch (active) {
       case "home":
-        return "Lead Management System (PENDING NAME)";
+        return "Select one of the following dashboards to view metrics";
       case "clients":
         return "Manage end users, their details, and status";
       case "affiliates":
@@ -870,7 +919,8 @@ function DashboardContent({
     setCampaignDetailTab("overview");
     setCampaignDetailSubTab(undefined);
     setQueryParams({
-      view: next,
+      view: next === "home" ? "dashboard" : next,
+      dashboard_mode: next === "home" ? "chooser" : undefined,
       campaign: undefined,
       section: undefined,
       subsection: undefined,
@@ -878,6 +928,10 @@ function DashboardContent({
       window: undefined,
       window_id: undefined,
       window_tab: undefined,
+      campaign_scope: undefined,
+      campaign_id: undefined,
+      campaign_key: undefined,
+      affiliate_id: undefined,
       leadTab: undefined,
       leadQc: undefined,
       leadPt: undefined,

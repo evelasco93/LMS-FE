@@ -6,7 +6,8 @@ import { buildStatusBreakdown } from "@/lib/metrics-derive";
 
 const SLICE_TOKENS: Record<string, string> = {
   sold: "var(--color-success)",
-  rejected: "var(--color-primary)",
+  rejected: "var(--color-danger)",
+  cherry_pick: "var(--color-cherry)",
   dnq: "var(--color-warning)",
   duplicate: "var(--color-danger)",
 };
@@ -50,6 +51,8 @@ export function MetricsStatusDonut({
                   innerRadius={46}
                   outerRadius={86}
                   paddingAngle={2}
+                  stroke="var(--color-panel)"
+                  strokeWidth={1}
                   label={({
                     value,
                     cx,
@@ -82,7 +85,8 @@ export function MetricsStatusDonut({
                     );
                   }}
                   labelLine={false}
-                  isAnimationActive={false}
+                  isAnimationActive
+                  animationDuration={360}
                 >
                   {data.map((entry) => (
                     <Cell
