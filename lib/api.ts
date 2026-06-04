@@ -133,6 +133,118 @@ async function request<T>(path: string, options: RequestInitWithBody = {}) {
   return handleResponse<T>(res);
 }
 
+function normalizeWidgetSize(raw: unknown): "sm" | "md" | "lg" {
+  if (raw === "sm" || raw === "small") return "sm";
+  if (raw === "lg" || raw === "large") return "lg";
+  return "md";
+}
+
+function normalizeWidgetOrder(raw: unknown): number {
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
+
+function normalizeCampaignDashboardWidget(
+  campaignId: string,
+  item: any,
+): CampaignDashboardWidget {
+  const layout = item?.layout ?? {};
+  const scope: CampaignDashboardWidget["scope"] =
+    item?.scope && typeof item.scope === "object"
+      ? {
+          affiliate_id:
+            typeof item.scope.affiliate_id === "string"
+              ? item.scope.affiliate_id
+              : undefined,
+          campaign_key:
+            typeof item.scope.campaign_key === "string"
+              ? item.scope.campaign_key
+              : undefined,
+        }
+      : {
+          affiliate_id:
+            typeof item?.affiliate_id === "string"
+              ? item.affiliate_id
+              : undefined,
+          campaign_key:
+            typeof item?.campaign_key === "string"
+              ? item.campaign_key
+              : undefined,
+        };
+
+  return {
+    id: String(item?.id ?? ""),
+    campaign_id: String(item?.campaign_id ?? campaignId),
+    title: String(item?.title ?? ""),
+    criteria_field_name: String(item?.criteria_field_name ?? ""),
+    criteria_field_label:
+      typeof item?.criteria_field_label === "string"
+        ? item.criteria_field_label
+        : undefined,
+    chart_type: item?.chart_type,
+    accent:
+      typeof item?.accent === "string"
+        ? item.accent
+        : typeof item?.color === "string"
+          ? item.color
+          : "#2563eb",
+    size: normalizeWidgetSize(item?.size ?? layout?.size),
+    order: normalizeWidgetOrder(item?.order ?? layout?.order),
+    scope: scope?.affiliate_id || scope?.campaign_key ? scope : null,
+    created_at:
+      typeof item?.created_at === "string" ? item.created_at : undefined,
+    updated_at:
+      typeof item?.updated_at === "string" ? item.updated_at : undefined,
+  };
+}
+
+function toLegacyWidgetPayload(payload: CampaignDashboardWidgetInput) {
+  const normalized = toCampaignDashboardWidgetPayload(payload);
+  const legacySize =
+    normalized.size === "sm"
+      ? "small"
+      : normalized.size === "lg"
+        ? "large"
+        : "medium";
+
+  return {
+    title: normalized.title,
+    criteria_field_name: normalized.criteria_field_name,
+    chart_type: normalized.chart_type,
+    color: normalized.color,
+    layout: {
+      size: legacySize,
+      order: normalized.order,
+    },
+    affiliate_id: normalized.scope?.affiliate_id,
+    campaign_key: normalized.scope?.campaign_key,
+  };
+}
+
+function isRouteMissingError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /404|not found|route not found/i.test(message);
+}
+
+function toCampaignDashboardWidgetPayload(
+  payload: CampaignDashboardWidgetInput,
+) {
+  const normalizedAccent =
+    typeof payload.accent === "string" && payload.accent.trim().length > 0
+      ? payload.accent.trim()
+      : "#2563eb";
+
+  return {
+    title: payload.title,
+    criteria_field_name: payload.criteria_field_name,
+    chart_type: payload.chart_type,
+    color: normalizedAccent,
+    size: payload.size,
+    order: payload.order,
+    scope: payload.scope ?? null,
+  };
+}
+
 export async function getMetricsSummary(params: MetricsQueryParams) {
   if (params.affiliate_id && params.campaign_key) {
     throw new Error("affiliate_id and campaign_key are mutually exclusive");
@@ -411,20 +523,50 @@ export async function listCampaignDashboardWidgets(campaignId: string) {
   const url = buildUrl(
     `/campaigns/${encodeURIComponent(campaignId)}/dashboard/widgets`,
   );
-  return request<CampaignDashboardWidgetsResponse>(url);
+  const res = await request<any>(url);
+  const rawItems = Array.isArray(res?.data?.items) ? res.data.items : [];
+  return {
+    ...res,
+    data: {
+      ...res?.data,
+      items: rawItems.map((item: any) =>
+        normalizeCampaignDashboardWidget(campaignId, item),
+      ),
+    },
+  } as CampaignDashboardWidgetsResponse;
 }
 
 export async function createCampaignDashboardWidget(
   campaignId: string,
   payload: CampaignDashboardWidgetInput,
 ) {
+  const normalizedPayload = toCampaignDashboardWidgetPayload(payload);
   const url = buildUrl(
     `/campaigns/${encodeURIComponent(campaignId)}/dashboard/widgets`,
   );
-  return request<CampaignDashboardWidgetResponse>(url, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  let res: any;
+
+  try {
+    res = await request<any>(url, {
+      method: "POST",
+      body: JSON.stringify(normalizedPayload),
+    });
+  } catch (error) {
+    if (!isRouteMissingError(error)) throw error;
+
+    const legacyUrl = buildUrl(
+      `/campaigns/${encodeURIComponent(campaignId)}/dashboard-widgets`,
+    );
+    res = await request<any>(legacyUrl, {
+      method: "POST",
+      body: JSON.stringify(toLegacyWidgetPayload(payload)),
+    });
+  }
+
+  return {
+    ...res,
+    data: normalizeCampaignDashboardWidget(campaignId, res?.data),
+  } as CampaignDashboardWidgetResponse;
 }
 
 export async function updateCampaignDashboardWidget(
@@ -435,10 +577,14 @@ export async function updateCampaignDashboardWidget(
   const url = buildUrl(
     `/campaigns/${encodeURIComponent(campaignId)}/dashboard/widgets/${encodeURIComponent(widgetId)}`,
   );
-  return request<CampaignDashboardWidgetResponse>(url, {
+  const res = await request<any>(url, {
     method: "PUT",
-    body: JSON.stringify(payload),
+    body: JSON.stringify(toCampaignDashboardWidgetPayload(payload)),
   });
+  return {
+    ...res,
+    data: normalizeCampaignDashboardWidget(campaignId, res?.data),
+  } as CampaignDashboardWidgetResponse;
 }
 
 export async function deleteCampaignDashboardWidget(

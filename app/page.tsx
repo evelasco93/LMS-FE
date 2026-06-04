@@ -302,12 +302,14 @@ function DashboardContent({
     };
   });
 
+  const shouldLoadLeadsSnapshot = active !== "home";
+
   const {
     data: leads = [],
     isLoading: leadsLoading,
     mutate: refreshLeadsSnapshot,
   } = useSWR<Lead[]>(
-    "leads",
+    shouldLoadLeadsSnapshot ? "leads" : null,
     async () => {
       try {
         const res = await listLeads();
@@ -479,6 +481,40 @@ function DashboardContent({
   const leadListTotalCountRef = useRef<number | undefined>(undefined);
   const leadListRequestIdRef = useRef(0);
 
+  const readLeadListNextToken = useCallback((res: any): string | null => {
+    const data = res?.data ?? {};
+    const pagination = data?.pagination ?? res?.pagination ?? {};
+    const candidates = [
+      data?.lastEvaluatedKey,
+      pagination?.lastEvaluatedKey,
+      pagination?.nextToken,
+      pagination?.next_token,
+      data?.nextToken,
+      data?.next_token,
+    ];
+    const token = candidates.find(
+      (candidate) =>
+        typeof candidate === "string" && candidate.trim().length > 0,
+    );
+    return typeof token === "string" ? token : null;
+  }, []);
+
+  const readLeadListTotalCount = useCallback((res: any): number | undefined => {
+    const data = res?.data ?? {};
+    const pagination = data?.pagination ?? res?.pagination ?? {};
+    const candidates = [
+      pagination?.total,
+      pagination?.total_count,
+      data?.total,
+      data?.total_count,
+    ];
+    const total = candidates.find((candidate) =>
+      Number.isFinite(Number(candidate)),
+    );
+    if (total === undefined) return undefined;
+    return Math.max(0, Number(total));
+  }, []);
+
   const fetchLeadListPage = useCallback(
     async (
       pageNumber: number,
@@ -507,15 +543,8 @@ function DashboardContent({
         (res as any)?.items ||
         (res as any)?.data ||
         [];
-      const rawNextToken = (res as any)?.data?.lastEvaluatedKey;
-      const rawTotal = Number((res as any)?.data?.pagination?.total);
-      const nextToken =
-        typeof rawNextToken === "string" && rawNextToken.length > 0
-          ? rawNextToken
-          : null;
-      const totalCount = Number.isFinite(rawTotal)
-        ? Math.max(0, rawTotal)
-        : undefined;
+      const nextToken = readLeadListNextToken(res);
+      const totalCount = readLeadListTotalCount(res);
 
       leadListPageCacheRef.current[pageNumber] = items;
       leadListNextTokenRef.current[pageNumber] = nextToken;
@@ -528,7 +557,7 @@ function DashboardContent({
 
       return { items, nextToken, totalCount };
     },
-    [leadListPageSize],
+    [leadListPageSize, readLeadListNextToken, readLeadListTotalCount],
   );
 
   const ensureLeadListPageLoaded = useCallback(
@@ -581,22 +610,15 @@ function DashboardContent({
         const loaded = await ensureLeadListPageLoaded(leadListPage, force);
         if (!loaded) {
           if (requestId === leadListRequestIdRef.current) {
-            let knownCount = 0;
-            for (let pageNumber = 1; ; pageNumber += 1) {
-              const rowsForPage = leadListPageCacheRef.current[pageNumber];
-              if (!rowsForPage) break;
-              knownCount += rowsForPage.length;
-            }
-            const resolvedTotal =
-              leadListTotalCountRef.current !== undefined
-                ? leadListTotalCountRef.current
-                : knownCount;
+            const hasTotalMetadata =
+              leadListTotalCountRef.current !== undefined;
+            const resolvedTotal = hasTotalMetadata
+              ? (leadListTotalCountRef.current ?? 0)
+              : 0;
             setLeadListRows([]);
             setLeadListHasNextPage(false);
             setLeadListTotalItems(resolvedTotal);
-            setLeadListTotalIsExact(
-              leadListTotalCountRef.current !== undefined,
-            );
+            setLeadListTotalIsExact(hasTotalMetadata);
           }
           return;
         }
@@ -604,19 +626,12 @@ function DashboardContent({
         const rows = leadListPageCacheRef.current[leadListPage] || [];
         const nextToken = leadListNextTokenRef.current[leadListPage] ?? null;
 
-        let knownCount = 0;
-        for (let pageNumber = 1; pageNumber <= leadListPage; pageNumber += 1) {
-          knownCount += leadListPageCacheRef.current[pageNumber]?.length || 0;
-        }
-
         if (requestId === leadListRequestIdRef.current) {
           const hasTotalMetadata = leadListTotalCountRef.current !== undefined;
           const displayTotal = hasTotalMetadata
-            ? leadListTotalCountRef.current
-            : knownCount;
-          const hasNext = hasTotalMetadata
-            ? leadListPage * leadListPageSize < leadListTotalCountRef.current
-            : !!nextToken;
+            ? (leadListTotalCountRef.current ?? 0)
+            : 0;
+          const hasNext = !!nextToken;
           setLeadListRows(rows);
           setLeadListHasNextPage(hasNext);
           setLeadListTotalItems(displayTotal);
