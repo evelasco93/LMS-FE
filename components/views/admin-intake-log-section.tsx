@@ -64,6 +64,7 @@ type AdminIntakeLogSectionProps = {
   setIntakePageSize: Dispatch<SetStateAction<number>>;
   intakeShowingFrom: number;
   intakeShowingTo: number;
+  intakeTotalItems: number;
 };
 
 export function AdminIntakeLogSection({
@@ -91,6 +92,7 @@ export function AdminIntakeLogSection({
   setIntakePageSize,
   intakeShowingFrom,
   intakeShowingTo,
+  intakeTotalItems,
 }: AdminIntakeLogSectionProps) {
   return (
     <motion.div
@@ -115,7 +117,7 @@ export function AdminIntakeLogSection({
           </div>
           {!showIntakeLogsLoading && intakeLogsRaw.length > 0 && (
             <span className="rounded-full bg-[--color-bg-muted] px-2.5 py-0.5 text-xs font-medium text-[--color-text-muted]">
-              {intakeLogsRaw.length} records
+              {intakeTotalItems} records
             </span>
           )}
         </div>
@@ -400,7 +402,7 @@ export function AdminIntakeLogSection({
         onPageChange={setIntakePage}
         pageSize={intakePageSize}
         onPageSizeChange={setIntakePageSize}
-        totalItems={filteredIntakeLogs.length}
+        totalItems={intakeTotalItems}
         showingFrom={intakeShowingFrom}
         showingTo={intakeShowingTo}
         itemLabel="intake logs"

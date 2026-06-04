@@ -44,7 +44,6 @@ import {
   listClients,
   listAffiliates,
   listCampaigns,
-  getMetricsDashboard,
 } from "@/lib/api";
 import type { Affiliate, Campaign, Client, Lead } from "@/lib/types";
 import type { CampaignDetailTab } from "@/lib/types";
@@ -74,42 +73,6 @@ const userDisplayName = (u: AuthUser): string => {
   if (name) return name;
   return u.email.split("@")[0] ?? u.email;
 };
-
-function extractDashboardReceivedTotal(payload: unknown): number | null {
-  const asObject = (value: unknown): Record<string, unknown> | null =>
-    value && typeof value === "object"
-      ? (value as Record<string, unknown>)
-      : null;
-  const asFiniteNumber = (value: unknown): number | null =>
-    typeof value === "number" && Number.isFinite(value) ? value : null;
-
-  const root = asObject(payload);
-  const data = asObject(root?.data);
-  const sections = asObject(data?.sections);
-  const summaryCandidates = [
-    asObject(data?.summary),
-    asObject(data?.totals_summary),
-    asObject(sections?.summary),
-    asObject(sections?.totals_summary),
-  ].filter(
-    (candidate): candidate is Record<string, unknown> => candidate !== null,
-  );
-
-  for (const summary of summaryCandidates) {
-    const directReceived = asFiniteNumber(summary.received);
-    if (directReceived !== null) return directReceived;
-
-    const totals = asObject(summary.totals) ?? asObject(summary.totals_summary);
-    const received =
-      asFiniteNumber(totals?.received) ??
-      asFiniteNumber(totals?.total_received) ??
-      asFiniteNumber(totals?.leads_received);
-
-    if (received !== null) return received;
-  }
-
-  return null;
-}
 
 // ─── Dashboard (auth shell) ───────────────────────────────────────────────────
 export default function Dashboard() {
@@ -502,6 +465,7 @@ function DashboardContent({
   const [leadListRows, setLeadListRows] = useState<Lead[]>([]);
   const [leadListHasNextPage, setLeadListHasNextPage] = useState(false);
   const [leadListTotalItems, setLeadListTotalItems] = useState(0);
+  const [leadListTotalIsExact, setLeadListTotalIsExact] = useState(false);
   const [leadListLoading, setLeadListLoading] = useState(false);
   const [leadListError, setLeadListError] = useState<string | null>(null);
 
@@ -512,6 +476,7 @@ function DashboardContent({
   const leadListNextTokenRef = useRef<
     Record<number, string | null | undefined>
   >({});
+  const leadListTotalCountRef = useRef<number | undefined>(undefined);
   const leadListRequestIdRef = useRef(0);
 
   const fetchLeadListPage = useCallback(
@@ -528,6 +493,7 @@ function DashboardContent({
         return {
           items: leadListPageCacheRef.current[pageNumber],
           nextToken: leadListNextTokenRef.current[pageNumber] ?? null,
+          totalCount: leadListTotalCountRef.current,
         };
       }
 
@@ -542,18 +508,25 @@ function DashboardContent({
         (res as any)?.data ||
         [];
       const rawNextToken = (res as any)?.data?.lastEvaluatedKey;
+      const rawTotal = Number((res as any)?.data?.pagination?.total);
       const nextToken =
         typeof rawNextToken === "string" && rawNextToken.length > 0
           ? rawNextToken
           : null;
+      const totalCount = Number.isFinite(rawTotal)
+        ? Math.max(0, rawTotal)
+        : undefined;
 
       leadListPageCacheRef.current[pageNumber] = items;
       leadListNextTokenRef.current[pageNumber] = nextToken;
+      if (totalCount !== undefined) {
+        leadListTotalCountRef.current = totalCount;
+      }
       if (nextToken) {
         leadListStartTokenRef.current[pageNumber + 1] = nextToken;
       }
 
-      return { items, nextToken };
+      return { items, nextToken, totalCount };
     },
     [leadListPageSize],
   );
@@ -608,9 +581,22 @@ function DashboardContent({
         const loaded = await ensureLeadListPageLoaded(leadListPage, force);
         if (!loaded) {
           if (requestId === leadListRequestIdRef.current) {
+            let knownCount = 0;
+            for (let pageNumber = 1; ; pageNumber += 1) {
+              const rowsForPage = leadListPageCacheRef.current[pageNumber];
+              if (!rowsForPage) break;
+              knownCount += rowsForPage.length;
+            }
+            const resolvedTotal =
+              leadListTotalCountRef.current !== undefined
+                ? leadListTotalCountRef.current
+                : knownCount;
             setLeadListRows([]);
             setLeadListHasNextPage(false);
-            setLeadListTotalItems((leadListPage - 1) * leadListPageSize);
+            setLeadListTotalItems(resolvedTotal);
+            setLeadListTotalIsExact(
+              leadListTotalCountRef.current !== undefined,
+            );
           }
           return;
         }
@@ -623,34 +609,18 @@ function DashboardContent({
           knownCount += leadListPageCacheRef.current[pageNumber]?.length || 0;
         }
 
-        const minimumTotal = knownCount;
-
-        let resolvedTotal = minimumTotal;
-        try {
-          const leadCampaignFilter = getParam("lead_campaign");
-          const dashboard = await getMetricsDashboard({
-            time_preset: "all_time",
-            campaign_id:
-              leadCampaignFilter && leadCampaignFilter !== "all"
-                ? leadCampaignFilter
-                : undefined,
-          });
-          const receivedTotal = extractDashboardReceivedTotal(dashboard);
-          if (
-            typeof receivedTotal === "number" &&
-            Number.isFinite(receivedTotal)
-          ) {
-            resolvedTotal = receivedTotal;
-          }
-        } catch {
-          // Keep the minimum-known pagination total if dashboard metrics are unavailable.
-          resolvedTotal = minimumTotal;
-        }
-
         if (requestId === leadListRequestIdRef.current) {
+          const hasTotalMetadata = leadListTotalCountRef.current !== undefined;
+          const displayTotal = hasTotalMetadata
+            ? leadListTotalCountRef.current
+            : knownCount;
+          const hasNext = hasTotalMetadata
+            ? leadListPage * leadListPageSize < leadListTotalCountRef.current
+            : !!nextToken;
           setLeadListRows(rows);
-          setLeadListHasNextPage(!!nextToken);
-          setLeadListTotalItems(resolvedTotal);
+          setLeadListHasNextPage(hasNext);
+          setLeadListTotalItems(displayTotal);
+          setLeadListTotalIsExact(hasTotalMetadata);
         }
       } catch (error) {
         const message =
@@ -659,6 +629,7 @@ function DashboardContent({
           setLeadListRows([]);
           setLeadListHasNextPage(false);
           setLeadListTotalItems(0);
+          setLeadListTotalIsExact(false);
           setLeadListError(message);
           if (!silent) {
             toast.error(message);
@@ -670,16 +641,18 @@ function DashboardContent({
         }
       }
     },
-    [ensureLeadListPageLoaded, leadListPage, leadListPageSize, getParam],
+    [ensureLeadListPageLoaded, leadListPage, leadListPageSize],
   );
 
   const resetLeadListPagination = useCallback((nextPageSize: number) => {
     leadListPageCacheRef.current = {};
     leadListStartTokenRef.current = { 1: undefined };
     leadListNextTokenRef.current = {};
+    leadListTotalCountRef.current = undefined;
     setLeadListRows([]);
     setLeadListHasNextPage(false);
     setLeadListTotalItems(0);
+    setLeadListTotalIsExact(false);
     setLeadListError(null);
     setLeadListPage(1);
     setLeadListPageSize(nextPageSize);
@@ -707,13 +680,16 @@ function DashboardContent({
     return [...leadListRows].sort((a, b) => {
       const left = a.created_at ? new Date(a.created_at).getTime() : 0;
       const right = b.created_at ? new Date(b.created_at).getTime() : 0;
-      return right - left;
+      if (right !== left) return right - left;
+      return String(b.id || "").localeCompare(String(a.id || ""));
     });
   }, [leadListRows]);
 
   const leadListTotalPages = Math.max(
     1,
-    leadListPage + (leadListHasNextPage ? 1 : 0),
+    leadListTotalIsExact
+      ? Math.ceil(leadListTotalItems / leadListPageSize)
+      : leadListPage + (leadListHasNextPage ? 1 : 0),
   );
 
   const campaignKeyMap = useMemo(() => {
@@ -755,6 +731,13 @@ function DashboardContent({
       "ipqs",
       "id",
     ];
+    const validModes: LeadViewFilters["mode"][] = ["all", "test", "live"];
+    const validStatuses: LeadViewFilters["status"][] = [
+      "all",
+      "accepted",
+      "rejected",
+      "sold",
+    ];
     const sortsRaw = getParam("lead_sorts") ?? "";
     const parsedSorts = sortsRaw
       .split(",")
@@ -772,13 +755,24 @@ function DashboardContent({
         getParam("lead_dir") === "asc" ? ("asc" as const) : ("desc" as const),
     };
 
+    const modeParam = getParam("lead_mode") ?? "all";
+    const statusParam = getParam("lead_status") ?? "all";
+    const mode = validModes.includes(modeParam as LeadViewFilters["mode"])
+      ? (modeParam as LeadViewFilters["mode"])
+      : "all";
+    const status = validStatuses.includes(
+      statusParam as LeadViewFilters["status"],
+    )
+      ? (statusParam as LeadViewFilters["status"])
+      : "all";
+
     return {
       search: getParam("lead_search") ?? "",
       campaignId: getParam("lead_campaign") ?? "all",
       affiliateId: getParam("lead_affiliate") ?? "all",
       sourceKey: getParam("lead_source_key") ?? "all",
-      mode: (getParam("lead_mode") as LeadViewFilters["mode"]) || "all",
-      status: (getParam("lead_status") as LeadViewFilters["status"]) || "all",
+      mode,
+      status,
       sortBy: fallbackPrimary.key,
       sortDir: fallbackPrimary.dir,
       sorts: parsedSorts.length > 0 ? parsedSorts : [fallbackPrimary],
@@ -1355,6 +1349,7 @@ function DashboardContent({
                   pageSize={leadListPageSize}
                   totalPages={leadListTotalPages}
                   totalItems={leadListTotalItems}
+                  totalItemsExact={leadListTotalIsExact}
                   hasNextPage={leadListHasNextPage}
                   onPageChange={onLeadListPageChange}
                   onPageSizeChange={onLeadListPageSizeChange}

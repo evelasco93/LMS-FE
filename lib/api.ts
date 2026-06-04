@@ -8,6 +8,10 @@ import type {
   AuditQueryResponse,
   AvailablePlugin,
   Campaign,
+  CampaignDashboardWidget,
+  CampaignDashboardWidgetInput,
+  CampaignDashboardWidgetResponse,
+  CampaignDashboardWidgetsResponse,
   ClientDeliveryConfig,
   Destination,
   ResponseValidation,
@@ -37,6 +41,7 @@ import type {
   MetricsQueryParams,
   MetricsSummaryResponse,
   MetricsTimeseriesResponse,
+  DashboardWidgetQueryResponse,
   SourceAffiliatePixelInfo,
   TagDefinitionRecord,
   PaginatedResponse,
@@ -132,7 +137,10 @@ export async function getMetricsSummary(params: MetricsQueryParams) {
   if (params.affiliate_id && params.campaign_key) {
     throw new Error("affiliate_id and campaign_key are mutually exclusive");
   }
-  const url = buildUrl("/metrics/summary", params);
+  const url = buildUrl("/metrics/summary", {
+    include_test: false,
+    ...params,
+  });
   return request<MetricsSummaryResponse>(url);
 }
 
@@ -140,7 +148,10 @@ export async function getMetricsDashboard(params: MetricsQueryParams) {
   if (params.affiliate_id && params.campaign_key) {
     throw new Error("affiliate_id and campaign_key are mutually exclusive");
   }
-  const url = buildUrl("/metrics/dashboard", params);
+  const url = buildUrl("/metrics/dashboard", {
+    include_test: false,
+    ...params,
+  });
   return request<MetricsDashboardResponse>(url);
 }
 
@@ -148,7 +159,10 @@ export async function getMetricsTimeseries(params: MetricsQueryParams) {
   if (params.affiliate_id && params.campaign_key) {
     throw new Error("affiliate_id and campaign_key are mutually exclusive");
   }
-  const url = buildUrl("/metrics/timeseries", params);
+  const url = buildUrl("/metrics/timeseries", {
+    include_test: false,
+    ...params,
+  });
   return request<MetricsTimeseriesResponse>(url);
 }
 
@@ -157,7 +171,10 @@ export async function getMetricsTimeseriesHourly(params: MetricsQueryParams) {
   if (params.affiliate_id && params.campaign_key) {
     throw new Error("affiliate_id and campaign_key are mutually exclusive");
   }
-  const url = buildUrl("/metrics/timeseries/hourly", params);
+  const url = buildUrl("/metrics/timeseries/hourly", {
+    include_test: false,
+    ...params,
+  });
   return request<MetricsHourlyResponse>(url);
 }
 
@@ -166,12 +183,18 @@ export async function getMetricsTimeseriesBySource(params: MetricsQueryParams) {
   if (params.affiliate_id && params.campaign_key) {
     throw new Error("affiliate_id and campaign_key are mutually exclusive");
   }
-  const url = buildUrl("/metrics/timeseries/by-source", params);
+  const url = buildUrl("/metrics/timeseries/by-source", {
+    include_test: false,
+    ...params,
+  });
   return request<MetricsBySourceResponse>(url);
 }
 
 export async function getMetricsCampaignBySource(params: MetricsQueryParams) {
-  const url = buildUrl("/metrics/campaign-by-source", params);
+  const url = buildUrl("/metrics/campaign-by-source", {
+    include_test: false,
+    ...params,
+  });
   return request<MetricsBreakdownResponse>(url);
 }
 
@@ -191,7 +214,10 @@ export async function getMetricsHealth(
 
 export async function getMetricsByAffiliate(
   affiliateId: string,
-  params: Pick<MetricsQueryParams, "from_date" | "to_date" | "campaign_id">,
+  params: Pick<
+    MetricsQueryParams,
+    "from_date" | "to_date" | "campaign_id" | "include_test"
+  >,
 ) {
   const url = buildUrl(
     `/metrics/by-affiliate/${encodeURIComponent(affiliateId)}`,
@@ -202,7 +228,7 @@ export async function getMetricsByAffiliate(
 
 export async function getMetricsByAffiliateCampaigns(
   affiliateId: string,
-  params: Pick<MetricsQueryParams, "from_date" | "to_date">,
+  params: Pick<MetricsQueryParams, "from_date" | "to_date" | "include_test">,
 ) {
   const url = buildUrl(
     `/metrics/by-affiliate/${encodeURIComponent(affiliateId)}/campaigns`,
@@ -213,7 +239,7 @@ export async function getMetricsByAffiliateCampaigns(
 
 export async function getMetricsByAffiliateKeys(
   affiliateId: string,
-  params: Pick<MetricsQueryParams, "from_date" | "to_date">,
+  params: Pick<MetricsQueryParams, "from_date" | "to_date" | "include_test">,
 ) {
   const url = buildUrl(
     `/metrics/by-affiliate/${encodeURIComponent(affiliateId)}/keys`,
@@ -224,7 +250,7 @@ export async function getMetricsByAffiliateKeys(
 
 export async function getMetricsByCampaignAffiliates(
   campaignId: string,
-  params: Pick<MetricsQueryParams, "from_date" | "to_date">,
+  params: Pick<MetricsQueryParams, "from_date" | "to_date" | "include_test">,
 ) {
   const url = buildUrl(
     `/metrics/by-campaign/${encodeURIComponent(campaignId)}/affiliates`,
@@ -237,7 +263,10 @@ export async function getMetricsIpqs(params: MetricsQueryParams) {
   if (params.affiliate_id && params.campaign_key) {
     throw new Error("affiliate_id and campaign_key are mutually exclusive");
   }
-  const url = buildUrl("/metrics/ipqs", params);
+  const url = buildUrl("/metrics/ipqs", {
+    include_test: false,
+    ...params,
+  });
   return request<MetricsIpqsResponse>(url);
 }
 
@@ -245,7 +274,10 @@ export async function getMetricsQuality(params: MetricsQueryParams) {
   if (params.affiliate_id && params.campaign_key) {
     throw new Error("affiliate_id and campaign_key are mutually exclusive");
   }
-  const url = buildUrl("/metrics/quality", params);
+  const url = buildUrl("/metrics/quality", {
+    include_test: false,
+    ...params,
+  });
   return request<MetricsQualityResponse>(url);
 }
 
@@ -373,6 +405,64 @@ export async function updateCampaignStatus(id: string, status: CampaignStatus) {
     method: "PUT",
     body: JSON.stringify({ status }),
   });
+}
+
+export async function listCampaignDashboardWidgets(campaignId: string) {
+  const url = buildUrl(
+    `/campaigns/${encodeURIComponent(campaignId)}/dashboard/widgets`,
+  );
+  return request<CampaignDashboardWidgetsResponse>(url);
+}
+
+export async function createCampaignDashboardWidget(
+  campaignId: string,
+  payload: CampaignDashboardWidgetInput,
+) {
+  const url = buildUrl(
+    `/campaigns/${encodeURIComponent(campaignId)}/dashboard/widgets`,
+  );
+  return request<CampaignDashboardWidgetResponse>(url, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateCampaignDashboardWidget(
+  campaignId: string,
+  widgetId: string,
+  payload: CampaignDashboardWidgetInput,
+) {
+  const url = buildUrl(
+    `/campaigns/${encodeURIComponent(campaignId)}/dashboard/widgets/${encodeURIComponent(widgetId)}`,
+  );
+  return request<CampaignDashboardWidgetResponse>(url, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteCampaignDashboardWidget(
+  campaignId: string,
+  widgetId: string,
+) {
+  const url = buildUrl(
+    `/campaigns/${encodeURIComponent(campaignId)}/dashboard/widgets/${encodeURIComponent(widgetId)}`,
+  );
+  return request<{ success: boolean; message?: string }>(url, {
+    method: "DELETE",
+  });
+}
+
+export async function queryCampaignDashboardWidget(
+  campaignId: string,
+  widget: Pick<CampaignDashboardWidget, "id">,
+  params: Pick<MetricsQueryParams, "from_date" | "to_date">,
+) {
+  const url = buildUrl(
+    `/campaigns/${encodeURIComponent(campaignId)}/dashboard/widgets/${encodeURIComponent(widget.id)}/data`,
+    params,
+  );
+  return request<DashboardWidgetQueryResponse>(url);
 }
 
 export async function updateCampaignPlugins(
@@ -595,12 +685,16 @@ export async function rotateAffiliateKey(
 export async function listLeads(params?: {
   campaign_id?: string;
   test?: boolean;
+  include_test?: boolean;
   includeDeleted?: boolean;
   include_trace?: boolean;
   limit?: number;
   lastEvaluatedKey?: string;
 }) {
-  const url = buildUrl("/leads", params);
+  const url = buildUrl("/leads", {
+    include_test: true,
+    ...params,
+  });
   return request<PaginatedResponse<Lead>>(url);
 }
 
@@ -1626,12 +1720,18 @@ export async function getAuditActivity(params: {
 export async function getIntakeLogs(params?: {
   campaign_id?: string;
   status?: "accepted" | "rejected" | "test";
+  include_test?: boolean;
+  live_only?: boolean;
   from_date?: string;
   to_date?: string;
   limit?: number;
   lastEvaluatedKey?: string;
 }) {
-  const url = buildUrl("/leads/intake-logs", params);
+  const url = buildUrl("/leads/intake-logs", {
+    include_test: false,
+    live_only: true,
+    ...params,
+  });
   return request<{
     success: boolean;
     message?: string;

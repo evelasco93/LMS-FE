@@ -146,6 +146,11 @@ type ListPreset = {
   options: { value: string; label: string }[];
 };
 
+type IntakeLogsDataset = {
+  items: IntakeLogItem[];
+  total: number;
+};
+
 const normalizePresetOptionValue = (value: string) =>
   value.trim().toLowerCase().replace(/\s+/g, "_");
 
@@ -783,18 +788,46 @@ export function AdminView({
 
   // Intake logs SWR — stable key
   const {
-    data: intakeLogsRaw = [],
+    data: intakeLogsData = { items: [], total: 0 },
     isLoading: intakeLogsLoading,
     mutate: refreshIntakeLogs,
-  } = useSWR<IntakeLogItem[]>(
+  } = useSWR<IntakeLogsDataset>(
     "admin:intake-logs",
     async () => {
       try {
-        const res = await getIntakeLogs({ limit: 100 });
-        return res?.data ?? [];
+        const pageSize = 200;
+        const first = await getIntakeLogs({ limit: pageSize });
+        const items: IntakeLogItem[] = [...(first?.data ?? [])];
+        const firstCount = Number(first?.count);
+        const totalFromBackend = Number.isFinite(firstCount)
+          ? Math.max(0, firstCount)
+          : undefined;
+
+        let cursor = first?.lastEvaluatedKey;
+        const seenCursors = new Set<string>();
+        while (cursor && !seenCursors.has(cursor)) {
+          seenCursors.add(cursor);
+          const next = await getIntakeLogs({
+            limit: pageSize,
+            lastEvaluatedKey: cursor,
+          });
+          items.push(...(next?.data ?? []));
+          cursor = next?.lastEvaluatedKey;
+          if (
+            totalFromBackend !== undefined &&
+            items.length >= totalFromBackend
+          ) {
+            break;
+          }
+        }
+
+        return {
+          items,
+          total: totalFromBackend ?? items.length,
+        };
       } catch (err) {
         console.warn("Intake logs not available", err);
-        return [] as IntakeLogItem[];
+        return { items: [] as IntakeLogItem[], total: 0 };
       }
     },
     {
@@ -805,6 +838,9 @@ export function AdminView({
       refreshInterval: 30_000,
     },
   );
+
+  const intakeLogsRaw = intakeLogsData.items;
+  const intakeTotalItems = intakeLogsData.total;
 
   // Clients SWR — for name lookup in activity log
   const { data: allClients = [] } = useSWR<Client[]>(
@@ -993,7 +1029,11 @@ export function AdminView({
   const filteredIntakeLogs = useMemo(() => {
     let items = intakeLogsRaw;
     if (intakeStatusFilter !== "all") {
-      items = items.filter((item) => item.status === intakeStatusFilter);
+      if (intakeStatusFilter === "test") {
+        items = items.filter((item) => item.status === "test" || item.is_test);
+      } else {
+        items = items.filter((item) => item.status === intakeStatusFilter);
+      }
     }
     if (intakeSearch.trim()) {
       const q = intakeSearch.toLowerCase();
@@ -1019,12 +1059,13 @@ export function AdminView({
 
   const intakeStatusCounts = useMemo(() => {
     return {
-      all: intakeLogsRaw.length,
+      all: intakeTotalItems,
       accepted: intakeLogsRaw.filter((i) => i.status === "accepted").length,
       rejected: intakeLogsRaw.filter((i) => i.status === "rejected").length,
-      test: intakeLogsRaw.filter((i) => i.status === "test").length,
+      test: intakeLogsRaw.filter((i) => i.status === "test" || i.is_test)
+        .length,
     };
-  }, [intakeLogsRaw]);
+  }, [intakeLogsRaw, intakeTotalItems]);
 
   useEffect(() => {
     setLogsPage(1);
@@ -1049,9 +1090,14 @@ export function AdminView({
     logsItems.length,
   );
 
+  const intakeDisplayTotalItems =
+    intakeStatusFilter === "all" && !intakeSearch.trim()
+      ? intakeTotalItems
+      : filteredIntakeLogs.length;
+
   const intakeTotalPages = Math.max(
     1,
-    Math.ceil(filteredIntakeLogs.length / intakePageSize),
+    Math.ceil(intakeDisplayTotalItems / intakePageSize),
   );
   const intakePageStart = (intakePage - 1) * intakePageSize;
   const paginatedIntakeLogs = filteredIntakeLogs.slice(
@@ -1062,7 +1108,7 @@ export function AdminView({
     filteredIntakeLogs.length === 0 ? 0 : intakePageStart + 1;
   const intakeShowingTo = Math.min(
     intakePageStart + intakePageSize,
-    filteredIntakeLogs.length,
+    intakeDisplayTotalItems,
   );
 
   useEffect(() => {
@@ -2246,7 +2292,10 @@ export function AdminView({
                           )
                         : null;
                       return (
-                        <div key={plugin.provider} className="utility-card p-4 space-y-3">
+                        <div
+                          key={plugin.provider}
+                          className="utility-card p-4 space-y-3"
+                        >
                           <div className="flex items-start justify-between gap-2">
                             <div>
                               <div className="flex items-center gap-1">
@@ -4156,6 +4205,7 @@ export function AdminView({
                 setIntakePageSize={setIntakePageSize}
                 intakeShowingFrom={intakeShowingFrom}
                 intakeShowingTo={intakeShowingTo}
+                intakeTotalItems={intakeDisplayTotalItems}
               />
             )}
           </AnimatePresence>

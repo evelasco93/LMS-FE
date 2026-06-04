@@ -243,6 +243,7 @@ interface LeadsViewProps {
   pageSize: number;
   totalPages: number;
   totalItems: number;
+  totalItemsExact?: boolean;
   hasNextPage: boolean;
   onPageChange: (page: number) => void;
   onPageSizeChange: (size: number) => void;
@@ -357,6 +358,7 @@ export function LeadsView({
   pageSize,
   totalPages,
   totalItems,
+  totalItemsExact = true,
   hasNextPage,
   onPageChange,
   onPageSizeChange,
@@ -636,7 +638,16 @@ export function LeadsView({
         if (cmp === 0) continue;
         return rule.dir === "asc" ? cmp : -cmp;
       }
-      return 0;
+
+      const createdAtA = a.lead.created_at
+        ? new Date(a.lead.created_at).getTime()
+        : 0;
+      const createdAtB = b.lead.created_at
+        ? new Date(b.lead.created_at).getTime()
+        : 0;
+      if (createdAtA !== createdAtB) return createdAtB - createdAtA;
+
+      return String(b.lead.id || "").localeCompare(String(a.lead.id || ""));
     });
 
     return sorted.map((item) => item.lead);
@@ -757,19 +768,23 @@ export function LeadsView({
     return [...keys].sort();
   }, [leads]);
 
-  const boundedTotalItems = Math.max(0, totalItems);
-  const rawShowingFrom =
-    boundedTotalItems === 0 ? 0 : (page - 1) * pageSize + 1;
-  const showingFrom =
-    boundedTotalItems === 0
-      ? 0
-      : Math.max(1, Math.min(rawShowingFrom, boundedTotalItems));
   const visibleCount = Math.max(0, paginatedLeads.length);
+  const boundedTotalItems = Math.max(0, totalItems);
+  const rawShowingFrom = visibleCount === 0 ? 0 : (page - 1) * pageSize + 1;
+  const showingFrom =
+    rawShowingFrom === 0
+      ? 0
+      : totalItemsExact
+        ? Math.max(1, Math.min(rawShowingFrom, boundedTotalItems))
+        : rawShowingFrom;
   const rawShowingTo =
+    showingFrom === 0 ? 0 : showingFrom + Math.max(visibleCount - 1, 0);
+  const showingTo =
     showingFrom === 0
       ? 0
-      : Math.min(showingFrom + visibleCount - 1, boundedTotalItems);
-  const showingTo = showingFrom === 0 ? 0 : Math.max(showingFrom, rawShowingTo);
+      : totalItemsExact
+        ? Math.min(rawShowingTo, boundedTotalItems)
+        : rawShowingTo;
 
   const allAvailableColumnKeys = useMemo(
     () => [
@@ -2181,10 +2196,6 @@ export function LeadsView({
         </div>
       </Modal>
 
-      <div className="mb-2 flex justify-end">
-        <Badge tone="neutral">Total leads (counters): {totalItems}</Badge>
-      </div>
-
       <PaginationControls
         page={page}
         totalPages={totalLeadPages}
@@ -2192,6 +2203,7 @@ export function LeadsView({
         pageSize={pageSize}
         onPageSizeChange={onPageSizeChange}
         totalItems={totalItems}
+        totalItemsExact={totalItemsExact}
         showingFrom={showingFrom}
         showingTo={showingTo}
         itemLabel="leads"

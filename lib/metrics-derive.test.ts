@@ -305,7 +305,7 @@ describe("assertMetricsFilterCompat", () => {
 });
 
 describe("deriveVolumeCounts (Volume tile identities)", () => {
-  it("Accepted = Sold + Cherry Picked; Rejected = DNQ + Duplicate", () => {
+  it("uses backend Accepted/Rejected totals and keeps DNQ/Duplicate decomposition", () => {
     const c: MetricsCounters = {
       received: 100,
       accepted: 30,
@@ -324,8 +324,7 @@ describe("deriveVolumeCounts (Volume tile identities)", () => {
     expect(v.received).toBe(100);
     expect(v.sold).toBe(15);
     expect(v.cherryPicked).toBe(5);
-    expect(v.accepted).toBe(20);
-    expect(v.accepted).toBe(v.sold + v.cherryPicked);
+    expect(v.accepted).toBe(30);
     expect(v.duplicate).toBe(2);
     expect(v.dnq).toBe(5);
     expect(v.rejected).toBe(7);
@@ -342,7 +341,7 @@ describe("deriveVolumeCounts (Volume tile identities)", () => {
     };
     const v = deriveVolumeCounts(c, null);
     expect(v.cherryPicked).toBe(0);
-    expect(v.accepted).toBe(4);
+    expect(v.accepted).toBe(0);
     expect(v.duplicate).toBe(0);
     expect(v.dnq).toBe(0);
     expect(v.rejected).toBe(0);
@@ -366,9 +365,8 @@ describe("deriveVolumeCounts (Volume tile identities)", () => {
       rejection_buckets: { ...ZERO_REJECTION_BUCKETS, duplicate: 2 },
     };
     const v = deriveVolumeCounts(totals, q);
-    // Volume tile math
-    expect(v.accepted).toBe(v.sold + v.cherryPicked);
-    expect(v.accepted).toBe(18);
+    // Volume tile math uses backend totals for parent buckets.
+    expect(v.accepted).toBe(25);
     expect(v.rejected).toBe(v.dnq + v.duplicate);
     expect(v.rejected).toBe(7);
     // Marketing Sources OVERALL row reads the same derivation, so
@@ -398,7 +396,7 @@ describe("deriveVolumeCounts (Volume tile identities)", () => {
     const v = deriveVolumeCounts(c, q);
     expect(v.sold).toBe(26);
     expect(v.cherryPicked).toBe(2);
-    expect(v.accepted).toBe(28);
+    expect(v.accepted).toBe(0);
     expect(v.rejected).toBe(62);
   });
 });

@@ -44,6 +44,7 @@ import {
 import { MetricsMarketingSourcesTable } from "@/components/views/metrics-marketing-sources-table";
 import { MetricsStatusDonut } from "@/components/views/metrics-status-donut";
 import { MetricsTimeBreakdown } from "@/components/views/metrics-time-breakdown";
+import { CampaignDashboardWidgets } from "@/components/views/campaign-dashboard-widgets";
 import {
   Affiliate,
   Campaign,
@@ -567,6 +568,7 @@ export function HomeView({
     {
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
+      refreshInterval: 15_000,
     },
   );
 
@@ -577,6 +579,7 @@ export function HomeView({
   } = useSWR(dashboardKey, () => getMetricsDashboard(dashboardRequestFilters), {
     revalidateOnFocus: false,
     revalidateOnReconnect: false,
+    refreshInterval: 15_000,
   });
 
   const dashboardData = dashboard?.data;
@@ -1690,6 +1693,17 @@ export function HomeView({
                       />
                     </div>
                   </div>
+
+                  {selectedCampaign && (
+                    <CampaignDashboardWidgets
+                      campaign={selectedCampaign}
+                      affiliates={affiliates}
+                      filters={{
+                        from_date: dashboardRequestFilters.from_date,
+                        to_date: dashboardRequestFilters.to_date,
+                      }}
+                    />
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>

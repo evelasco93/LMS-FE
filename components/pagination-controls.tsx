@@ -11,6 +11,7 @@ interface PaginationControlsProps {
   pageSize: number;
   onPageSizeChange: (size: number) => void;
   totalItems: number;
+  totalItemsExact?: boolean;
   showingFrom: number;
   showingTo: number;
   itemLabel: string;
@@ -26,6 +27,7 @@ export function PaginationControls({
   pageSize,
   onPageSizeChange,
   totalItems,
+  totalItemsExact = true,
   showingFrom,
   showingTo,
   itemLabel,
@@ -38,7 +40,9 @@ export function PaginationControls({
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-[--radius-md] border border-[--color-border] bg-[color-mix(in_srgb,var(--color-panel)_90%,var(--color-bg-subtle))] px-3 py-1.5 shadow-[5px_8px_16px_color-mix(in_srgb,var(--color-primary)_7%,transparent)]">
       <p className="text-xs text-[--color-text-muted]">
-        {`Showing ${showingFrom} to ${showingTo} of ${totalItems} ${itemLabel}`}
+        {totalItemsExact
+          ? `Showing ${showingFrom} to ${showingTo} of ${totalItems} ${itemLabel}`
+          : `Showing ${showingFrom} to ${showingTo} of at least ${totalItems} ${itemLabel}`}
       </p>
 
       <div className="flex flex-wrap items-center gap-2">

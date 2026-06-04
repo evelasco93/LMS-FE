@@ -262,6 +262,7 @@ export interface Campaign {
   };
   contracts?: CampaignClient[];
   affiliates?: CampaignAffiliate[];
+  base_criteria?: CriteriaField[];
   removed_clients?: Array<{
     client_id: string;
     added_at?: string;
@@ -524,6 +525,8 @@ export type MetricsQueryParams = {
   campaign_id?: string;
   campaign_key?: string;
   affiliate_id?: string;
+  include_test?: boolean;
+  live_only?: boolean;
 };
 
 export type MetricsCounters = {
@@ -778,6 +781,70 @@ export type MetricsDashboardData = {
 };
 
 export type MetricsDashboardResponse = ApiResponse<MetricsDashboardData>;
+
+// ── CR-003 — Campaign dashboard custom criteria widgets ────────────────────
+
+export type DashboardWidgetChartType =
+  | "pie"
+  | "donut"
+  | "bar"
+  | "line"
+  | "table";
+
+export type DashboardWidgetSize = "sm" | "md" | "lg";
+
+export type DashboardWidgetScope = {
+  affiliate_id?: string;
+  campaign_key?: string;
+};
+
+export type CampaignDashboardWidget = {
+  id: string;
+  campaign_id: string;
+  title: string;
+  criteria_field_name: string;
+  criteria_field_label?: string;
+  chart_type: DashboardWidgetChartType;
+  accent: string;
+  size: DashboardWidgetSize;
+  order: number;
+  scope?: DashboardWidgetScope | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type CampaignDashboardWidgetInput = {
+  title: string;
+  criteria_field_name: string;
+  chart_type: DashboardWidgetChartType;
+  accent: string;
+  size: DashboardWidgetSize;
+  order: number;
+  scope?: DashboardWidgetScope | null;
+};
+
+export type DashboardWidgetQueryRow = {
+  label: string;
+  value: number;
+  bucket_start?: string;
+};
+
+export type DashboardWidgetQueryData = {
+  widget_id: string;
+  rows?: DashboardWidgetQueryRow[];
+  points?: DashboardWidgetQueryRow[];
+  total?: number;
+};
+
+export type CampaignDashboardWidgetsResponse = ApiResponse<{
+  items: CampaignDashboardWidget[];
+}>;
+
+export type CampaignDashboardWidgetResponse =
+  ApiResponse<CampaignDashboardWidget>;
+
+export type DashboardWidgetQueryResponse =
+  ApiResponse<DashboardWidgetQueryData>;
 
 export type CredentialType = "api_key" | "basic_auth" | "bearer_token";
 

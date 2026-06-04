@@ -192,7 +192,7 @@ export function buildStatusBreakdown(
 
   const data: StatusBreakdownDatum[] = [
     { key: "sold", name: "Sold", value: c.sold },
-    { key: "rejected", name: "Rejected", value: c.accepted_not_sold },
+    { key: "rejected", name: "Rejected", value: c.rejected },
     { key: "cherry_pick", name: "Cherry Pick", value: cherryPick },
     { key: "dnq", name: "DNQ", value: dnq },
     { key: "duplicate", name: "Duplicate", value: duplicates },
@@ -306,7 +306,7 @@ export function assertMetricsFilterCompat(filters: {
 
 export type VolumeCounts = {
   received: number;
-  /** Derived as sold + cherryPicked (where sold is non-overlap sold). */
+  /** Backend total accepted count for the selected range/filters. */
   accepted: number;
   /** Non-overlap sold; excludes cherry-picked overlap from sold. */
   sold: number;
@@ -321,10 +321,8 @@ export type VolumeCounts = {
  * Derive Volume tile counts from the same MetricsCounters / QualityRollup
  * shape used by the donut and Marketing Sources table.
  *
- * Accepted is derived as `sold + cherry_picked` so the parent tile is always
- * the exact sum of its visible children.
- * Rejected is derived as `dnq + duplicate` to keep bucket parity with the
- * status donut and Marketing Sources OVERALL row.
+ * Accepted and Rejected use backend totals directly to avoid FE fallback math
+ * drifting from API-provided counters.
  */
 export function deriveVolumeCounts(
   c: MetricsCounters,
@@ -335,10 +333,10 @@ export function deriveVolumeCounts(
   const { cherry: cherryPicked, soldExclusive } = deriveSoldExclusive(c);
   return {
     received: c.received,
-    accepted: soldExclusive + cherryPicked,
+    accepted: c.accepted,
     sold: soldExclusive,
     cherryPicked,
-    rejected: dnq + duplicate,
+    rejected: c.rejected,
     dnq,
     duplicate,
   };
