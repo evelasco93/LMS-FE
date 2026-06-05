@@ -32,7 +32,7 @@ export function CampaignTitleEditModal({
     <AnimatePresence>
       {isOpen && (
         <motion.div
-          className="fixed inset-0 z-[60] flex items-start justify-center pt-20 px-4"
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-[color-mix(in_srgb,black_42%,var(--color-bg))] px-4 backdrop-blur-[10px]"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}

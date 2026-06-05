@@ -112,7 +112,7 @@ export function DeleteConfirmModal({
       {isOpen && (
         <motion.div
           key="delete-modal-backdrop"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[color-mix(in_srgb,black_42%,var(--color-bg))] p-4 backdrop-blur-[10px]"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}

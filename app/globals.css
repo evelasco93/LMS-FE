@@ -296,6 +296,37 @@ a {
   background: color-mix(in srgb, currentColor 12%, transparent) !important;
 }
 
+[data-sonner-toast][data-type="success"] [data-button] {
+  margin-right: 24px !important;
+  border: 1px solid
+    color-mix(in srgb, var(--color-success) 38%, var(--color-border)) !important;
+  background: color-mix(
+    in srgb,
+    var(--color-success) 14%,
+    var(--color-panel)
+  ) !important;
+  color: color-mix(
+    in srgb,
+    var(--color-success) 88%,
+    var(--color-text-strong)
+  ) !important;
+  border-radius: 999px !important;
+  box-shadow: none !important;
+}
+
+[data-sonner-toast][data-type="success"] [data-button]:hover {
+  border-color: color-mix(
+    in srgb,
+    var(--color-success) 55%,
+    var(--color-border)
+  ) !important;
+  background: color-mix(
+    in srgb,
+    var(--color-success) 20%,
+    var(--color-panel)
+  ) !important;
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;

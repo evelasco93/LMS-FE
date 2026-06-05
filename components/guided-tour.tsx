@@ -79,9 +79,9 @@ export function getSiteOverviewTour(
     },
     {
       target: '[data-tour="nav-home"]',
-      title: "Home",
+      title: "Dashboards",
       content:
-        "The Home view will show dashboard metrics and key performance summaries.",
+        "The Dashboards section shows metrics and key performance summaries.",
       placement: "right",
       beforeStep: () => navigate("home"),
     },

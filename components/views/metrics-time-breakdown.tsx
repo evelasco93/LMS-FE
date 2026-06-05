@@ -63,7 +63,7 @@ export function MetricsTimeBreakdown({
   const hourlyTotal = hourlyData.reduce((acc, b) => acc + b.received, 0);
 
   return (
-    <div className="panel p-3 sm:p-4">
+    <div className="panel h-full p-3 sm:p-4">
       <h3 className="mb-3 text-sm font-semibold text-[--color-text-strong]">
         Time Breakdown
       </h3>

@@ -119,7 +119,7 @@ export function AdminSettingsEditors({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[2px]"
+              className="fixed inset-0 z-40 bg-[color-mix(in_srgb,black_42%,var(--color-bg))] backdrop-blur-[10px]"
               onClick={closeCatalogEditor}
             />
             <motion.div
@@ -286,7 +286,7 @@ export function AdminSettingsEditors({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[2px]"
+              className="fixed inset-0 z-40 bg-[color-mix(in_srgb,black_42%,var(--color-bg))] backdrop-blur-[10px]"
               onClick={closeListEditor}
             />
             <motion.div
@@ -448,7 +448,7 @@ export function AdminSettingsEditors({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[2px]"
+              className="fixed inset-0 z-40 bg-[color-mix(in_srgb,black_42%,var(--color-bg))] backdrop-blur-[10px]"
               onClick={closeTagEditor}
             />
             <motion.div

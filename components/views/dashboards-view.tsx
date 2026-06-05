@@ -98,7 +98,7 @@ function getDashboardSlice<T>(
   return undefined;
 }
 
-type HomeViewProps = {
+type DashboardsViewProps = {
   campaigns: Campaign[];
   affiliates: Affiliate[];
   onOpenLeads?: (options: {
@@ -203,11 +203,11 @@ function getPresetDateRange(preset: TimePreset, now: Date) {
   return { from: toInputDateValue(from), to };
 }
 
-export function HomeView({
+export function DashboardsView({
   campaigns,
   affiliates,
   onOpenLeads,
-}: HomeViewProps) {
+}: DashboardsViewProps) {
   const today = useMemo(() => new Date(), []);
   const defaultToDate = useMemo(() => toInputDateValue(today), [today]);
   const defaultFromDate = useMemo(() => {
@@ -275,7 +275,7 @@ export function HomeView({
             ? resolveCampaignScope(filters.campaign_id)
             : undefined;
         const params: Record<string, string | undefined> = {
-          view: "dashboard",
+          view: "dashboards",
           dashboard_mode: mode,
           campaign_scope: campaignScope,
           campaign_id:
@@ -466,9 +466,9 @@ export function HomeView({
     const normalizedCampaignId = (urlCampaignId || "").trim() || undefined;
     const parsedScope = parseCampaignScope(urlCampaignScope);
     const parsedDashboardMode = parseDashboardRouteMode(urlDashboardMode);
-    const isLegacyDashboardMode = urlView === "home";
+    const isLegacyDashboardMode = urlView === "home" || urlView === "dashboard";
     const isDashboardRoute =
-      urlView === "dashboard" || isLegacyDashboardMode || !urlView;
+      urlView === "dashboards" || isLegacyDashboardMode || !urlView;
     const shouldOpenDashboard = !isDashboardRoute
       ? false
       : parsedDashboardMode === "chooser"
@@ -490,7 +490,7 @@ export function HomeView({
 
     if (isLegacyDashboardMode || !urlView || !parsedDashboardMode) {
       setQueryParams({
-        view: "dashboard",
+        view: "dashboards",
         dashboard_mode: shouldOpenDashboard ? "scoped" : "chooser",
         campaign_scope: shouldOpenDashboard
           ? resolveCampaignScope(normalizedCampaignId)
@@ -1306,7 +1306,7 @@ export function HomeView({
 
   return (
     <motion.section
-      key="home"
+      key="dashboards"
       className="space-y-4"
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
@@ -1673,15 +1673,15 @@ export function HomeView({
                     onRowOpen={handleMarketingRowOpen}
                   />
 
-                  <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-                    <div className="flex flex-col gap-2">
+                  <div className="grid grid-cols-1 items-stretch gap-3 lg:grid-cols-2">
+                    <div className="flex h-full flex-col gap-2">
                       <MetricsStatusDonut
                         totals={totals}
                         quality={summary?.quality}
                         loading={dashboardLoading && !summary}
                       />
                     </div>
-                    <div className="flex flex-col gap-2">
+                    <div className="flex h-full flex-col gap-2">
                       <MetricsTimeBreakdown
                         points={timeseries?.points || []}
                         hourlyPoints={hourly?.points || []}

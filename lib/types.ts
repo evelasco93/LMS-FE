@@ -806,6 +806,7 @@ export type CampaignDashboardWidget = {
   criteria_field_label?: string;
   chart_type: DashboardWidgetChartType;
   accent: string;
+  label_colors?: Record<string, string>;
   size: DashboardWidgetSize;
   order: number;
   scope?: DashboardWidgetScope | null;
@@ -818,6 +819,7 @@ export type CampaignDashboardWidgetInput = {
   criteria_field_name: string;
   chart_type: DashboardWidgetChartType;
   accent: string;
+  label_colors?: Record<string, string>;
   size: DashboardWidgetSize;
   order: number;
   scope?: DashboardWidgetScope | null;
@@ -829,10 +831,26 @@ export type DashboardWidgetQueryRow = {
   bucket_start?: string;
 };
 
+export type DashboardWidgetQueryCounters = {
+  received?: number;
+  sold?: number;
+  rejected?: number;
+  duplicate?: number;
+  [key: string]: number | undefined;
+};
+
+export type DashboardWidgetQueryBucket = {
+  value?: string;
+  label?: string;
+  counters?: DashboardWidgetQueryCounters;
+};
+
 export type DashboardWidgetQueryData = {
   widget_id: string;
   rows?: DashboardWidgetQueryRow[];
   points?: DashboardWidgetQueryRow[];
+  buckets?: DashboardWidgetQueryBucket[];
+  totals?: DashboardWidgetQueryCounters;
   total?: number;
 };
 

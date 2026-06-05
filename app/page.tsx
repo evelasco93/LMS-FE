@@ -13,7 +13,7 @@ import { Button } from "@/components/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { SignInScreen } from "@/components/sign-in-screen";
 
-import { HomeView } from "@/components/views/home-view";
+import { DashboardsView } from "@/components/views/dashboards-view";
 import {
   LeadsView,
   type LeadSortKey,
@@ -242,7 +242,7 @@ function DashboardContent({
   // Sync browser tab title to active view
   useEffect(() => {
     const labels: Record<NavKey, string> = {
-      home: "Dashboard",
+      home: "Dashboards",
       leads: "Leads",
       clients: "End Users",
       affiliates: "Sources",
@@ -252,6 +252,18 @@ function DashboardContent({
     };
     document.title = `LMS | ${labels[active] ?? active}`;
   }, [active]);
+
+  useEffect(() => {
+    if (active !== "home") return;
+    const { pathname, search, hash } = window.location;
+    if (pathname === "/dashboards") return;
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `/dashboards${search}${hash}`,
+    );
+  }, [active]);
+
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(
     null,
   );
@@ -803,7 +815,7 @@ function DashboardContent({
     const resolvedView =
       viewParam === "settings"
         ? "admin"
-        : viewParam === "dashboard"
+        : viewParam === "dashboard" || viewParam === "dashboards"
           ? "home"
           : viewParam;
     if (
@@ -826,11 +838,13 @@ function DashboardContent({
       } else {
         setActive(resolvedView as NavKey);
         if (viewParam === "dashboard") {
-          setQueryParams({ view: "dashboard" });
+          setQueryParams({ view: "dashboards" });
+        } else if (viewParam === "dashboards") {
+          setQueryParams({ view: "dashboards" });
         } else if (viewParam === "home") {
-          setQueryParams({ view: "home" });
+          setQueryParams({ view: "dashboards" });
         } else if (resolvedView === "home") {
-          setQueryParams({ view: undefined });
+          setQueryParams({ view: "dashboards" });
         } else {
           setQueryParams({ view: resolvedView });
         }
@@ -890,7 +904,7 @@ function DashboardContent({
 
   const title = useMemo(() => {
     const map: Record<NavKey, string> = {
-      home: "Dashboard",
+      home: "Dashboards",
       leads: "Leads",
       clients: "End Users",
       affiliates: "Sources",
@@ -928,7 +942,7 @@ function DashboardContent({
     setCampaignDetailTab("overview");
     setCampaignDetailSubTab(undefined);
     setQueryParams({
-      view: next === "home" ? "dashboard" : next,
+      view: next === "home" ? "dashboards" : next,
       dashboard_mode: next === "home" ? "chooser" : undefined,
       campaign: undefined,
       section: undefined,
@@ -1337,7 +1351,7 @@ function DashboardContent({
                 exit={{ opacity: 0, y: -4 }}
                 transition={{ duration: 0.14, ease: "easeOut" }}
               >
-                <HomeView
+                <DashboardsView
                   campaigns={campaigns}
                   affiliates={affiliates}
                   onOpenLeads={openLeadsFromMetrics}

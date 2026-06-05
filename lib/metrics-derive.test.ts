@@ -157,19 +157,14 @@ describe("buildMarketingSourceRows", () => {
 });
 
 describe("buildStatusBreakdown", () => {
-  it("returns four buckets in order: sold, rejected, dnq, duplicate", () => {
+  it("returns sold/dnq/duplicate buckets with no rejected slice", () => {
     const data = buildStatusBreakdown(counters, quality);
-    expect(data.map((d) => d.key)).toEqual([
-      "sold",
-      "rejected",
-      "dnq",
-      "duplicate",
-    ]);
+    expect(data.map((d) => d.key)).toEqual(["sold", "dnq", "duplicate"]);
     const lookup = Object.fromEntries(data.map((d) => [d.key, d.value]));
     expect(lookup.sold).toBe(40);
-    expect(lookup.rejected).toBe(80);
     expect(lookup.dnq).toBe(70); // 80 rejected − 10 duplicates (IPQS folded in)
     expect(lookup.duplicate).toBe(10);
+    expect(data.some((d) => d.key === "rejected")).toBe(false);
   });
 
   it("includes a cherry-pick bucket when cherry-picked leads are present", () => {
@@ -180,7 +175,6 @@ describe("buildStatusBreakdown", () => {
     const data = buildStatusBreakdown(withCherry, quality);
     expect(data.map((d) => d.key)).toEqual([
       "sold",
-      "rejected",
       "cherry_pick",
       "dnq",
       "duplicate",

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "./button";
@@ -45,8 +46,15 @@ export function Modal({
   hasUnsavedChanges = false,
 }: ModalProps) {
   const stackId = useRef<number | null>(null);
-  const titleIdRef = useRef(`modal-title-${Math.random().toString(36).slice(2, 9)}`);
+  const titleIdRef = useRef(
+    `modal-title-${Math.random().toString(36).slice(2, 9)}`,
+  );
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    setPortalTarget(document.body);
+  }, []);
 
   // Register / deregister from the module-level stack
   useEffect(() => {
@@ -94,11 +102,13 @@ export function Modal({
     return () => document.removeEventListener("keydown", handler, true);
   }, [isOpen, tryClose, showDiscardConfirm]);
 
-  return (
+  if (!portalTarget) return null;
+
+  return createPortal(
     <AnimatePresence>
       {isOpen && (
         <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[color-mix(in_srgb,black_68%,var(--color-bg))] p-4 backdrop-blur-[4px]"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[color-mix(in_srgb,black_42%,var(--color-bg))] p-4 backdrop-blur-[10px]"
           role="dialog"
           aria-modal="true"
           aria-labelledby={titleIdRef.current}
@@ -185,6 +195,7 @@ export function Modal({
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    portalTarget,
   );
 }

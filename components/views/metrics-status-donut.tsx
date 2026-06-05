@@ -6,7 +6,6 @@ import { buildStatusBreakdown } from "@/lib/metrics-derive";
 
 const SLICE_TOKENS: Record<string, string> = {
   sold: "var(--color-success)",
-  rejected: "var(--color-danger)",
   cherry_pick: "var(--color-cherry)",
   dnq: "var(--color-warning)",
   duplicate: "var(--color-danger)",
@@ -34,22 +33,23 @@ export function MetricsStatusDonut({
         Status Breakdown
       </h3>
       {loading && data.length === 0 ? (
-        <div className="h-[220px] animate-pulse rounded-[--radius-sm] bg-[--color-bg-subtle]" />
+        <div className="h-[196px] animate-pulse rounded-[--radius-sm] bg-[--color-bg-subtle]" />
       ) : data.length === 0 ? (
-        <div className="flex h-[220px] items-center justify-center rounded-[--radius-sm] border border-dashed border-[--color-border] text-sm text-[--color-text-muted]">
+        <div className="flex h-[196px] items-center justify-center rounded-[--radius-sm] border border-dashed border-[--color-border] text-sm text-[--color-text-muted]">
           No outcome data for the selected filters.
         </div>
       ) : (
         <>
-          <div className="h-[220px] w-full">
+          <div className="mt-1 h-[182px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
                   data={data}
                   dataKey="value"
                   nameKey="name"
-                  innerRadius={46}
-                  outerRadius={86}
+                  innerRadius={42}
+                  outerRadius={76}
+                  cy="52%"
                   paddingAngle={2}
                   stroke="var(--color-panel)"
                   strokeWidth={1}

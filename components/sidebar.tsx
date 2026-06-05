@@ -25,7 +25,7 @@ export type NavKey =
   | "admin";
 
 const items: Array<{ key: NavKey; label: string; icon: React.ReactNode }> = [
-  { key: "home", label: "Dashboard", icon: <LayoutDashboard size={18} /> },
+  { key: "home", label: "Dashboards", icon: <LayoutDashboard size={18} /> },
   { key: "leads", label: "Leads", icon: <Target size={18} /> },
   { key: "clients", label: "End Users", icon: <Building2 size={18} /> },
   { key: "affiliates", label: "Sources", icon: <Users size={18} /> },

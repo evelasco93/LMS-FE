@@ -173,13 +173,13 @@ export function buildMarketingSourceRows(
 }
 
 export type StatusBreakdownDatum = {
-  key: "sold" | "rejected" | "cherry_pick" | "dnq" | "duplicate";
+  key: "sold" | "cherry_pick" | "dnq" | "duplicate";
   name: string;
   value: number;
 };
 
 /**
- * Status donut data — four-bucket taxonomy: Sold, Rejected, DNQ, Duplicate.
+ * Status donut data — four-bucket taxonomy: Sold, Cherry Pick, DNQ, Duplicate.
  * Zero-value wedges are filtered out.
  */
 export function buildStatusBreakdown(
@@ -192,7 +192,6 @@ export function buildStatusBreakdown(
 
   const data: StatusBreakdownDatum[] = [
     { key: "sold", name: "Sold", value: c.sold },
-    { key: "rejected", name: "Rejected", value: c.rejected },
     { key: "cherry_pick", name: "Cherry Pick", value: cherryPick },
     { key: "dnq", name: "DNQ", value: dnq },
     { key: "duplicate", name: "Duplicate", value: duplicates },

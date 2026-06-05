@@ -41,6 +41,8 @@ import type {
   MetricsQueryParams,
   MetricsSummaryResponse,
   MetricsTimeseriesResponse,
+  DashboardWidgetQueryData,
+  DashboardWidgetQueryRow,
   DashboardWidgetQueryResponse,
   SourceAffiliatePixelInfo,
   TagDefinitionRecord,
@@ -144,6 +146,25 @@ function normalizeWidgetOrder(raw: unknown): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
 }
 
+function normalizeWidgetLabelColors(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== "object") return {};
+
+  return Object.entries(raw as Record<string, unknown>).reduce(
+    (acc, [label, color]) => {
+      if (
+        typeof label === "string" &&
+        label.trim().length > 0 &&
+        typeof color === "string" &&
+        color.trim().length > 0
+      ) {
+        acc[label.trim()] = color.trim();
+      }
+      return acc;
+    },
+    {} as Record<string, string>,
+  );
+}
+
 function normalizeCampaignDashboardWidget(
   campaignId: string,
   item: any,
@@ -188,6 +209,9 @@ function normalizeCampaignDashboardWidget(
         : typeof item?.color === "string"
           ? item.color
           : "#2563eb",
+    label_colors: normalizeWidgetLabelColors(
+      item?.label_colors ?? item?.value_colors,
+    ),
     size: normalizeWidgetSize(item?.size ?? layout?.size),
     order: normalizeWidgetOrder(item?.order ?? layout?.order),
     scope: scope?.affiliate_id || scope?.campaign_key ? scope : null,
@@ -212,6 +236,8 @@ function toLegacyWidgetPayload(payload: CampaignDashboardWidgetInput) {
     criteria_field_name: normalized.criteria_field_name,
     chart_type: normalized.chart_type,
     color: normalized.color,
+    label_colors: normalized.label_colors,
+    value_colors: normalized.value_colors,
     layout: {
       size: legacySize,
       order: normalized.order,
@@ -233,15 +259,85 @@ function toCampaignDashboardWidgetPayload(
     typeof payload.accent === "string" && payload.accent.trim().length > 0
       ? payload.accent.trim()
       : "#2563eb";
+  const legacySize =
+    payload.size === "sm"
+      ? "small"
+      : payload.size === "lg"
+        ? "large"
+        : "medium";
 
   return {
     title: payload.title,
     criteria_field_name: payload.criteria_field_name,
     chart_type: payload.chart_type,
     color: normalizedAccent,
+    label_colors: payload.label_colors,
+    value_colors: payload.label_colors,
     size: payload.size,
     order: payload.order,
+    layout: {
+      size: legacySize,
+      order: payload.order,
+    },
     scope: payload.scope ?? null,
+  };
+}
+
+function normalizeDashboardWidgetQueryData(
+  data: any,
+): DashboardWidgetQueryData {
+  const widgetId = String(data?.widget_id ?? data?.widgetId ?? "");
+
+  const normalizeRow = (item: any): DashboardWidgetQueryRow => ({
+    label: String(item?.label ?? item?.value ?? ""),
+    value: Number(item?.value ?? item?.count ?? 0) || 0,
+    bucket_start:
+      typeof item?.bucket_start === "string" ? item.bucket_start : undefined,
+  });
+
+  const rowsSource =
+    Array.isArray(data?.rows) && data.rows.length > 0
+      ? data.rows
+      : Array.isArray(data?.points) && data.points.length > 0
+        ? data.points
+        : Array.isArray(data?.buckets)
+          ? data.buckets.map((bucket: any) => ({
+              label: String(bucket?.label ?? bucket?.value ?? ""),
+              value: Number(bucket?.counters?.received ?? 0) || 0,
+            }))
+          : [];
+
+  const rows: DashboardWidgetQueryRow[] = rowsSource
+    .map(normalizeRow)
+    .filter((row: DashboardWidgetQueryRow) => row.label || row.bucket_start);
+
+  const total =
+    Number(data?.total) ||
+    Number(data?.totals?.received) ||
+    rows.reduce(
+      (sum: number, row: DashboardWidgetQueryRow) => sum + row.value,
+      0,
+    );
+
+  return {
+    widget_id: widgetId,
+    rows,
+    points: Array.isArray(data?.points)
+      ? data.points.map(normalizeRow)
+      : undefined,
+    buckets: Array.isArray(data?.buckets)
+      ? data.buckets.map((bucket: any) => ({
+          value: typeof bucket?.value === "string" ? bucket.value : undefined,
+          label: typeof bucket?.label === "string" ? bucket.label : undefined,
+          counters:
+            bucket?.counters && typeof bucket.counters === "object"
+              ? bucket.counters
+              : undefined,
+        }))
+      : undefined,
+    totals:
+      data?.totals && typeof data.totals === "object" ? data.totals : undefined,
+    total,
   };
 }
 
@@ -524,11 +620,22 @@ export async function listCampaignDashboardWidgets(campaignId: string) {
     `/campaigns/${encodeURIComponent(campaignId)}/dashboard/widgets`,
   );
   const res = await request<any>(url);
-  const rawItems = Array.isArray(res?.data?.items) ? res.data.items : [];
+  const rawData = res?.data;
+  const rawItems = Array.isArray(rawData)
+    ? rawData
+    : Array.isArray(rawData?.items)
+      ? rawData.items
+      : [];
+
+  const normalizedDataBase =
+    rawData && typeof rawData === "object" && !Array.isArray(rawData)
+      ? rawData
+      : {};
+
   return {
     ...res,
     data: {
-      ...res?.data,
+      ...normalizedDataBase,
       items: rawItems.map((item: any) =>
         normalizeCampaignDashboardWidget(campaignId, item),
       ),
@@ -608,7 +715,11 @@ export async function queryCampaignDashboardWidget(
     `/campaigns/${encodeURIComponent(campaignId)}/dashboard/widgets/${encodeURIComponent(widget.id)}/data`,
     params,
   );
-  return request<DashboardWidgetQueryResponse>(url);
+  const res = await request<DashboardWidgetQueryResponse>(url);
+  return {
+    ...res,
+    data: normalizeDashboardWidgetQueryData(res?.data),
+  } as DashboardWidgetQueryResponse;
 }
 
 export async function updateCampaignPlugins(
