@@ -37,7 +37,6 @@ import {
   seedLabelColorEntries,
 } from "@/lib/widget-label-options";
 import {
-  Affiliate,
   Campaign,
   CampaignDashboardWidget,
   CampaignDashboardWidgetInput,
@@ -66,8 +65,10 @@ type LabelColorEntry = {
 
 type CampaignDashboardWidgetsProps = {
   campaign: Campaign;
-  affiliates: Affiliate[];
-  filters: Pick<MetricsQueryParams, "from_date" | "to_date">;
+  filters: Pick<
+    MetricsQueryParams,
+    "from_date" | "to_date" | "affiliate_id" | "campaign_key"
+  >;
 };
 
 type WidgetDraft = Omit<
@@ -88,7 +89,6 @@ function emptyDraft(nextOrder: number): WidgetDraft {
     label_color_entries: [],
     size: "md",
     order: nextOrder,
-    scope: null,
   };
 }
 
@@ -146,21 +146,12 @@ function getWidgetRows(data?: {
 
 export function CampaignDashboardWidgets({
   campaign,
-  affiliates,
   filters,
 }: CampaignDashboardWidgetsProps) {
   const [builderOpen, setBuilderOpen] = useState(false);
   const [draft, setDraft] = useState<WidgetDraft | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const affiliateNameById = useMemo(() => {
-    const map = new Map<string, string>();
-    affiliates.forEach((affiliate) => {
-      if (affiliate.id && affiliate.name) map.set(affiliate.id, affiliate.name);
-    });
-    return map;
-  }, [affiliates]);
 
   const criteriaFields = useMemo(
     () =>
@@ -193,24 +184,6 @@ export function CampaignDashboardWidgets({
         })
         .map((item) => item.field),
     [criteriaFields],
-  );
-
-  const sourceOptions = useMemo(
-    () =>
-      (campaign.affiliates || [])
-        .map((link) => {
-          const name =
-            affiliateNameById.get(link.affiliate_id) ||
-            link.affiliate_id ||
-            link.campaign_key;
-          return {
-            affiliateId: link.affiliate_id,
-            campaignKey: link.campaign_key,
-            name,
-          };
-        })
-        .filter((option) => option.affiliateId || option.campaignKey),
-    [affiliateNameById, campaign.affiliates],
   );
 
   const {
@@ -257,7 +230,6 @@ export function CampaignDashboardWidgets({
       label_color_entries: toLabelColorEntries(widget.label_colors),
       size: widget.size || "md",
       order: widget.order || 1,
-      scope: widget.scope || null,
     });
     setBuilderOpen(true);
   };
@@ -298,10 +270,6 @@ export function CampaignDashboardWidgets({
           ? {}
           : toLabelColorMap(draft.label_color_entries),
       order: isCreate ? widgets.length + 1 : Number(draft.order) || 1,
-      scope:
-        draft.scope?.affiliate_id || draft.scope?.campaign_key
-          ? draft.scope
-          : null,
     };
 
     try {
@@ -323,12 +291,6 @@ export function CampaignDashboardWidgets({
     await deleteCampaignDashboardWidget(campaign.id, widget.id);
     await mutate();
   };
-
-  const selectedScopeValue = draft?.scope?.affiliate_id
-    ? `affiliate:${draft.scope.affiliate_id}`
-    : draft?.scope?.campaign_key
-      ? `source:${draft.scope.campaign_key}`
-      : "";
 
   const selectedFieldLabelOptions = useMemo(
     () =>
@@ -373,7 +335,6 @@ export function CampaignDashboardWidgets({
               campaign={campaign}
               filters={filters}
               criteriaFields={criteriaFields}
-              sourceOptions={sourceOptions}
               onEdit={() => openEdit(widget)}
               onDelete={() => removeWidget(widget)}
             />
@@ -494,51 +455,6 @@ export function CampaignDashboardWidgets({
                     {CHART_TYPES.map((type) => (
                       <option key={type} value={type}>
                         {formatChartType(type)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="text-sm">
-                  <span className="mb-1 block text-xs font-semibold text-[--color-text-muted]">
-                    Source scope
-                  </span>
-                  <select
-                    className={inputClass}
-                    value={selectedScopeValue}
-                    onChange={(event) => {
-                      const value = event.target.value;
-                      setDraft((prev) => {
-                        if (!prev) return prev;
-                        if (!value) return { ...prev, scope: null };
-                        const [kind, id] = value.split(":");
-                        if (kind === "affiliate") {
-                          const option = sourceOptions.find(
-                            (item) => item.affiliateId === id,
-                          );
-                          return {
-                            ...prev,
-                            scope: {
-                              affiliate_id: id,
-                              campaign_key: option?.campaignKey,
-                            },
-                          };
-                        }
-                        return { ...prev, scope: { campaign_key: id } };
-                      });
-                    }}
-                  >
-                    <option value="">All sources</option>
-                    {sourceOptions.map((option) => (
-                      <option
-                        key={`${option.affiliateId || option.campaignKey}`}
-                        value={
-                          option.affiliateId
-                            ? `affiliate:${option.affiliateId}`
-                            : `source:${option.campaignKey}`
-                        }
-                      >
-                        {option.name}
                       </option>
                     ))}
                   </select>
@@ -838,15 +754,16 @@ function DashboardWidgetCard({
   campaign,
   filters,
   criteriaFields,
-  sourceOptions,
   onEdit,
   onDelete,
 }: {
   widget: CampaignDashboardWidget;
   campaign: Campaign;
-  filters: Pick<MetricsQueryParams, "from_date" | "to_date">;
+  filters: Pick<
+    MetricsQueryParams,
+    "from_date" | "to_date" | "affiliate_id" | "campaign_key"
+  >;
   criteriaFields: CriteriaField[];
-  sourceOptions: { affiliateId?: string; campaignKey?: string; name: string }[];
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -857,6 +774,8 @@ function DashboardWidgetCard({
       widget.id,
       filters.from_date || "",
       filters.to_date || "",
+      filters.affiliate_id || "",
+      filters.campaign_key || "",
     ],
     () => queryCampaignDashboardWidget(campaign.id, widget, filters),
     { revalidateOnFocus: false },
@@ -867,12 +786,6 @@ function DashboardWidgetCard({
     (field) => field.field_name === widget.criteria_field_name,
   );
   const rows = getWidgetRows(data?.data);
-  const scopeName =
-    sourceOptions.find(
-      (option) =>
-        option.affiliateId === widget.scope?.affiliate_id ||
-        option.campaignKey === widget.scope?.campaign_key,
-    )?.name || "All sources";
   const accent = widget.accent || ACCENTS[0];
 
   return (
@@ -900,8 +813,6 @@ function DashboardWidgetCard({
             (field) => field.field_name === widget.criteria_field_name,
           )?.field_label ||
           normalizeFieldLabel(widget.criteria_field_name)}
-        {" · "}
-        {scopeName}
       </p>
 
       <Modal

@@ -1011,11 +1011,6 @@ export function DashboardsView({
         (a, b) => b.leads - a.leads,
       );
 
-    // Deterministic scope matrix:
-    // 1) campaign + source scope => source row(s) for that campaign/source.
-    // 2) source scope without campaign => campaigns this source participates in.
-    // 3) campaign only => source rows for selected campaign.
-    // 4) no campaign/source scope => source rows for all campaigns.
     if (appliedFilters.campaign_id && inSourceScope) {
       const sourceEntries = byCampaignAffiliates?.sources?.length
         ? byCampaignAffiliates.sources
@@ -1295,14 +1290,13 @@ export function DashboardsView({
     setFilterError(null);
   };
 
-  const openLeadsBySource = (sourceKey: string) => {
-    onOpenLeads?.({
-      sourceKey,
-      campaignId:
-        appliedFilters.campaign_id || sourceCampaignByKey.get(sourceKey),
-      affiliateId: sourceAffiliateByKey.get(sourceKey),
-    });
-  };
+  const sortedAffiliates = [...affiliates].sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+
+  const sortedCampaigns = [...campaigns].sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
 
   return (
     <motion.section
@@ -1497,7 +1491,7 @@ export function DashboardsView({
                           }
                         >
                           <option value="">All campaigns</option>
-                          {allCampaigns.map((campaign) => (
+                          {sortedCampaigns.map((campaign) => (
                             <option key={campaign.id} value={campaign.id}>
                               {campaign.name}
                             </option>
@@ -1521,7 +1515,7 @@ export function DashboardsView({
                           }
                         >
                           <option value="">All sources</option>
-                          {affiliates.map((affiliate) => (
+                          {sortedAffiliates.map((affiliate) => (
                             <option key={affiliate.id} value={affiliate.id}>
                               {affiliate.name || affiliate.id}
                             </option>
@@ -1697,10 +1691,11 @@ export function DashboardsView({
                   {selectedCampaign && (
                     <CampaignDashboardWidgets
                       campaign={selectedCampaign}
-                      affiliates={affiliates}
                       filters={{
                         from_date: dashboardRequestFilters.from_date,
                         to_date: dashboardRequestFilters.to_date,
+                        affiliate_id: dashboardRequestFilters.affiliate_id,
+                        campaign_key: dashboardRequestFilters.campaign_key,
                       }}
                     />
                   )}

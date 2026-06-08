@@ -709,7 +709,10 @@ export async function deleteCampaignDashboardWidget(
 export async function queryCampaignDashboardWidget(
   campaignId: string,
   widget: Pick<CampaignDashboardWidget, "id">,
-  params: Pick<MetricsQueryParams, "from_date" | "to_date">,
+  params: Pick<
+    MetricsQueryParams,
+    "from_date" | "to_date" | "affiliate_id" | "campaign_key"
+  >,
 ) {
   const url = buildUrl(
     `/campaigns/${encodeURIComponent(campaignId)}/dashboard/widgets/${encodeURIComponent(widget.id)}/data`,
